@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import logging
 import os
 import sys
 from collections.abc import Sequence
@@ -19,6 +20,10 @@ STDIO = "stdio"
 STREAMABLE_HTTP = "streamable-http"
 
 EXIT_USAGE = 2
+
+# Loggers whose level follows DEEPSEEK_MCP_LOG_LEVEL: this package and the MCP SDK, which
+# otherwise logs "Processing request of type ..." at INFO for every request.
+LOGGERS = (__package__ or "deepseek_search_everywhere_mcp", "mcp")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -45,6 +50,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="verify credentials and connectivity, then exit without starting MCP",
     )
     return parser
+
+
+def _configure_logging(level: str) -> None:
+    """Send log records to stderr and apply ``level`` to this package's and the SDK's loggers.
+
+    The levels are set on the loggers themselves, so they hold even when the root logger was
+    already configured (FastMCP configures it once when the first server is built).
+    """
+    level = level.upper()
+    logging.basicConfig(level=level)
+    for name in LOGGERS:
+        logging.getLogger(name).setLevel(level)
 
 
 def _http_settings(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Settings:
@@ -80,7 +97,7 @@ def _serve_http(parser: argparse.ArgumentParser, args: argparse.Namespace) -> No
         build_http_app(settings, token=token),
         host=settings.http_host,
         port=settings.http_port,
-        log_level="info",
+        log_level=settings.log_level.lower(),
     )
 
 
@@ -88,6 +105,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Parse command-line arguments and run the server or the connectivity check."""
     parser = _build_parser()
     args = parser.parse_args(argv)
+    try:
+        _configure_logging(get_settings().log_level)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.check:
         if args.transport != STDIO:
             parser.error("--check cannot be combined with --transport streamable-http")

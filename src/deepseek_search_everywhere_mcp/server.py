@@ -27,7 +27,7 @@ from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
 from .ratelimit import FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
-from .settings import get_settings
+from .settings import DEFAULT_LOG_LEVEL, get_settings
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
 from .urls import CODE_INVALID, UrlError, validate_url
@@ -1098,10 +1098,13 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
 def create_server(**options: Any) -> FastMCP:
     """Build a new FastMCP instance with every tool registered.
 
-    ``options`` are passed to :class:`FastMCP` (host, port, HTTP path, transport flags).
+    ``options`` are passed to :class:`FastMCP` (host, port, HTTP path, transport flags,
+    ``log_level``). ``log_level`` defaults to WARNING so FastMCP's one-time root logging
+    setup stays quiet; the CLI applies ``DEEPSEEK_MCP_LOG_LEVEL`` to the loggers themselves.
     Each call returns an independent server, so each HTTP application gets its own
     session manager.
     """
+    options.setdefault("log_level", DEFAULT_LOG_LEVEL)
     server = FastMCP(SERVER_NAME, **options)
     for tool in TOOLS:
         server.add_tool(tool)

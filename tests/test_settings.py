@@ -20,7 +20,7 @@ def test_defaults_match_the_documented_constants() -> None:
     assert s.research_max_pages == 5
     assert (s.http_host, s.http_port, s.http_path) == ("127.0.0.1", 8000, "/mcp")
     assert s.cache_enabled is True
-    assert s.log_level == "INFO"
+    assert s.log_level == "WARNING"
 
 
 def test_constructor_overrides_and_frozen() -> None:

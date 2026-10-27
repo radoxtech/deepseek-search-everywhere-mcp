@@ -274,7 +274,7 @@ The cache and the limiter live in the server process and are not shared between 
 | `DEEPSEEK_BASE_URL` | no | API base URL (default `https://api.deepseek.com`) |
 | `MCP_BEARER_TOKEN` | HTTP only | token clients must send as `Authorization: Bearer ...` |
 | `DEEPSEEK_MCP_CACHE` | no | `1` (default) or `0` to disable caching |
-| `DEEPSEEK_MCP_LOG_LEVEL` | no | `DEBUG`, `INFO` (default), `WARNING`, `ERROR`, `CRITICAL` |
+| `DEEPSEEK_MCP_LOG_LEVEL` | no | stderr log level for the server, the MCP SDK and uvicorn: `DEBUG`, `INFO`, `WARNING` (default), `ERROR`, `CRITICAL` |
 | `DEEPSEEK_AUTH_JSON` | no | path to a JSON file used as the key fallback (see [Security](#security)) |
 
 `.env.example` lists the same variables. The server does not read `.env` files itself; export the variables or

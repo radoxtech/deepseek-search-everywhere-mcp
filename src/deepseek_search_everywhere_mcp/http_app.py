@@ -98,6 +98,7 @@ def build_http_app(settings: Settings | None = None, *, token: str | None = None
         stateless_http=True,
         json_response=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        log_level=settings.log_level.upper(),
     )
     app = server.streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, token=secret, path=settings.http_path)

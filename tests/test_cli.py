@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib.metadata
+import logging
 import pathlib
 import sys
 from typing import Any
@@ -102,7 +103,7 @@ def test_http_runs_uvicorn_with_cli_overrides(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(cli, "build_http_app", fake_build)
     cli.main(["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "9001", "--path", "/x"])
-    assert calls == {"app": "app", "host": "0.0.0.0", "port": 9001, "log_level": "info"}
+    assert calls == {"app": "app", "host": "0.0.0.0", "port": 9001, "log_level": "warning"}
     assert built["token"] == "t0ken"
     assert built["settings"].http_path == "/x"
 
@@ -150,3 +151,44 @@ def test_uvicorn_is_never_imported_at_module_level() -> None:
 
 def test_http_app_module_is_the_one_cli_uses() -> None:
     assert cli.build_http_app is http_app.build_http_app
+
+
+@pytest.fixture
+def logger_levels() -> Any:
+    """Restore the levels the CLI sets on its loggers."""
+    saved = {name: logging.getLogger(name).level for name in cli.LOGGERS}
+    yield
+    for name, level in saved.items():
+        logging.getLogger(name).setLevel(level)
+
+
+def test_default_log_level_silences_mcp_info(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, logger_levels: None
+) -> None:
+    monkeypatch.setattr(server.mcp, "run", lambda *a, **k: None)
+    cli.main([])
+    sdk = logging.getLogger("mcp.server.lowlevel.server")
+    sdk.info("Processing request of type %s", "CallToolRequest")
+    sdk.warning("still visible")
+    assert [record.getMessage() for record in caplog.records if record.name == sdk.name] == ["still visible"]
+    assert not logging.getLogger(cli.LOGGERS[0]).isEnabledFor(logging.INFO)
+
+
+def test_log_level_env_enables_debug(monkeypatch: pytest.MonkeyPatch, logger_levels: None) -> None:
+    monkeypatch.setenv("DEEPSEEK_MCP_LOG_LEVEL", "debug")
+    monkeypatch.setattr(server.mcp, "run", lambda *a, **k: None)
+    cli.main([])
+    assert logging.getLogger("mcp.server.lowlevel.server").isEnabledFor(logging.INFO)
+    assert logging.getLogger(cli.LOGGERS[0]).isEnabledFor(logging.DEBUG)
+
+
+def test_invalid_log_level_exits_2(monkeypatch: pytest.MonkeyPatch, logger_levels: None) -> None:
+    monkeypatch.setenv("DEEPSEEK_MCP_LOG_LEVEL", "loud")
+    with pytest.raises(SystemExit) as exc:
+        cli.main([])
+    assert exc.value.code == 2
+
+
+def test_servers_default_to_a_quiet_log_level() -> None:
+    assert server.create_server().settings.log_level == "WARNING"
+    assert server.create_server(log_level="DEBUG").settings.log_level == "DEBUG"

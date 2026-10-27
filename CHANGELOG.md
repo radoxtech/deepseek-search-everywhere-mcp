@@ -37,6 +37,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `cached` is a boolean per response and per item; batch tools report the number of hits as `cached_count`.
 - `--check` no longer prints the length of the API key.
 - Settings are a frozen dataclass with documented defaults; `batch_concurrency` is capped at 5.
+- `DEEPSEEK_MCP_LOG_LEVEL` sets the level of the server's, the MCP SDK's and uvicorn's logs and defaults to
+  `WARNING`, so the SDK no longer logs every request at INFO.
 - The 429 hint no longer depends on upstream rate limits.
 - Retry backoff uses an injectable sleep function.
 - The transport's `retries` argument is renamed `attempts`: it always counted total tries, so the default of 2

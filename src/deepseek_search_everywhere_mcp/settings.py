@@ -17,6 +17,9 @@ MIB = 1024 * 1024
 ENV_CACHE = "DEEPSEEK_MCP_CACHE"
 ENV_LOG_LEVEL = "DEEPSEEK_MCP_LOG_LEVEL"
 
+# Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
+DEFAULT_LOG_LEVEL = "WARNING"
+
 # deepseek_fetch_many never runs more fetches than this at once.
 MAX_BATCH_CONCURRENCY = 5
 
@@ -26,7 +29,7 @@ class Settings:
     """Immutable server configuration; invalid values raise ``ValueError`` naming the field."""
 
     cache_enabled: bool = True
-    log_level: str = "INFO"
+    log_level: str = DEFAULT_LOG_LEVEL
 
     # Response caches: TTL in seconds, entry limit, total size limit in bytes.
     cache_search_ttl: float = 300
