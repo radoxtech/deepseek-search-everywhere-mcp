@@ -54,8 +54,6 @@ class Settings:
 
     # Research tool budget.
     research_max_pages: int = 5
-    research_page_chars: int = 6000
-    research_total_chars: int = 30000
 
     # HTTP transport defaults (the CLI may override them).
     http_host: str = "127.0.0.1"
@@ -70,7 +68,7 @@ class Settings:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
             if name.endswith("_ttl") and value < 0:
                 raise ValueError(f"{name} must be >= 0, got {value!r}")
-            if name.endswith(("_bytes", "_entries", "_burst", "_chars", "_pages", "_urls")) and not value > 0:
+            if name.endswith(("_bytes", "_entries", "_burst", "_pages", "_urls")) and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
             if name.startswith("response_cap_") and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")

@@ -802,6 +802,9 @@ async def deepseek_fetch_many(
 
 # Search results whose content is shorter than this are treated as gaps and fetched directly.
 RESEARCH_GAP_CHARS = 200
+# Default content budgets for deepseek_research: per source and across all sources.
+RESEARCH_PAGE_CHARS = 6000
+RESEARCH_TOTAL_CHARS = 30000
 
 
 def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str, Any]:
@@ -834,8 +837,8 @@ def _gap_check(source: dict[str, Any]) -> tuple[str | None, dict[str, Any] | Non
 async def deepseek_research(
     question: str,
     max_pages: int = 5,
-    per_page_chars: int = 6000,
-    total_chars: int = 30000,
+    per_page_chars: int = RESEARCH_PAGE_CHARS,
+    total_chars: int = RESEARCH_TOTAL_CHARS,
     *,
     refresh: bool = False,
 ) -> dict[str, Any]:

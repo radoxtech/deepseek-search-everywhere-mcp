@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import pytest
@@ -157,3 +158,9 @@ async def test_research_search_error_is_returned(upstream: Upstream) -> None:
 async def test_research_rejects_bad_budget(upstream: Upstream) -> None:
     result = await server.deepseek_research("question", total_chars=0)
     assert result["error"]["code"] == "bad_request"
+
+
+def test_research_budget_defaults_are_named_constants() -> None:
+    params = inspect.signature(server.deepseek_research).parameters
+    assert params["per_page_chars"].default == server.RESEARCH_PAGE_CHARS == 6000
+    assert params["total_chars"].default == server.RESEARCH_TOTAL_CHARS == 30000
