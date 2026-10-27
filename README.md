@@ -223,7 +223,8 @@ Every tool returns a JSON object with `ok`.
 | `requests_used` | `deepseek_fetch_many`, `deepseek_research` | upstream requests actually made (cache hits are free) |
 | `notes` | all success envelopes | human-readable remarks: dedupe counts, rewrite applied or failed, `lang` applied, truncation (`truncated_to_budget`) |
 | `error` | failures | `{ "code", "message", "status"? }`; `status` is the upstream HTTP status when there was one |
-| `partial` | `deepseek_research` | `true` when some sources failed; each failed source carries its own `error` |
+| `partial` | `deepseek_fetch_many`, `deepseek_research` | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
+| `failed_count` | `deepseek_fetch_many`, `deepseek_research` | number of failed items or sources |
 
 Search results carry `title` (the URL host without `www.` when the upstream title is blank), `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
 and `content`/`content_chars` or `summary` where available. `deepseek_fetch` returns `title`, `content`,

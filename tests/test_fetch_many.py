@@ -58,6 +58,8 @@ async def test_partial_failure_keeps_order_and_ok(upstream: Upstream) -> None:
     assert result["results"][2]["error"]["code"] == "http_404"
     assert result["results"][0]["title"] == f"Title {C}"
     assert result["count"] == 4
+    assert result["partial"] is True
+    assert result["failed_count"] == 2
     assert result["requests_used"] == 3
     assert sorted(upstream.calls) == sorted([A, B, C])
 
@@ -109,6 +111,8 @@ async def test_budget_caps_total_chars(upstream: Upstream) -> None:
 
 async def test_budget_untouched_when_pages_fit(upstream: Upstream) -> None:
     result = await server.deepseek_fetch_many([A, B])
+    assert result["partial"] is False
+    assert result["failed_count"] == 0
     assert "truncated_to_budget" not in result["notes"]
     assert sum(item["chars"] for item in result["results"]) <= 20000
 

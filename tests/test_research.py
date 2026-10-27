@@ -64,6 +64,7 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
     result = await server.deepseek_research("what is a research question")
     assert result["ok"] is True
     assert result["partial"] is False
+    assert result["failed_count"] == 0
     assert sorted(upstream.fetches) == ["https://site2.example.com/page", "https://site4.example.com/page"]
     assert result["requests_used"] == 3
     assert result["cached_count"] == 0
@@ -98,6 +99,7 @@ async def test_research_partial_fetch_failure(upstream: Upstream) -> None:
     result = await server.deepseek_research("partial failure question")
     assert result["ok"] is True
     assert result["partial"] is True
+    assert result["failed_count"] == 1
     failed = result["sources"][3]
     assert failed["error"]["code"] == "http_404"
     assert failed["origin"] == "search"

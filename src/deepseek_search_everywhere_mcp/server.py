@@ -817,8 +817,9 @@ async def deepseek_fetch_many(
     Each page gets min(max_chars_per_url, max_total_chars // count) characters and the total
     content never exceeds max_total_chars; the note truncated_to_budget marks any cut.
     The envelope reports count (unique URLs), requests_used (upstream fetches attempted),
-    cached_count (items served from the cache), results and notes. Each result carries its own
-    cached flag.
+    cached_count (items served from the cache), failed_count (items with ok=false), partial
+    (true when any item failed), results and notes. The top-level ok only says the batch ran;
+    check partial or each item's ok for per-URL failures. Each result carries its own cached flag.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
@@ -898,11 +899,14 @@ async def deepseek_fetch_many(
         notes.append(f"deduped {duplicates} duplicate URL(s)")
     if trimmed:
         notes.append("truncated_to_budget")
+    failed_count = sum(not item["ok"] for item in results)
     return {
         "ok": True,
         "count": len(results),
         "requests_used": requests_used,
         "cached_count": sum(item["cached"] for item in results),
+        "failed_count": failed_count,
+        "partial": failed_count > 0,
         "results": results,
         "notes": notes,
     }
@@ -964,7 +968,8 @@ async def deepseek_research(
     Content is capped at per_page_chars per source and total_chars overall, in source order; the
     note truncated_to_budget marks any cut.
     requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
-    and cached_count counts responses served from the cache. Synthesis is left to the caller.
+    and cached_count counts responses served from the cache. failed_count counts sources whose
+    error is set and partial is true when it is non-zero. Synthesis is left to the caller.
 
     Args:
         question: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:.
@@ -1055,6 +1060,7 @@ async def deepseek_research(
         "requests_used": requests_used,
         "cached_count": cached_count,
         "notes": notes,
+        "failed_count": failed,
         "partial": failed > 0,
     }
 
