@@ -35,8 +35,9 @@ def test_tool_names_are_stable():
     assert TOOL_NAMES <= {tool.name for tool in tools}
 
 
-@pytest.mark.parametrize("name", ["_search", "deepseek_web_search", "deepseek_search_and_read",
-                                  "deepseek_fetch"])
+@pytest.mark.parametrize(
+    "name", ["_search", "deepseek_web_search", "deepseek_search_and_read", "deepseek_fetch"]
+)
 def test_new_parameters_are_keyword_only(name):
     signature = inspect.signature(getattr(server, name))
     assert signature.parameters["refresh"].kind is inspect.Parameter.KEYWORD_ONLY
@@ -44,23 +45,38 @@ def test_new_parameters_are_keyword_only(name):
 
 def test_search_parameter_order_is_unchanged():
     names = list(inspect.signature(server._search).parameters)
-    assert names[:9] == ["query", "count", "ori_question", "need_content", "lang",
-                         "max_chars_per_result", "max_total_chars", "dedupe", "rewrite"]
+    assert names[:9] == [
+        "query",
+        "count",
+        "ori_question",
+        "need_content",
+        "lang",
+        "max_chars_per_result",
+        "max_total_chars",
+        "dedupe",
+        "rewrite",
+    ]
 
 
-@pytest.mark.parametrize(("kwargs", "code"), [
-    ({"query": "  "}, "empty_query"),
-    ({"query": "q", "count": 0}, "bad_count"),
-    ({"query": "q", "lang": "english"}, "bad_lang"),
-])
+@pytest.mark.parametrize(
+    ("kwargs", "code"),
+    [
+        ({"query": "  "}, "empty_query"),
+        ({"query": "q", "count": 0}, "bad_count"),
+        ({"query": "q", "lang": "english"}, "bad_lang"),
+    ],
+)
 def test_search_error_codes(kwargs, code):
     assert asyncio.run(server.deepseek_web_search(**kwargs))["error"]["code"] == code
 
 
-@pytest.mark.parametrize(("url", "code"), [
-    ("https://x.test/" + "a" * 9000, "url_too_long"),
-    ("ftp://x.test/file", "bad_url"),
-])
+@pytest.mark.parametrize(
+    ("url", "code"),
+    [
+        ("https://x.test/" + "a" * 9000, "url_too_long"),
+        ("ftp://x.test/file", "bad_url"),
+    ],
+)
 def test_fetch_error_codes(url, code):
     assert asyncio.run(server.deepseek_fetch(url))["error"]["code"] == code
 

@@ -122,8 +122,9 @@ def _install_fake_request(monkeypatch, responses):
     calls = []
 
     async def fake_request(method, path, *, payload=None, timeout=None, retries=2, **_):
-        calls.append({"method": method, "path": path, "payload": payload, "timeout": timeout,
-                      "retries": retries})
+        calls.append(
+            {"method": method, "path": path, "payload": payload, "timeout": timeout, "retries": retries}
+        )
         return responses[path]
 
     monkeypatch.setattr(server, "_request", fake_request)
@@ -136,13 +137,17 @@ def _search_response(results):
 
 
 def _run_search(monkeypatch, results, **kwargs):
-    calls = _install_fake_request(
-        monkeypatch, {"/v1/tools/search": _search_response(results)}
-    )
+    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(results)})
     result = asyncio.run(
         server._search(
-            kwargs.pop("query", "test query"), 5, kwargs.pop("ori_question", None),
-            kwargs.pop("need_content", False), kwargs.pop("lang", None), 1000, 4000, **kwargs
+            kwargs.pop("query", "test query"),
+            5,
+            kwargs.pop("ori_question", None),
+            kwargs.pop("need_content", False),
+            kwargs.pop("lang", None),
+            1000,
+            4000,
+            **kwargs,
         )
     )
     return result, calls
@@ -150,10 +155,8 @@ def _run_search(monkeypatch, results, **kwargs):
 
 def test_dedupe_removes_tracking_and_trailing_slash(monkeypatch):
     results = [
-        {"title": "A", "url": "https://example.com/post?utm_source=x&b=2&a=1",
-         "site_name": "Example"},
-        {"title": "B", "url": "https://www.example.com/post/?fbclid=y&a=1&b=2",
-         "site_name": "Mirror"},
+        {"title": "A", "url": "https://example.com/post?utm_source=x&b=2&a=1", "site_name": "Example"},
+        {"title": "B", "url": "https://www.example.com/post/?fbclid=y&a=1&b=2", "site_name": "Mirror"},
         {"title": "C", "url": "https://EXAMPLE.com/post?a=1&b=2#frag", "site_name": "Third"},
     ]
     result, _ = _run_search(monkeypatch, results)
@@ -174,10 +177,16 @@ def test_dedupe_keeps_distinct_urls(monkeypatch):
 
 def test_dedupe_collapses_same_title_and_site(monkeypatch):
     results = [
-        {"title": "Hello World From The Example Blog", "url": "https://example.com/a",
-         "site_name": "Example"},
-        {"title": "hello world from the example blog", "url": "https://mirror.test/amp/a",
-         "site_name": "example"},
+        {
+            "title": "Hello World From The Example Blog",
+            "url": "https://example.com/a",
+            "site_name": "Example",
+        },
+        {
+            "title": "hello world from the example blog",
+            "url": "https://mirror.test/amp/a",
+            "site_name": "example",
+        },
     ]
     result, _ = _run_search(monkeypatch, results)
     assert result["count"] == 1
@@ -255,9 +264,7 @@ def test_rewrite_uses_rewritten_query_and_sets_original(monkeypatch):
         return "how sleep works"
 
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    result, calls = _run_search(
-        monkeypatch, [], query="jak działa sen", rewrite=True
-    )
+    result, calls = _run_search(monkeypatch, [], query="jak działa sen", rewrite=True)
     search_calls = [c for c in calls if c["path"] == "/v1/tools/search"]
     assert search_calls[0]["payload"]["query"] == "how sleep works"
     assert result["query_used"] == "how sleep works"
@@ -306,9 +313,7 @@ def test_rewrite_with_missing_key_makes_no_chat_call(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "_rewrite_query", boom)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
-    result = asyncio.run(
-        server._search("test", 1, None, False, None, 1000, 4000, True, True)
-    )
+    result = asyncio.run(server._search("test", 1, None, False, None, 1000, 4000, True, True))
     assert result["error"]["code"] == "missing_api_key"
 
 
@@ -339,9 +344,7 @@ def test_rewrite_truncates_long_model_answer(monkeypatch):
 
 
 def test_rewrite_query_returns_none_on_error_envelope(monkeypatch):
-    _install_fake_request(
-        monkeypatch, {"/v1/chat/completions": {"ok": False, "error": {"code": "timeout"}}}
-    )
+    _install_fake_request(monkeypatch, {"/v1/chat/completions": {"ok": False, "error": {"code": "timeout"}}})
     assert asyncio.run(server._rewrite_query("query")) is None
 
 
@@ -354,10 +357,11 @@ def test_rewrite_path_sets_ori_question_to_original(monkeypatch):
     assert calls[0]["payload"]["ori_question"] == "jak działa sen"
 
 
-
 def _dup_results(unique: int, duplicates: int) -> list[dict]:
-    items = [{"title": f"Result {i}", "url": f"https://example.com/{i}", "site_name": "Example"}
-             for i in range(unique)]
+    items = [
+        {"title": f"Result {i}", "url": f"https://example.com/{i}", "site_name": "Example"}
+        for i in range(unique)
+    ]
     return items + [dict(items[0]) for _ in range(duplicates)]
 
 
@@ -378,9 +382,7 @@ def test_topup_returns_count_despite_duplicates(monkeypatch):
 
 
 def test_topup_trims_to_requested_count(monkeypatch):
-    calls = _install_fake_request(
-        monkeypatch, {"/v1/tools/search": _search_response(_dup_results(8, 0))}
-    )
+    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(_dup_results(8, 0))})
     result = asyncio.run(server._search("q", 4, None, False, None, 1000, 4000))
     assert calls[0]["payload"]["count"] == 6
     assert result["count"] == 4
@@ -388,9 +390,7 @@ def test_topup_trims_to_requested_count(monkeypatch):
 
 
 def test_topup_fills_count_after_dedupe(monkeypatch):
-    calls = _install_fake_request(
-        monkeypatch, {"/v1/tools/search": _search_response(_dup_results(4, 2))}
-    )
+    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(_dup_results(4, 2))})
     result = asyncio.run(server._search("q", 4, None, False, None, 1000, 4000))
     assert calls[0]["payload"]["count"] == 6
     assert result["count"] == 4
@@ -398,9 +398,7 @@ def test_topup_fills_count_after_dedupe(monkeypatch):
 
 
 def test_no_overfetch_without_dedupe(monkeypatch):
-    calls = _install_fake_request(
-        monkeypatch, {"/v1/tools/search": _search_response(_dup_results(2, 0))}
-    )
+    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(_dup_results(2, 0))})
     asyncio.run(server._search("q", 4, None, False, None, 1000, 4000, False))
     assert calls[0]["payload"]["count"] == 4
 
@@ -419,5 +417,4 @@ def test_blank_title_falls_back_to_host(monkeypatch):
         {"title": "Real", "url": "https://real.test/c", "site_name": "Real"},
     ]
     result, _ = _run_search(monkeypatch, results)
-    assert [r["title"] for r in result["results"]] == [
-        "example.com", "docs.example.org", None, "Real"]
+    assert [r["title"] for r in result["results"]] == ["example.com", "docs.example.org", None, "Real"]

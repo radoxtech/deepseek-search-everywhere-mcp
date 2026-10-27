@@ -91,10 +91,12 @@ async def test_fetch_allows_bodies_above_the_search_cap(upstream) -> None:
 async def test_retry_after_date_is_honored(upstream, sleeps, monkeypatch, offset, expected) -> None:
     retry_at = datetime(2026, 10, 21, 7, 28, tzinfo=UTC)
     monkeypatch.setattr(transport, "_utcnow", lambda: retry_at - offset)
-    responses = iter([
-        httpx.Response(503, text="busy", headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}),
-        httpx.Response(200, json={"results": []}),
-    ])
+    responses = iter(
+        [
+            httpx.Response(503, text="busy", headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}),
+            httpx.Response(200, json={"results": []}),
+        ]
+    )
     seen = upstream(lambda request: next(responses))
 
     result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5)
@@ -106,8 +108,18 @@ async def test_retry_after_date_is_honored(upstream, sleeps, monkeypatch, offset
 
 @pytest.mark.parametrize(
     ("header", "expected"),
-    [(None, 2.0), ("", 2.0), ("3", 3.0), ("1.5", 1.5), ("120", 10.0), ("-4", 0.0),
-     ("soon", 2.0), ("nan", 2.0), ("inf", 2.0), ("Mon, 99 Foo 2026 25:61:00 GMT", 2.0)],
+    [
+        (None, 2.0),
+        ("", 2.0),
+        ("3", 3.0),
+        ("1.5", 1.5),
+        ("120", 10.0),
+        ("-4", 0.0),
+        ("soon", 2.0),
+        ("nan", 2.0),
+        ("inf", 2.0),
+        ("Mon, 99 Foo 2026 25:61:00 GMT", 2.0),
+    ],
 )
 def test_retry_after_values_are_clamped(header, expected) -> None:
     assert transport._retry_after(header) == expected

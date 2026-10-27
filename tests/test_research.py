@@ -75,13 +75,26 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
     assert all(source["error"] is None for source in result["sources"])
     assert upstream.searches[0]["need_content"] is True
     assert upstream.searches[0]["count"] == 8  # 5 requested + dedupe over-fetch margin
-    assert set(result["sources"][0]) == {"id", "title", "url", "authority", "rerank_score", "content",
-                                         "chars", "origin", "error", "cached"}
+    assert set(result["sources"][0]) == {
+        "id",
+        "title",
+        "url",
+        "authority",
+        "rerank_score",
+        "content",
+        "chars",
+        "origin",
+        "error",
+        "cached",
+    }
 
 
 async def test_research_partial_fetch_failure(upstream: Upstream) -> None:
-    upstream.failures["https://site4.example.com/page"] = {"code": "http_404", "message": "not found",
-                                                           "status": 404}
+    upstream.failures["https://site4.example.com/page"] = {
+        "code": "http_404",
+        "message": "not found",
+        "status": 404,
+    }
     result = await server.deepseek_research("partial failure question")
     assert result["ok"] is True
     assert result["partial"] is True

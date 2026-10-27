@@ -16,8 +16,9 @@ NON_ENGLISH_QUERIES = (
 )
 
 
-def _search(monkeypatch: pytest.MonkeyPatch, query: str, lang: str | None = None
-            ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _search(
+    monkeypatch: pytest.MonkeyPatch, query: str, lang: str | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     calls: list[dict[str, Any]] = []
 
     async def fake_request(method, path, *, payload=None, timeout=None, retries=2, **_):

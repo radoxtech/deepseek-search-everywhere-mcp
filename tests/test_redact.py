@@ -101,9 +101,7 @@ def test_notes_are_redacted_but_result_content_is_not(monkeypatch: pytest.Monkey
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
     monkeypatch.setattr(server, "_request", fake_request)
 
-    envelope = asyncio.run(
-        server._search("original question", 5, None, True, None, 4000, 30000, True, True)
-    )
+    envelope = asyncio.run(server._search("original question", 5, None, True, None, 4000, 30000, True, True))
     assert any("query rewritten" in note for note in envelope["notes"])
     assert all("sk-abcdefghijkl" not in note for note in envelope["notes"])
     assert envelope["results"][0]["content"] == content

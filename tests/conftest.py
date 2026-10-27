@@ -51,8 +51,9 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> No
 
 
 @pytest.fixture
-def live_api_key(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch,
-                 _isolated_env: None) -> None:
+def live_api_key(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, _isolated_env: None
+) -> None:
     """Re-expose the captured ``DEEPSEEK_API_KEY`` to a ``live`` test, or skip it without one.
 
     Depends on ``_isolated_env`` so the key is restored after the environment is stripped.

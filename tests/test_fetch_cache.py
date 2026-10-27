@@ -187,8 +187,9 @@ async def test_local_rate_limit_is_reported_and_not_cached(
     upstream: Upstream, monkeypatch: pytest.MonkeyPatch, fake_clock: Any
 ) -> None:
     settings = Settings(fetch_qps=0.01, fetch_burst=1, limiter_max_wait=1)
-    monkeypatch.setattr(server, "_rate_limiter",
-                        RateLimiter.from_settings(settings, clock=fake_clock.monotonic))
+    monkeypatch.setattr(
+        server, "_rate_limiter", RateLimiter.from_settings(settings, clock=fake_clock.monotonic)
+    )
     assert (await server.deepseek_fetch(URL))["ok"] is True
     limited = await server.deepseek_fetch(URL, refresh=True)
     assert limited["ok"] is False

@@ -86,9 +86,14 @@ class JudgeRecord:
         return sum(v.relevant for v in self.verdicts) / len(self.verdicts) if self.verdicts else 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        return {"scenario": self.scenario, "query": self.query, "mean": round(self.mean, 2),
-                "relevant_share": round(self.relevant_share, 2), "urls": self.urls,
-                "verdicts": [asdict(v) for v in self.verdicts]}
+        return {
+            "scenario": self.scenario,
+            "query": self.query,
+            "mean": round(self.mean, 2),
+            "relevant_share": round(self.relevant_share, 2),
+            "urls": self.urls,
+            "verdicts": [asdict(v) for v in self.verdicts],
+        }
 
 
 RECORDS: list[JudgeRecord] = []
@@ -107,8 +112,10 @@ def _render_items(items: list[dict[str, Any]], label: str) -> str:
     blocks = []
     for index, item in enumerate(items, 1):
         text = item_text(item)[:ITEM_TEXT_CHARS]
-        blocks.append(f"<{label} index=\"{index}\">\nTitle: {item.get('title') or ''}\n"
-                      f"URL: {item.get('url') or ''}\nText:\n{text}\n</{label}>")
+        blocks.append(
+            f'<{label} index="{index}">\nTitle: {item.get("title") or ""}\n'
+            f"URL: {item.get('url') or ''}\nText:\n{text}\n</{label}>"
+        )
     return "\n\n".join(blocks)
 
 
@@ -124,7 +131,7 @@ def _parse_json(content: str) -> dict[str, Any]:
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:
             raise ValueError("no JSON object in the judge output") from None
-        value = json.loads(text[start:end + 1])
+        value = json.loads(text[start : end + 1])
     if not isinstance(value, dict):
         raise ValueError("judge output is not a JSON object")
     return value
@@ -152,8 +159,7 @@ async def _ask(system: str, user: str) -> dict[str, Any]:
         "thinking": {"type": "disabled"},
         "response_format": {"type": "json_object"},
     }
-    result = await request("POST", "/v1/chat/completions", payload=payload,
-                           timeout=JUDGE_TIMEOUT, retries=2)
+    result = await request("POST", "/v1/chat/completions", payload=payload, timeout=JUDGE_TIMEOUT, retries=2)
     if not result.get("ok"):
         pytest.fail(f"judge request failed: {result.get('error')}", pytrace=False)
     try:
@@ -171,8 +177,11 @@ async def judge_items(scenario: str, query: str, items: list[dict[str, Any]]) ->
     data = await _ask(SYSTEM_PROMPT, user)
     raw = data.get("verdicts")
     if not isinstance(raw, list) or len(raw) != len(items):
-        pytest.fail(f"{scenario}: judge returned {len(raw) if isinstance(raw, list) else 'no'} "
-                    f"verdicts for {len(items)} items", pytrace=False)
+        pytest.fail(
+            f"{scenario}: judge returned {len(raw) if isinstance(raw, list) else 'no'} "
+            f"verdicts for {len(items)} items",
+            pytrace=False,
+        )
     try:
         verdicts = [_verdict(entry) for entry in raw]
     except ValueError as exc:
@@ -182,8 +191,7 @@ async def judge_items(scenario: str, query: str, items: list[dict[str, Any]]) ->
     return record
 
 
-async def judge_answerable(scenario: str, question: str,
-                           sources: list[dict[str, Any]]) -> JudgeRecord:
+async def judge_answerable(scenario: str, question: str, sources: list[dict[str, Any]]) -> JudgeRecord:
     """Grade whether ``sources`` together can answer ``question``."""
     if not sources:
         pytest.fail(f"{scenario}: no sources to judge", pytrace=False)
@@ -202,7 +210,8 @@ def assert_quality(record: JudgeRecord, *, min_mean: float = 3.3, min_share: flo
     """Fail unless the judged mean score and share of relevant items reach the thresholds."""
     details = "; ".join(f"[{v.score}] {v.reason}" for v in record.verdicts)
     assert record.mean >= min_mean, (
-        f"{record.scenario}: mean judge score {record.mean:.2f} < {min_mean} ({details})")
+        f"{record.scenario}: mean judge score {record.mean:.2f} < {min_mean} ({details})"
+    )
     assert record.relevant_share >= min_share, (
-        f"{record.scenario}: relevant share {record.relevant_share:.0%} < {min_share:.0%} "
-        f"({details})")
+        f"{record.scenario}: relevant share {record.relevant_share:.0%} < {min_share:.0%} ({details})"
+    )

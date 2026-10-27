@@ -89,8 +89,9 @@ def _get_search_cache() -> TTLCache | None:
     if not settings.cache_enabled:
         return None
     if _search_cache is None:
-        _search_cache = TTLCache(settings.cache_search_entries, settings.cache_search_bytes,
-                                 ttl=settings.cache_search_ttl)
+        _search_cache = TTLCache(
+            settings.cache_search_entries, settings.cache_search_bytes, ttl=settings.cache_search_ttl
+        )
     return _search_cache
 
 
@@ -110,8 +111,9 @@ def _get_fetch_cache() -> TTLCache | None:
     if not settings.cache_enabled:
         return None
     if _fetch_cache is None:
-        _fetch_cache = TTLCache(settings.cache_fetch_entries, settings.cache_fetch_bytes,
-                                ttl=settings.cache_fetch_ttl)
+        _fetch_cache = TTLCache(
+            settings.cache_fetch_entries, settings.cache_fetch_bytes, ttl=settings.cache_fetch_ttl
+        )
     return _fetch_cache
 
 
@@ -131,8 +133,9 @@ def _get_rewrite_cache() -> TTLCache | None:
     if not settings.cache_enabled:
         return None
     if _rewrite_cache is None:
-        _rewrite_cache = TTLCache(settings.cache_rewrite_entries, settings.cache_rewrite_bytes,
-                                  ttl=settings.cache_rewrite_ttl)
+        _rewrite_cache = TTLCache(
+            settings.cache_rewrite_entries, settings.cache_rewrite_bytes, ttl=settings.cache_rewrite_ttl
+        )
     return _rewrite_cache
 
 
@@ -176,8 +179,9 @@ def _fetch_cache_key(url: str) -> str:
     return _sha256(_canonical_json({"path": FETCH_PATH, "base_url": _base_url(), "url": target}))
 
 
-async def _limited_request(endpoint: str, path: str, payload: dict[str, Any],
-                           timeout: float) -> dict[str, Any]:
+async def _limited_request(
+    endpoint: str, path: str, payload: dict[str, Any], timeout: float
+) -> dict[str, Any]:
     """Take one ``endpoint`` token, then call upstream once (transport retries included).
 
     Returns the transport envelope, or a ``rate_limited_local`` error envelope when no token
@@ -194,9 +198,14 @@ async def _limited_request(endpoint: str, path: str, payload: dict[str, Any],
         raise
 
 
-async def _cached_call(cache: TTLCache | None, flight: SingleFlight, key: str,
-                       leader: Callable[[], Awaitable[dict[str, Any]]],
-                       *, refresh: bool) -> tuple[dict[str, Any], bool]:
+async def _cached_call(
+    cache: TTLCache | None,
+    flight: SingleFlight,
+    key: str,
+    leader: Callable[[], Awaitable[dict[str, Any]]],
+    *,
+    refresh: bool,
+) -> tuple[dict[str, Any], bool]:
     """Serve ``key`` from ``cache`` or through a single-flight ``leader`` call.
 
     Returns ``(record, cached)``; the record is an error envelope when the leader failed.
@@ -246,9 +255,7 @@ def _canonical_url(url: str) -> str | None:
         if not _is_tracking_param(name)
     ]
     params.sort()
-    return urllib.parse.urlunsplit(
-        (parts.scheme.lower(), netloc, path, urllib.parse.urlencode(params), "")
-    )
+    return urllib.parse.urlunsplit((parts.scheme.lower(), netloc, path, urllib.parse.urlencode(params), ""))
 
 
 def _title_site_key(item: dict) -> tuple[str, str] | None:
@@ -287,9 +294,7 @@ def _dedupe_results(items: list[dict]) -> tuple[list[dict], int]:
         key = _dedupe_key(item)
         title_site = _title_site_key(item)
 
-        if (key is not None and key in seen) or (
-            title_site is not None and title_site in seen_title_sites
-        ):
+        if (key is not None and key in seen) or (title_site is not None and title_site in seen_title_sites):
             removed += 1
             continue
 
@@ -398,8 +403,7 @@ async def _cached_rewrite(query: str) -> str | None:
     return (await _get_rewrite_flight().run(key, leader)).value
 
 
-async def _search_upstream(payload: dict[str, Any], query_original: str | None,
-                           key: str) -> dict[str, Any]:
+async def _search_upstream(payload: dict[str, Any], query_original: str | None, key: str) -> dict[str, Any]:
     """Leader-only path: take a ``search`` token, call upstream, cache a usable answer.
 
     Returns ``{"data": ..., "query_original": ...}`` on success or an error envelope.
@@ -414,10 +418,19 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None,
     return record
 
 
-async def _search(query: str, count: int, ori_question: str | None, need_content: bool,
-                  lang: str | None, max_chars_per_result: int,
-                  max_total_chars: int, dedupe: bool = True,
-                  rewrite: bool = False, *, refresh: bool = False) -> dict[str, Any]:
+async def _search(
+    query: str,
+    count: int,
+    ori_question: str | None,
+    need_content: bool,
+    lang: str | None,
+    max_chars_per_result: int,
+    max_total_chars: int,
+    dedupe: bool = True,
+    rewrite: bool = False,
+    *,
+    refresh: bool = False,
+) -> dict[str, Any]:
     query = (query or "").strip()
     if not query:
         return _fail("empty_query", "query must not be empty.")
@@ -441,15 +454,21 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
                 ori_question = query_original[:MAX_QUERY]
 
     used, trimmed = _with_lang(query, lang)
-    payload: dict[str, Any] = {"query": used, "count": _upstream_count(count, dedupe),
-                               "need_content": need_content}
+    payload: dict[str, Any] = {
+        "query": used,
+        "count": _upstream_count(count, dedupe),
+        "need_content": need_content,
+    }
     if ori_question:
         payload["ori_question"] = ori_question[:MAX_QUERY]
 
     key = _search_cache_key(payload)
     record, cached = await _cached_call(
-        _get_search_cache(), _get_search_flight(), key,
-        lambda: _search_upstream(payload, query_original, key), refresh=refresh,
+        _get_search_cache(),
+        _get_search_flight(),
+        key,
+        lambda: _search_upstream(payload, query_original, key),
+        refresh=refresh,
     )
     if record.get("ok") is False:
         return record
@@ -583,8 +602,18 @@ async def deepseek_web_search(
         refresh: Bypass the response cache and query upstream again (the envelope's cached
             flag says whether the results came from the cache).
     """
-    return await _search(query, count, ori_question, need_content, lang,
-                         max_chars_per_result, max_total_chars, dedupe, rewrite, refresh=refresh)
+    return await _search(
+        query,
+        count,
+        ori_question,
+        need_content,
+        lang,
+        max_chars_per_result,
+        max_total_chars,
+        dedupe,
+        rewrite,
+        refresh=refresh,
+    )
 
 
 async def deepseek_search_and_read(
@@ -625,8 +654,18 @@ async def deepseek_search_and_read(
         refresh: Bypass the response cache and query upstream again (the envelope's cached
             flag says whether the results came from the cache).
     """
-    return await _search(query, count, ori_question, True, lang,
-                         max_chars_per_result, max_total_chars, dedupe, rewrite, refresh=refresh)
+    return await _search(
+        query,
+        count,
+        ori_question,
+        True,
+        lang,
+        max_chars_per_result,
+        max_total_chars,
+        dedupe,
+        rewrite,
+        refresh=refresh,
+    )
 
 
 def _reject_url(url: str) -> dict[str, Any] | None:
@@ -699,7 +738,10 @@ async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dic
     """
     key = _fetch_cache_key(url)
     record, cached = await _cached_call(
-        _get_fetch_cache(), _get_fetch_flight(), key, lambda: _fetch_upstream(url, key),
+        _get_fetch_cache(),
+        _get_fetch_flight(),
+        key,
+        lambda: _fetch_upstream(url, key),
         refresh=refresh,
     )
     if record.get("ok") is False:
@@ -719,8 +761,11 @@ async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dic
         "content_chars": len(content),
         "truncated": truncated,
         "cached": cached,
-        "notes": ["Empty content: the page may be a PDF, JS-only or blocked. "
-                  "Try deepseek_search_and_read instead."] if not content else [],
+        "notes": [
+            "Empty content: the page may be a PDF, JS-only or blocked. Try deepseek_search_and_read instead."
+        ]
+        if not content
+        else [],
     }
 
 
@@ -732,12 +777,19 @@ def _batch_item(url: str, envelope: dict[str, Any]) -> dict[str, Any]:
     """Reduce a ``deepseek_fetch`` envelope to one ``deepseek_fetch_many`` result."""
     if envelope.get("ok") is False:
         return {"url": url, "ok": False, "error": envelope["error"], "chars": 0, "cached": False}
-    return {"url": url, "ok": True, "title": envelope["title"], "content": envelope["content"],
-            "chars": len(envelope["content"]), "cached": envelope["cached"]}
+    return {
+        "url": url,
+        "ok": True,
+        "title": envelope["title"],
+        "content": envelope["content"],
+        "chars": len(envelope["content"]),
+        "cached": envelope["cached"],
+    }
 
 
-async def _fetch_isolated(url: str, clean: bool, max_chars: int, refresh: bool,
-                          semaphore: asyncio.Semaphore) -> dict[str, Any]:
+async def _fetch_isolated(
+    url: str, clean: bool, max_chars: int, refresh: bool, semaphore: asyncio.Semaphore
+) -> dict[str, Any]:
     """Run one batch fetch under ``semaphore``; unexpected exceptions become error envelopes."""
     async with semaphore:
         try:
@@ -814,8 +866,9 @@ async def deepseek_fetch_many(
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
 
-    deadline_error = _fail("deadline_exceeded",
-                           f"Not fetched within the {settings.batch_deadline:g} s batch deadline.")
+    deadline_error = _fail(
+        "deadline_exceeded", f"Not fetched within the {settings.batch_deadline:g} s batch deadline."
+    )
     results: list[dict[str, Any]] = []
     remaining = max_total_chars
     trimmed = False
@@ -922,13 +975,24 @@ async def deepseek_research(
     """
     if per_page_chars < 1 or total_chars < 1:
         return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
-    search = await _search(question, max_pages, None, True, None, per_page_chars,
-                           per_page_chars * max_pages, True, False, refresh=refresh)
+    search = await _search(
+        question,
+        max_pages,
+        None,
+        True,
+        None,
+        per_page_chars,
+        per_page_chars * max_pages,
+        True,
+        False,
+        refresh=refresh,
+    )
     if search.get("ok") is False:
         return search
 
-    sources = [_research_source(index, item, search["cached"])
-               for index, item in enumerate(search["results"], 1)]
+    sources = [
+        _research_source(index, item, search["cached"]) for index, item in enumerate(search["results"], 1)
+    ]
     requests_used = 0 if search["cached"] else 1
     cached_count = 1 if search["cached"] else 0
     trimmed = False
@@ -945,9 +1009,12 @@ async def deepseek_research(
             gaps[key] = source
     fetched = 0
     if gaps:
-        batch = await deepseek_fetch_many([source["url"].strip() for source in gaps.values()],
-                                          max_chars_per_url=per_page_chars,
-                                          max_total_chars=total_chars, refresh=refresh)
+        batch = await deepseek_fetch_many(
+            [source["url"].strip() for source in gaps.values()],
+            max_chars_per_url=per_page_chars,
+            max_total_chars=total_chars,
+            refresh=refresh,
+        )
         requests_used += batch["requests_used"]
         cached_count += batch["cached_count"]
         trimmed = trimmed or "truncated_to_budget" in batch["notes"]
@@ -1041,4 +1108,3 @@ async def _check() -> int:
     result = await deepseek_balance()
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("ok") else 1
-

@@ -24,7 +24,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     for record in RECORDS:
         terminalreporter.write_line(
             f"{record.scenario}: mean {record.mean:.2f}, relevant {record.relevant_share:.0%} "
-            f"- {record.query}")
+            f"- {record.query}"
+        )
         for url, verdict in zip(record.urls, record.verdicts, strict=False):
             target = url if len(record.verdicts) == len(record.urls) else "(all sources)"
             terminalreporter.write_line(f"    [{verdict.score}] {target}: {verdict.reason}")

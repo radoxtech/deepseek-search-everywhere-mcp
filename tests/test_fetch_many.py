@@ -91,8 +91,7 @@ async def test_cache_is_shared_with_deepseek_fetch(upstream: Upstream) -> None:
 
 
 @pytest.mark.parametrize("urls", [[], [f"https://example.com/{i}" for i in range(11)], ["", " "]])
-async def test_bad_batch_size_is_rejected_without_upstream_calls(upstream: Upstream,
-                                                                 urls: list[str]) -> None:
+async def test_bad_batch_size_is_rejected_without_upstream_calls(upstream: Upstream, urls: list[str]) -> None:
     result = await server.deepseek_fetch_many(urls)
     assert result["ok"] is False
     assert result["error"]["code"] == "bad_request"
@@ -137,8 +136,7 @@ async def test_deadline_returns_partial_results(upstream: Upstream) -> None:
     assert result["requests_used"] == 1
 
 
-async def test_unexpected_exception_is_isolated(upstream: Upstream,
-                                                monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_unexpected_exception_is_isolated(upstream: Upstream, monkeypatch: pytest.MonkeyPatch) -> None:
     original = server._fetch
 
     async def flaky(url: str, *args: Any, **kwargs: Any) -> dict[str, Any]:

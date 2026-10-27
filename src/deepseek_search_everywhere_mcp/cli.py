@@ -36,9 +36,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=STDIO,
         help="transport to serve (default: %(default)s)",
     )
-    parser.add_argument(
-        "--host", help=f"HTTP bind address (default: {defaults.http_host})"
-    )
+    parser.add_argument("--host", help=f"HTTP bind address (default: {defaults.http_host})")
     parser.add_argument("--port", type=int, help=f"HTTP port (default: {defaults.http_port})")
     parser.add_argument("--path", help=f"HTTP endpoint path (default: {defaults.http_path})")
     parser.add_argument(

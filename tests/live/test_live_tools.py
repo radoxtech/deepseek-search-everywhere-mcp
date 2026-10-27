@@ -60,8 +60,9 @@ async def test_web_search_returns_relevant_results() -> None:
 
 async def test_search_and_read_returns_relevant_content() -> None:
     query = "PostgreSQL VACUUM FULL versus regular VACUUM"
-    envelope = await server.deepseek_search_and_read(query, count=3, max_chars_per_result=1500,
-                                                     max_total_chars=4500)
+    envelope = await server.deepseek_search_and_read(
+        query, count=3, max_chars_per_result=1500, max_total_chars=4500
+    )
     results = _assert_results(envelope, 2)
     with_content = [item for item in results if item.get("content")]
     assert len(with_content) >= 2, "expected page content for at least two results"
@@ -69,10 +70,14 @@ async def test_search_and_read_returns_relevant_content() -> None:
     assert_quality(await judge_items("search_and_read", query, with_content))
 
 
-@pytest.mark.parametrize(("query", "lang"), [
-    ("cómo funciona la fotosíntesis en las plantas", "es"),
-    ("富士山 登山 シーズン", "ja"),
-], ids=["es", "ja"])
+@pytest.mark.parametrize(
+    ("query", "lang"),
+    [
+        ("cómo funciona la fotosíntesis en las plantas", "es"),
+        ("富士山 登山 シーズン", "ja"),
+    ],
+    ids=["es", "ja"],
+)
 async def test_non_english_query_with_lang(query: str, lang: str) -> None:
     envelope = await server.deepseek_web_search(query, count=4, lang=lang)
     results = _assert_results(envelope, 3)
@@ -85,8 +90,7 @@ async def test_rewrite_keeps_results_relevant(upstream_calls: list[str]) -> None
     envelope = await server.deepseek_web_search(query, count=4, rewrite=True)
     results = _assert_results(envelope, 3)
     assert "/v1/chat/completions" in upstream_calls, "rewrite did not call the model"
-    assert envelope.get("query_original") == query, (
-        f"query was not rewritten; notes: {envelope['notes']}")
+    assert envelope.get("query_original") == query, f"query was not rewritten; notes: {envelope['notes']}"
     assert envelope["query_used"] != query
     assert_quality(await judge_items("web_search[rewrite]", query, results))
 
@@ -119,17 +123,23 @@ async def test_fetch_many_keeps_order_and_dedupes(upstream_calls: list[str]) -> 
         assert item["ok"] is True, f"{item['url']}: {item.get('error')}"
         assert item["chars"] > 200, f"{item['url']}: content is (nearly) empty"
     first, second = envelope["results"]
-    assert_quality(await judge_items("fetch_many[asyncio]", "Python asyncio documentation", [first]),
-                   min_mean=4.0, min_share=1.0)
-    assert_quality(await judge_items("fetch_many[python.org]",
-                                     "Official homepage of the Python programming language",
-                                     [second]), min_mean=4.0, min_share=1.0)
+    assert_quality(
+        await judge_items("fetch_many[asyncio]", "Python asyncio documentation", [first]),
+        min_mean=4.0,
+        min_share=1.0,
+    )
+    assert_quality(
+        await judge_items(
+            "fetch_many[python.org]", "Official homepage of the Python programming language", [second]
+        ),
+        min_mean=4.0,
+        min_share=1.0,
+    )
 
 
 async def test_research_sources_can_answer_the_question() -> None:
     question = "What is the difference between TCP and UDP?"
-    envelope = await server.deepseek_research(question, max_pages=3, per_page_chars=1500,
-                                              total_chars=4500)
+    envelope = await server.deepseek_research(question, max_pages=3, per_page_chars=1500, total_chars=4500)
     _assert_ok(envelope)
     sources = [source for source in envelope["sources"] if source["content"]]
     assert len(sources) >= 2, f"expected >= 2 sources with content; notes: {envelope['notes']}"

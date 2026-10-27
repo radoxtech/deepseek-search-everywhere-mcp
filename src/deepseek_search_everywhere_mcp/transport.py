@@ -47,9 +47,13 @@ def _api_key() -> str:
     if key:
         return key
     configured = os.environ.get("DEEPSEEK_AUTH_JSON")
-    candidates = [pathlib.Path(configured).expanduser()] if configured else [
-        pathlib.Path.home() / ".local/share/opencode/auth.json",
-    ]
+    candidates = (
+        [pathlib.Path(configured).expanduser()]
+        if configured
+        else [
+            pathlib.Path.home() / ".local/share/opencode/auth.json",
+        ]
+    )
     for candidate in candidates:
         try:
             data = json.loads(candidate.read_text())
@@ -115,8 +119,15 @@ async def _read_capped(response: httpx.Response, limit: int) -> tuple[bytes, boo
     return b"".join(chunks), False
 
 
-async def _attempt(method: str, url: str, path: str, *, payload: dict[str, Any] | None,
-                   headers: dict[str, str], timeout: float) -> tuple[dict[str, Any], float | None]:
+async def _attempt(
+    method: str,
+    url: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None,
+    headers: dict[str, str],
+    timeout: float,
+) -> tuple[dict[str, Any], float | None]:
     """Run one HTTP exchange; return the envelope and a retry delay when it is retryable."""
     cap = _response_cap(path)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -130,16 +141,18 @@ async def _attempt(method: str, url: str, path: str, *, payload: dict[str, Any] 
                 return error, None
             body, too_large = await _read_capped(response, cap)
     if too_large:
-        return _fail("response_too_large",
-                     f"Response from {path} exceeded the {cap}-byte limit.", status), None
+        return _fail(
+            "response_too_large", f"Response from {path} exceeded the {cap}-byte limit.", status
+        ), None
     try:
         return {"ok": True, "data": json.loads(body)}, None
     except ValueError:
         return _fail("invalid_json", "DeepSeek returned a non-JSON response.", status), None
 
 
-async def request(method: str, path: str, *, payload: dict[str, Any] | None = None,
-                  timeout: float, retries: int = 2) -> dict[str, Any]:
+async def request(
+    method: str, path: str, *, payload: dict[str, Any] | None = None, timeout: float, retries: int = 2
+) -> dict[str, Any]:
     """Call the DeepSeek API and return ``{"ok": True, "data": ...}`` or an error envelope.
 
     Each of the ``retries`` attempts gets its own ``timeout``; 429 and 5xx gateway errors,
@@ -147,8 +160,9 @@ async def request(method: str, path: str, *, payload: dict[str, Any] | None = No
     """
     key = _api_key()
     if not key:
-        return _fail("missing_api_key",
-                     "No DeepSeek key: set DEEPSEEK_API_KEY or a readable DEEPSEEK_AUTH_JSON.")
+        return _fail(
+            "missing_api_key", "No DeepSeek key: set DEEPSEEK_API_KEY or a readable DEEPSEEK_AUTH_JSON."
+        )
 
     url = f"{_base_url()}{path}"
     headers = {"Authorization": f"Bearer {key}"}
@@ -157,8 +171,9 @@ async def request(method: str, path: str, *, payload: dict[str, Any] | None = No
     for attempt in range(retries):
         delay = DEFAULT_RETRY_DELAY
         try:
-            result, retry_delay = await _attempt(method, url, path, payload=payload,
-                                                 headers=headers, timeout=timeout)
+            result, retry_delay = await _attempt(
+                method, url, path, payload=payload, headers=headers, timeout=timeout
+            )
             if retry_delay is None:
                 return _scrub(result, key)
             last, delay = result, retry_delay

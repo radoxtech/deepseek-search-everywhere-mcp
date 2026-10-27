@@ -78,8 +78,10 @@ class Settings:
             if name in {"limiter_max_wait", "batch_deadline"} and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
         if not 1 <= self.batch_concurrency <= MAX_BATCH_CONCURRENCY:
-            raise ValueError(f"batch_concurrency must be between 1 and {MAX_BATCH_CONCURRENCY}, "
-                             f"got {self.batch_concurrency!r}")
+            raise ValueError(
+                f"batch_concurrency must be between 1 and {MAX_BATCH_CONCURRENCY}, "
+                f"got {self.batch_concurrency!r}"
+            )
         if not 0 < self.http_port < 65536:
             raise ValueError(f"http_port must be between 1 and 65535, got {self.http_port!r}")
         if not self.http_path.startswith("/"):

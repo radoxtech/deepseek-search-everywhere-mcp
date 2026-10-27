@@ -12,12 +12,9 @@ from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 RESULTS = [
-    {"title": "One", "url": "https://example.com/one", "site_name": "Example",
-     "content": "a" * 500},
-    {"title": "One", "url": "https://example.com/one/", "site_name": "Example",
-     "content": "b" * 500},
-    {"title": "Two", "url": "https://example.com/two", "site_name": "Example",
-     "content": "c" * 500},
+    {"title": "One", "url": "https://example.com/one", "site_name": "Example", "content": "a" * 500},
+    {"title": "One", "url": "https://example.com/one/", "site_name": "Example", "content": "b" * 500},
+    {"title": "Two", "url": "https://example.com/two", "site_name": "Example", "content": "c" * 500},
 ]
 
 
@@ -52,10 +49,15 @@ def limiter(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> RateLimiter:
     return instance
 
 
-async def _search(query: str = "test query", *, total: int = 4000, dedupe: bool = True,
-                  rewrite: bool = False, refresh: bool = False) -> dict[str, Any]:
-    return await server._search(query, 5, None, True, None, 1000, total, dedupe, rewrite,
-                                refresh=refresh)
+async def _search(
+    query: str = "test query",
+    *,
+    total: int = 4000,
+    dedupe: bool = True,
+    rewrite: bool = False,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    return await server._search(query, 5, None, True, None, 1000, total, dedupe, rewrite, refresh=refresh)
 
 
 async def test_second_identical_search_is_served_from_cache(upstream: Upstream) -> None:
@@ -191,8 +193,9 @@ async def test_refresh_still_uses_rewrite_cache(upstream: Upstream, monkeypatch:
     assert len(upstream.calls) == 2
 
 
-async def test_concurrent_rewrites_share_one_flash_call(upstream: Upstream,
-                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_concurrent_rewrites_share_one_flash_call(
+    upstream: Upstream, monkeypatch: pytest.MonkeyPatch
+) -> None:
     gate = asyncio.Event()
     paths: list[str] = []
 
@@ -256,8 +259,9 @@ async def test_local_rate_limit_is_reported_and_not_cached(
     upstream: Upstream, monkeypatch: pytest.MonkeyPatch, fake_clock: Any
 ) -> None:
     settings = Settings(search_qps=0.01, search_burst=1, limiter_max_wait=1)
-    monkeypatch.setattr(server, "_rate_limiter",
-                        RateLimiter.from_settings(settings, clock=fake_clock.monotonic))
+    monkeypatch.setattr(
+        server, "_rate_limiter", RateLimiter.from_settings(settings, clock=fake_clock.monotonic)
+    )
     assert (await _search())["ok"] is True
     limited = await _search(refresh=True)
     assert limited["ok"] is False

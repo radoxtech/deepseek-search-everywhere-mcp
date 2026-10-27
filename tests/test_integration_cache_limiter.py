@@ -37,8 +37,9 @@ class Upstream:
     def count(self, path: str) -> int:
         return sum(1 for called, _ in self.calls if called == path)
 
-    async def __call__(self, method: str, path: str, *, payload: dict[str, Any] | None = None,
-                       **_: Any) -> dict[str, Any]:
+    async def __call__(
+        self, method: str, path: str, *, payload: dict[str, Any] | None = None, **_: Any
+    ) -> dict[str, Any]:
         self.calls.append((path, payload))
         if path == CHAT_PATH:
             return {"ok": True, "data": {"choices": [{"message": {"content": self.rewrite_to}}]}}
@@ -75,10 +76,15 @@ class RecordingSleep:
         self.clock.advance(delay)
 
 
-def _install_limiter(monkeypatch: pytest.MonkeyPatch, clock: Any, settings: Settings | None = None,
-                     sleep: RecordingSleep | None = None) -> CountingLimiter:
-    built = RateLimiter.from_settings(settings or Settings(), clock=clock.monotonic,
-                                      sleep=sleep or RecordingSleep(clock))
+def _install_limiter(
+    monkeypatch: pytest.MonkeyPatch,
+    clock: Any,
+    settings: Settings | None = None,
+    sleep: RecordingSleep | None = None,
+) -> CountingLimiter:
+    built = RateLimiter.from_settings(
+        settings or Settings(), clock=clock.monotonic, sleep=sleep or RecordingSleep(clock)
+    )
     limiter = CountingLimiter(built.buckets)
     monkeypatch.setattr(server, "_rate_limiter", limiter)
     return limiter
@@ -97,10 +103,10 @@ def limiter(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> CountingLimiter
     return _install_limiter(monkeypatch, fake_clock)
 
 
-async def _search(query: str = "test query", *, rewrite: bool = False,
-                  refresh: bool = False) -> dict[str, Any]:
-    return await server._search(query, 5, None, True, None, 1000, 4000, True, rewrite,
-                                refresh=refresh)
+async def _search(
+    query: str = "test query", *, rewrite: bool = False, refresh: bool = False
+) -> dict[str, Any]:
+    return await server._search(query, 5, None, True, None, 1000, 4000, True, rewrite, refresh=refresh)
 
 
 async def _spin(rounds: int = 5) -> None:
@@ -169,8 +175,9 @@ async def test_retried_429_takes_one_token_and_is_cached_once_it_succeeds(
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     attempts: list[str] = []
 
-    async def rate_limited_once(method: str, url: str, path: str,
-                                **_: Any) -> tuple[dict[str, Any], float | None]:
+    async def rate_limited_once(
+        method: str, url: str, path: str, **_: Any
+    ) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
         if len(attempts) == 1:
             return {"ok": False, "error": {"code": "http_429", "message": "slow down"}}, 0.0
@@ -190,8 +197,7 @@ async def test_exhausted_429_retries_are_one_token_and_not_cached(
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     attempts: list[str] = []
 
-    async def always_429(method: str, url: str, path: str,
-                         **_: Any) -> tuple[dict[str, Any], float | None]:
+    async def always_429(method: str, url: str, path: str, **_: Any) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
         return {"ok": False, "error": {"code": "http_429", "message": "slow down"}}, 0.0
 
@@ -236,8 +242,7 @@ async def test_wait_within_budget_sleeps_and_beyond_budget_fails_fast_uncached(
 async def test_search_and_fetch_use_separate_buckets(
     upstream: Upstream, monkeypatch: pytest.MonkeyPatch, fake_clock: Any
 ) -> None:
-    settings = Settings(search_qps=0.01, search_burst=1, fetch_qps=0.01, fetch_burst=1,
-                        limiter_max_wait=1)
+    settings = Settings(search_qps=0.01, search_burst=1, fetch_qps=0.01, fetch_burst=1, limiter_max_wait=1)
     limiter = _install_limiter(monkeypatch, fake_clock, settings)
     search, fetch = await asyncio.gather(_search(), server.deepseek_fetch(URL))
     assert search["ok"] is True and fetch["ok"] is True
@@ -314,7 +319,9 @@ async def test_cache_disabled_by_env_keeps_single_flight_but_stores_nothing(
 
 
 def test_state_survives_a_cancelled_call_on_a_previous_event_loop(
-    upstream: Upstream, monkeypatch: pytest.MonkeyPatch, fake_clock: Any,
+    upstream: Upstream,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_clock: Any,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     limiter = _install_limiter(monkeypatch, fake_clock)
