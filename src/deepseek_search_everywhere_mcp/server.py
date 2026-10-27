@@ -1,6 +1,6 @@
 """MCP server for the DeepSeek Search & Fetch API.
 
-Exposes web search, page fetch, search-and-read and balance tools over stdio.
+Exposes web search, page fetch (single and batch), search-and-read and balance tools over stdio.
 Requires DEEPSEEK_API_KEY; DEEPSEEK_BASE_URL overrides the endpoint.
 
 The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
@@ -588,6 +588,17 @@ def _reject_url(url: str) -> dict[str, Any] | None:
     return None
 
 
+def _check_fetch_url(url: str) -> dict[str, Any] | None:
+    """Validate a stripped fetch URL; return an error envelope if it is unusable, else ``None``."""
+    if not url:
+        return _fail("empty_url", "url must not be empty.")
+    if len(url) > MAX_URL:
+        return _fail("url_too_long", f"url must be at most {MAX_URL} characters.")
+    if not re.match(r"^https?://", url, re.I):
+        return _fail("bad_url", "url must start with http:// or https://.")
+    return _reject_url(url)
+
+
 @mcp.tool()
 async def deepseek_fetch(
     url: str,
@@ -621,17 +632,17 @@ async def deepseek_fetch(
             flag says whether the page came from the cache).
     """
     url = (url or "").strip()
-    if not url:
-        return _fail("empty_url", "url must not be empty.")
-    if len(url) > MAX_URL:
-        return _fail("url_too_long", f"url must be at most {MAX_URL} characters.")
-    if not re.match(r"^https?://", url, re.I):
-        return _fail("bad_url", "url must start with http:// or https://.")
-
-    rejection = _reject_url(url)
+    rejection = _check_fetch_url(url)
     if rejection is not None:
         return rejection
+    return await _fetch(url, clean, max_chars, refresh=refresh)
 
+
+async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dict[str, Any]:
+    """Fetch an already validated ``url`` through the cache, single-flight and limiter.
+
+    Returns the ``deepseek_fetch`` envelope, or an error envelope from upstream or the limiter.
+    """
     key = _fetch_cache_key(url)
     record, cached = await _cached_call(
         _get_fetch_cache(), _get_fetch_flight(), key, lambda: _fetch_upstream(url, key),
@@ -656,6 +667,137 @@ async def deepseek_fetch(
         "cached": cached,
         "notes": ["Empty content: the page may be a PDF, JS-only or blocked. "
                   "Try deepseek_search_and_read instead."] if not content else [],
+    }
+
+
+# Error codes that mean no upstream request was made for a batch item.
+_LOCAL_ERROR_CODES = frozenset({"rate_limited_local", "deadline_exceeded", "internal_error"})
+
+
+def _batch_item(url: str, envelope: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a ``deepseek_fetch`` envelope to one ``deepseek_fetch_many`` result."""
+    if envelope.get("ok") is False:
+        return {"url": url, "ok": False, "error": envelope["error"], "chars": 0, "cached": False}
+    return {"url": url, "ok": True, "title": envelope["title"], "content": envelope["content"],
+            "chars": len(envelope["content"]), "cached": envelope["cached"]}
+
+
+async def _fetch_isolated(url: str, clean: bool, max_chars: int, refresh: bool,
+                          semaphore: asyncio.Semaphore) -> dict[str, Any]:
+    """Run one batch fetch under ``semaphore``; unexpected exceptions become error envelopes."""
+    async with semaphore:
+        try:
+            return await _fetch(url, clean, max_chars, refresh=refresh)
+        except Exception as exc:
+            return _fail("internal_error", redact(f"{type(exc).__name__}: {exc}"))
+
+
+@mcp.tool()
+async def deepseek_fetch_many(
+    urls: list[str],
+    max_chars_per_url: int = 4000,
+    max_total_chars: int = 20000,
+    clean: bool = True,
+    *,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
+
+    Each URL goes through the same validation, cache, rate limiter and SSRF checks as
+    deepseek_fetch. Empty entries are skipped and duplicates (same canonical URL) are fetched
+    once. Results keep the input order; a failing URL yields an item with ok=false and an
+    error instead of failing the batch. All fetches share one deadline (120 s by default);
+    URLs still pending then are cancelled and reported with error code deadline_exceeded.
+
+    Each page gets min(max_chars_per_url, max_total_chars // count) characters and the total
+    content never exceeds max_total_chars; the note truncated_to_budget marks any cut.
+    The envelope reports count (unique URLs), requests_used (upstream fetches attempted),
+    cached (items served from the cache), results and notes.
+
+    Args:
+        urls: 1-10 absolute http(s) URLs, max 8192 characters each.
+        max_chars_per_url: Content cap per page, applied after cleaning.
+        max_total_chars: Total content budget across all pages.
+        clean: Remove DeepSeek's spurious Markdown escaping (\\# at line start, \\, etc.).
+        refresh: Bypass the response cache and fetch every page again.
+    """
+    settings = get_settings()
+    if not urls or len(urls) > settings.batch_max_urls:
+        return _fail("bad_request", f"urls must contain 1-{settings.batch_max_urls} entries.")
+    if max_chars_per_url < 1 or max_total_chars < 1:
+        return _fail("bad_request", "max_chars_per_url and max_total_chars must be at least 1.")
+
+    items: list[tuple[str, dict[str, Any] | None]] = []
+    seen: set[str] = set()
+    duplicates = 0
+    for raw in urls:
+        url = raw.strip() if isinstance(raw, str) else ""
+        if not url:
+            continue
+        rejection = _check_fetch_url(url)
+        key = url if rejection is not None else (_canonical_url(url) or url)
+        if key in seen:
+            duplicates += 1
+            continue
+        seen.add(key)
+        items.append((url, rejection))
+    if not items:
+        return _fail("bad_request", "urls must contain at least one non-empty URL.")
+
+    per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
+    semaphore = asyncio.Semaphore(settings.batch_concurrency)
+    tasks = {
+        index: asyncio.create_task(_fetch_isolated(url, clean, per_url, refresh, semaphore))
+        for index, (url, rejection) in enumerate(items)
+        if rejection is None
+    }
+    try:
+        if tasks:
+            await asyncio.wait(tasks.values(), timeout=settings.batch_deadline)
+    finally:
+        pending = [task for task in tasks.values() if not task.done()]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    deadline_error = _fail("deadline_exceeded",
+                           f"Not fetched within the {settings.batch_deadline:g} s batch deadline.")
+    results: list[dict[str, Any]] = []
+    remaining = max_total_chars
+    trimmed = False
+    requests_used = 0
+    for index, (url, rejection) in enumerate(items):
+        if rejection is not None:
+            envelope = rejection
+        elif tasks[index].cancelled():
+            envelope = deadline_error
+        else:
+            envelope = tasks[index].result()
+        item = _batch_item(url, envelope)
+        if item["ok"]:
+            trimmed = trimmed or envelope["truncated"]
+            if item["chars"] > remaining:
+                item["content"] = item["content"][:remaining]
+                item["chars"] = remaining
+                trimmed = True
+            remaining -= item["chars"]
+            requests_used += not item["cached"]
+        elif rejection is None and item["error"].get("code") not in _LOCAL_ERROR_CODES:
+            requests_used += 1
+        results.append(item)
+
+    notes: list[str] = []
+    if duplicates:
+        notes.append(f"deduped {duplicates} duplicate URL(s)")
+    if trimmed:
+        notes.append("truncated_to_budget")
+    return {
+        "ok": True,
+        "count": len(results),
+        "requests_used": requests_used,
+        "cached": sum(item["cached"] for item in results),
+        "results": results,
+        "notes": notes,
     }
 
 
