@@ -1,15 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "deepseek-search-everywhere-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Research-grade MCP server for the DeepSeek Search & Fetch API"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "radoxtech" }]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "mcp>=1.26.0,<2.0",
     "httpx>=0.28.0",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
+test = ["pytest>=8", "pytest-asyncio>=0.24"]
+lint = ["ruff>=0.6"]
+http = ["uvicorn>=0.30"]
+
+[project.scripts]
+deepseek-search-everywhere-mcp = "deepseek_search_everywhere_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/radoxtech/deepseek-search-everywhere-mcp"
+Repository = "https://github.com/radoxtech/deepseek-search-everywhere-mcp"
+Issues = "https://github.com/radoxtech/deepseek-search-everywhere-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deepseek_search_everywhere_mcp"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["live: hits the real DeepSeek API"]
+addopts = "-m 'not live'"
