@@ -31,4 +31,4 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
             terminalreporter.write_line(f"    [{verdict.score}] {target}: {verdict.reason}")
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(json.dumps([r.to_dict() for r in RECORDS], ensure_ascii=False, indent=2))
-    terminalreporter.write_line(f"report: {REPORT_PATH.relative_to(REPORT_PATH.parents[2])}")
+    terminalreporter.write_line("report: build/live-report.json")
