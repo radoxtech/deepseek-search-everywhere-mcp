@@ -14,7 +14,7 @@ HTTP_HINTS = {
     404: "Fetch failed: PDFs, Reddit and some sites are not extractable via /tools/fetch. "
          "Use deepseek_search_and_read instead, which returns content via the search index.",
     413: "Request body too large.",
-    429: "Rate limit exceeded (search 100 QPS, fetch 25 QPS per account).",
+    429: "Rate limit exceeded (upstream or the local request limiter); retry later.",
     504: "Upstream timeout; the page took too long to fetch.",
 }
 
