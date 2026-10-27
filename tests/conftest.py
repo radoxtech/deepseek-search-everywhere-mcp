@@ -18,7 +18,7 @@ PACKAGE = "deepseek_search_everywhere_mcp"
 # Modules that may own process-wide state (cache entries, in-flight maps, rate-limit
 # buckets, the rewrite cache). Each one opts in by defining a ``reset_state()`` function;
 # modules that do not exist yet are skipped.
-STATEFUL_MODULES = ("cache", "ratelimit", "server")
+STATEFUL_MODULES = ("cache", "ratelimit", "server", "settings")
 
 
 def _reset_runtime_state_now() -> None:
@@ -41,6 +41,8 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> No
     monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent-auth.json"))
     monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("DEEPSEEK_MCP_CACHE", raising=False)
+    monkeypatch.delenv("DEEPSEEK_MCP_LOG_LEVEL", raising=False)
 
 
 @pytest.fixture(autouse=True)
