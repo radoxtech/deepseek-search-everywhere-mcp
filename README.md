@@ -28,6 +28,8 @@ Most wrappers pass JSON through. This one adds what repeated research actually n
 
 `deepseek_fetch` returns HTTP 404 for PDFs and Reddit, and times out on some sites. For those, use `deepseek_search_and_read` with the page title or a `site:`-scoped query.
 
+URLs that point at internal hosts or private addresses, or that embed credentials (`https://user:pass@host`), are rejected locally with the `ssrf_blocked` error code before any request is made. This is static validation only; see [SECURITY.md](SECURITY.md).
+
 ## Quick start (current baseline)
 
 Requirements: Python 3.11+ and a DeepSeek API key.

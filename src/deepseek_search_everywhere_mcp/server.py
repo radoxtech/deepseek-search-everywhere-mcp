@@ -27,6 +27,7 @@ from .redact import redact
 from .settings import get_settings
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
+from .urls import CODE_INVALID, UrlError, validate_url
 
 MAX_QUERY = 128
 MAX_URL = 8192
@@ -573,6 +574,20 @@ async def deepseek_search_and_read(
                          max_chars_per_result, max_total_chars, dedupe, rewrite, refresh=refresh)
 
 
+def _reject_url(url: str) -> dict[str, Any] | None:
+    """Statically validate ``url``; return an error envelope if it is rejected, else ``None``.
+
+    Malformed URLs map to ``bad_url`` and blocked targets (internal hosts, literal private
+    addresses, credentials in the URL) to ``ssrf_blocked``. Every tool that forwards a URL
+    to DeepSeek calls this before touching the cache, the limiter or the network.
+    """
+    try:
+        validate_url(url)
+    except UrlError as exc:
+        return _fail("bad_url" if exc.code == CODE_INVALID else exc.code, exc.message)
+    return None
+
+
 @mcp.tool()
 async def deepseek_fetch(
     url: str,
@@ -595,6 +610,9 @@ async def deepseek_fetch(
     locally per endpoint: if no slot frees up within a short wait the error code is
     rate_limited_local. A response larger than 32 MiB fails with response_too_large.
 
+    URLs that point at internal hosts or literal private addresses, or that embed credentials
+    (user:pass@host), are rejected locally with ssrf_blocked before any request is made.
+
     Args:
         url: Absolute http(s) URL, max 8192 characters.
         clean: Remove DeepSeek's spurious Markdown escaping (\\# at line start, \\, \\, etc.).
@@ -610,7 +628,9 @@ async def deepseek_fetch(
     if not re.match(r"^https?://", url, re.I):
         return _fail("bad_url", "url must start with http:// or https://.")
 
-    # Any further URL validation belongs here, before the cache or upstream is touched.
+    rejection = _reject_url(url)
+    if rejection is not None:
+        return rejection
 
     key = _fetch_cache_key(url)
     record, cached = await _cached_call(

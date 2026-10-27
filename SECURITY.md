@@ -34,7 +34,9 @@ Results returned by DeepSeek are passed back to the MCP client. The server has n
 
 URL validation in this server is **static validation only**: it checks the URL scheme and host syntax before a request is
 made. The server does not resolve DNS locally. **DeepSeek performs the actual fetch**, so the SSRF protection
-offered by this server is limited to rejecting unsafe URL forms before they are forwarded. It does not guarantee
+offered by this server is limited to rejecting unsafe URL forms before they are forwarded (internal hostnames,
+literal private or loopback addresses, and URLs that embed credentials such as `https://user:pass@host`; the latter
+is a behavior change in v0.2 and returns the `ssrf_blocked` error code). It does not guarantee
 network-level isolation of the DeepSeek fetch infrastructure.
 
 ## Telemetry
