@@ -106,14 +106,14 @@ async def test_budget_caps_total_chars(upstream: Upstream) -> None:
     total = sum(item["chars"] for item in result["results"])
     assert total <= 100
     assert all(item["chars"] == len(item["content"]) for item in result["results"])
-    assert "truncated_to_budget" in result["notes"]
+    assert server.TRUNCATED_NOTE in result["notes"]
 
 
 async def test_budget_untouched_when_pages_fit(upstream: Upstream) -> None:
     result = await server.deepseek_fetch_many([A, B])
     assert result["partial"] is False
     assert result["failed_count"] == 0
-    assert "truncated_to_budget" not in result["notes"]
+    assert server.TRUNCATED_NOTE not in result["notes"]
     assert sum(item["chars"] for item in result["results"]) <= 20000
 
 

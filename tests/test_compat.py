@@ -101,3 +101,12 @@ def test_rewrite_note(monkeypatch):
     _install_fake_request(monkeypatch, [])
     result = asyncio.run(server._search("q", 5, None, False, None, 1000, 4000, True, True))
     assert "query rewritten (flash): 'better query'" in result["notes"]
+
+
+def test_truncation_note_is_shared(monkeypatch):
+    item = {"title": "T", "url": "https://a.test/x", "site_name": "a.test", "content": "y" * 500}
+    _install_fake_request(monkeypatch, [item])
+    result = asyncio.run(server._search("q", 5, None, True, None, 100, 4000))
+    expected = "Some page content was truncated to respect the character budget."
+    assert server.TRUNCATED_NOTE == expected
+    assert expected in result["notes"]

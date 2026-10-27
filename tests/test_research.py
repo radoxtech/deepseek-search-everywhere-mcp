@@ -125,14 +125,14 @@ async def test_research_respects_budget(upstream: Upstream) -> None:
     assert all(value <= 300 for value in chars)
     assert sum(chars) <= 1000
     assert all(source["chars"] == len(source["content"]) for source in result["sources"])
-    assert "truncated_to_budget" in result["notes"]
+    assert server.TRUNCATED_NOTE in result["notes"]
 
 
 async def test_research_default_budget(upstream: Upstream) -> None:
     upstream.results = [_result(index, "z" * 9000) for index in range(1, 6)]
     result = await server.deepseek_research("default budget question")
     assert sum(source["chars"] for source in result["sources"]) <= 30000
-    assert "truncated_to_budget" in result["notes"]
+    assert server.TRUNCATED_NOTE in result["notes"]
     assert upstream.fetches == []
 
 
@@ -187,3 +187,11 @@ async def test_research_fetched_title_replaces_host_fallback(upstream: Upstream)
     result = await server.deepseek_research("blank title question")
     titles = [source["title"] for source in result["sources"]]
     assert titles == ["Result 1", "Fetched https://site2.example.com/page", "Result 3"]
+
+
+async def test_research_notes_are_prose(upstream: Upstream) -> None:
+    upstream.failures["https://site4.example.com/page"] = {"code": "http_404", "message": "x", "status": 404}
+    result = await server.deepseek_research("notes question", per_page_chars=300, total_chars=1000)
+    assert server.TRUNCATED_NOTE in result["notes"]
+    assert len(result["notes"]) >= 3
+    assert all(" " in note and "_" not in note for note in result["notes"])

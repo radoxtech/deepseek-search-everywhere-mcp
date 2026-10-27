@@ -32,6 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The query-rewrite prompt and user-facing notes are language-neutral.
+- Notes are human-readable text in every tool; content cut to a character budget is reported with the same
+  sentence by search, `deepseek_fetch_many` and `deepseek_research` (no `truncated_to_budget` token).
 - `cached` is a boolean per response and per item; batch tools report the number of hits as `cached_count`.
 - `--check` no longer prints the length of the API key.
 - Settings are a frozen dataclass with documented defaults; `batch_concurrency` is capped at 5.

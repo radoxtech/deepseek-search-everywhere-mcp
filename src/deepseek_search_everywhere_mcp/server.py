@@ -57,6 +57,8 @@ MAX_COUNT = 50  # largest ``count`` accepted from callers and by the upstream se
 # extra results (capped at MAX_COUNT) so that removing duplicates still leaves ``count`` results.
 OVERFETCH_MIN = 2
 OVERFETCH_RATIO = 0.5
+# Note added by every tool whose content was cut to fit a character budget.
+TRUNCATED_NOTE = "Some page content was truncated to respect the character budget."
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -525,7 +527,7 @@ async def _search(
     if lang:
         notes.append(f"Language operator lang:{lang} applied.")
     if content_truncated:
-        notes.append("Some page content was truncated to respect the character budget.")
+        notes.append(TRUNCATED_NOTE)
 
     envelope: dict[str, Any] = {
         "ok": True,
@@ -815,7 +817,7 @@ async def deepseek_fetch_many(
     URLs still pending then are cancelled and reported with error code deadline_exceeded.
 
     Each page gets min(max_chars_per_url, max_total_chars // count) characters and the total
-    content never exceeds max_total_chars; the note truncated_to_budget marks any cut.
+    content never exceeds max_total_chars; a note says when any content was truncated.
     The envelope reports count (unique URLs), requests_used (upstream fetches attempted),
     cached_count (items served from the cache), failed_count (items with ok=false), partial
     (true when any item failed), results and notes. The top-level ok only says the batch ran;
@@ -898,7 +900,7 @@ async def deepseek_fetch_many(
     if duplicates:
         notes.append(f"deduped {duplicates} duplicate URL(s)")
     if trimmed:
-        notes.append("truncated_to_budget")
+        notes.append(TRUNCATED_NOTE)
     failed_count = sum(not item["ok"] for item in results)
     return {
         "ok": True,
@@ -965,8 +967,8 @@ async def deepseek_research(
 
     Each source has id, title, url, authority, rerank_score, content, chars, origin ('search' or
     'fetch'), error (null or {code, message}) and cached (whether its content came from the cache).
-    Content is capped at per_page_chars per source and total_chars overall, in source order; the
-    note truncated_to_budget marks any cut.
+    Content is capped at per_page_chars per source and total_chars overall, in source order; a
+    note says when any content was truncated.
     requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
     and cached_count counts responses served from the cache. failed_count counts sources whose
     error is set and partial is true when it is non-zero. Synthesis is left to the caller.
@@ -1022,7 +1024,7 @@ async def deepseek_research(
         )
         requests_used += batch["requests_used"]
         cached_count += batch["cached_count"]
-        trimmed = trimmed or "truncated_to_budget" in batch["notes"]
+        trimmed = trimmed or TRUNCATED_NOTE in batch["notes"]
         for source, item in zip(gaps.values(), batch["results"], strict=True):
             if not item["ok"]:
                 source["error"] = item["error"]
@@ -1052,7 +1054,7 @@ async def deepseek_research(
     if failed:
         notes.append(f"{failed} fetch(es) failed; see the source's error")
     if trimmed:
-        notes.append("truncated_to_budget")
+        notes.append(TRUNCATED_NOTE)
     return {
         "ok": True,
         "question": question,
