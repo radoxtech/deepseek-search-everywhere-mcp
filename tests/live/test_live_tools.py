@@ -1,7 +1,7 @@
 """End-to-end tests against the real DeepSeek API, graded by an LLM judge.
 
 Run with ``pytest -m live`` and ``DEEPSEEK_API_KEY`` set; without a key every test is skipped.
-Budgets are kept small (3-5 results, short content) so a full run costs well under $0.05.
+Budgets are kept small (3-5 results, short content) so a full run costs well under $0.01.
 Thresholds tolerate normal web variability while still catching off-topic or broken output.
 """
 
