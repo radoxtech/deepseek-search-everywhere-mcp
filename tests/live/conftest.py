@@ -8,7 +8,7 @@ import pathlib
 import pytest
 from live_judge import RECORDS
 
-REPORT_PATH = pathlib.Path(__file__).resolve().parents[2] / ".sisyphus" / "evidence" / "live-report.json"
+REPORT_PATH = pathlib.Path(__file__).resolve().parents[2] / "build" / "live-report.json"
 
 
 @pytest.fixture(autouse=True)
@@ -31,4 +31,4 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
             terminalreporter.write_line(f"    [{verdict.score}] {target}: {verdict.reason}")
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(json.dumps([r.to_dict() for r in RECORDS], ensure_ascii=False, indent=2))
-    terminalreporter.write_line("report: .sisyphus/evidence/live-report.json")
+    terminalreporter.write_line(f"report: {REPORT_PATH.relative_to(REPORT_PATH.parents[2])}")
