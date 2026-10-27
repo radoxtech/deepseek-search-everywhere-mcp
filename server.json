@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.radoxtech/deepseek-search-everywhere-mcp",
+  "title": "DeepSeek Search Everywhere",
+  "description": "Web search, page fetching and multi-source research via the DeepSeek Search & Fetch API.",
+  "repository": {
+    "url": "https://github.com/radoxtech/deepseek-search-everywhere-mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "deepseek-search-everywhere-mcp",
+      "version": "0.2.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "DEEPSEEK_API_KEY",
+          "description": "DeepSeek API key used for the Search & Fetch API.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "DEEPSEEK_BASE_URL",
+          "description": "Override the DeepSeek API base URL.",
+          "isRequired": false,
+          "format": "string",
+          "default": "https://api.deepseek.com"
+        }
+      ]
+    }
+  ]
+}

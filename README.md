@@ -11,6 +11,8 @@ It is a thin, careful layer over that API: results are deduplicated, content is 
 repeated calls are served from an in-memory cache, and outgoing calls are paced by a local rate limiter.
 Six tools, stdio by default, optional bearer-protected streamable HTTP.
 
+<!-- mcp-name: io.github.radoxtech/deepseek-search-everywhere-mcp -->
+
 > Not affiliated with DeepSeek. This is an independent, community-maintained project.
 
 ## Features
@@ -313,6 +315,20 @@ pytest -m live
 ```
 
 Judge scores and reasons are printed after the run. `.env` is git-ignored; never commit it.
+
+### Publishing to the MCP Registry
+
+`server.json` describes the PyPI package for the [MCP Registry](https://modelcontextprotocol.io/registry). The
+README carries an `mcp-name` comment that the registry uses to verify package ownership. To release:
+
+```bash
+python scripts/validate_server_json.py   # structural checks; also runs `mcp-publisher validate` if installed
+mcp-publisher login github               # the io.github.radoxtech namespace requires GitHub authentication
+mcp-publisher publish
+```
+
+Bump the version in `pyproject.toml` and `server.json` together and publish to PyPI first; `tests/test_version_sync.py`
+fails when the versions drift apart.
 
 ## License
 
