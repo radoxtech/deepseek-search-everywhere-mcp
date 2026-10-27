@@ -64,14 +64,16 @@ _search_flight: SingleFlight | None = None
 _fetch_cache: TTLCache | None = None
 _fetch_flight: SingleFlight | None = None
 _rewrite_cache: TTLCache | None = None
+_rewrite_flight: SingleFlight | None = None
 _rate_limiter: RateLimiter | None = None
 
 
 def reset_state() -> None:
     """Forget the response and rewrite caches, in-flight calls and the rate limiter."""
-    global _search_cache, _search_flight, _fetch_cache, _fetch_flight, _rewrite_cache, _rate_limiter
+    global _search_cache, _search_flight, _fetch_cache, _fetch_flight
+    global _rewrite_cache, _rewrite_flight, _rate_limiter
     _search_cache = _search_flight = _fetch_cache = _fetch_flight = None
-    _rewrite_cache = _rate_limiter = None
+    _rewrite_cache = _rewrite_flight = _rate_limiter = None
 
 
 def _get_search_cache() -> TTLCache | None:
@@ -126,6 +128,15 @@ def _get_rewrite_cache() -> TTLCache | None:
         _rewrite_cache = TTLCache(settings.cache_rewrite_entries, settings.cache_rewrite_bytes,
                                   ttl=settings.cache_rewrite_ttl)
     return _rewrite_cache
+
+
+def _get_rewrite_flight() -> SingleFlight:
+    """Return the single-flight group that collapses identical concurrent query rewrites."""
+    global _rewrite_flight
+    if _rewrite_flight is None:
+        # Cache writes are done by the leader itself so failed rewrites are not stored.
+        _rewrite_flight = SingleFlight(None)
+    return _rewrite_flight
 
 
 def _get_rate_limiter() -> RateLimiter:
@@ -334,17 +345,24 @@ async def _rewrite_query(query: str) -> str | None:
 
 
 async def _cached_rewrite(query: str) -> str | None:
-    """Rewrite ``query`` through the rewrite cache; failed rewrites are not remembered."""
+    """Rewrite ``query`` through the rewrite cache and single-flight group.
+
+    Identical concurrent rewrites share one model call; failed rewrites are not remembered.
+    """
     cache = _get_rewrite_cache()
     key = (_base_url(), REWRITE_MODEL, _sha256(SYSTEM_PROMPT), query)
     if cache is not None:
         hit = cache.get(key)
         if hit is not None:
             return hit
-    rewritten = await _rewrite_query(query)
-    if cache is not None and rewritten is not None:
-        cache.set(key, rewritten)
-    return rewritten
+
+    async def leader() -> str | None:
+        rewritten = await _rewrite_query(query)
+        if cache is not None and rewritten is not None:
+            cache.set(key, rewritten)
+        return rewritten
+
+    return (await _get_rewrite_flight().run(key, leader)).value
 
 
 async def _search_upstream(payload: dict[str, Any], query_original: str | None,

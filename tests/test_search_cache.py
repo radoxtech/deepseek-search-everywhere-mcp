@@ -185,6 +185,29 @@ async def test_refresh_still_uses_rewrite_cache(upstream: Upstream, monkeypatch:
     assert len(upstream.calls) == 2
 
 
+async def test_concurrent_rewrites_share_one_flash_call(upstream: Upstream,
+                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = asyncio.Event()
+    paths: list[str] = []
+
+    async def fake_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        paths.append(path)
+        if path == "/v1/chat/completions":
+            await gate.wait()
+            return {"ok": True, "data": {"choices": [{"message": {"content": "sleep science"}}]}}
+        return {"ok": True, "data": {"results": RESULTS}}
+
+    monkeypatch.setattr(server, "_request", fake_request)
+    tasks = [asyncio.create_task(_search("jak działa sen", rewrite=True)) for _ in range(10)]
+    await asyncio.sleep(0)
+    gate.set()
+    envelopes = await asyncio.gather(*tasks)
+    assert paths.count("/v1/chat/completions") == 1
+    assert paths.count(server.SEARCH_PATH) == 1
+    assert all(envelope["ok"] is True for envelope in envelopes)
+    assert server._get_rewrite_flight().in_flight() == 0
+
+
 async def test_cache_hit_takes_no_token(upstream: Upstream, limiter: RateLimiter) -> None:
     bucket = limiter.buckets["search"]
     await _search()
