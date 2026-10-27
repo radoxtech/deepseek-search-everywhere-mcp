@@ -1,6 +1,7 @@
 """MCP server for the DeepSeek Search & Fetch API.
 
-Exposes web search, page fetch (single and batch), search-and-read and balance tools over stdio.
+Exposes web search, page fetch (single and batch), search-and-read, research and balance tools
+over stdio.
 Requires DEEPSEEK_API_KEY; DEEPSEEK_BASE_URL overrides the endpoint.
 
 The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
@@ -798,6 +799,129 @@ async def deepseek_fetch_many(
         "cached": sum(item["cached"] for item in results),
         "results": results,
         "notes": notes,
+    }
+
+
+# Search results whose content is shorter than this are treated as gaps and fetched directly.
+RESEARCH_GAP_CHARS = 200
+
+
+def _research_source(index: int, item: dict[str, Any]) -> dict[str, Any]:
+    """Turn one shaped search result into a research source (``origin`` = ``search``)."""
+    return {
+        "id": index,
+        "title": item.get("title"),
+        "url": item.get("url"),
+        "authority": item.get("authority"),
+        "rerank_score": item.get("rerank_score"),
+        "content": item.get("content") or "",
+        "chars": 0,
+        "origin": "search",
+        "error": None,
+    }
+
+
+def _gap_url(source: dict[str, Any]) -> str | None:
+    """Return the stripped URL of a source that needs a direct fetch, else ``None``."""
+    url = source["url"].strip() if isinstance(source["url"], str) else ""
+    if len(source["content"]) >= RESEARCH_GAP_CHARS or _check_fetch_url(url) is not None:
+        return None
+    return url
+
+
+@mcp.tool()
+async def deepseek_research(
+    question: str,
+    max_pages: int = 5,
+    per_page_chars: int = 6000,
+    total_chars: int = 30000,
+    *,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Gather source material for a question: one search with page content, then fetch the gaps.
+
+    Runs a single search with need_content=True (no query rewrite, no model call, no summary).
+    Results whose content is missing or shorter than 200 characters and whose URL passes
+    validation are fetched directly with deepseek_fetch_many (at most 5 per call); a fetched page
+    replaces the search content of that source. Failed fetches keep the search content and set the
+    source's error; the call still succeeds with partial=true.
+
+    Each source has id, title, url, authority, rerank_score, content, chars, origin ('search' or
+    'fetch') and error (null or {code, message}). Content is capped at per_page_chars per source
+    and total_chars overall, in source order; the note truncated_to_budget marks any cut.
+    requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
+    and cached counts responses served from the cache. Synthesis is left to the caller.
+
+    Args:
+        question: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:.
+        max_pages: Number of search results to use, 1-50 (default 5).
+        per_page_chars: Content cap per source.
+        total_chars: Total content budget across all sources.
+        refresh: Bypass the response caches for the search and the fetches.
+    """
+    if per_page_chars < 1 or total_chars < 1:
+        return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
+    search = await _search(question, max_pages, None, True, None, per_page_chars,
+                           per_page_chars * max_pages, True, False, refresh=refresh)
+    if search.get("ok") is False:
+        return search
+
+    sources = [_research_source(index, item) for index, item in enumerate(search["results"], 1)]
+    requests_used = 0 if search["cached"] else 1
+    cached = 1 if search["cached"] else 0
+    trimmed = False
+
+    gaps: dict[str, dict[str, Any]] = {}
+    for source in sources:
+        url = _gap_url(source)
+        key = None if url is None else (_canonical_url(url) or url)
+        if key is not None and key not in gaps and len(gaps) < get_settings().research_max_pages:
+            gaps[key] = source
+    fetched = 0
+    failed = 0
+    if gaps:
+        batch = await deepseek_fetch_many([source["url"].strip() for source in gaps.values()],
+                                          max_chars_per_url=per_page_chars,
+                                          max_total_chars=total_chars, refresh=refresh)
+        requests_used += batch["requests_used"]
+        cached += batch["cached"]
+        trimmed = trimmed or "truncated_to_budget" in batch["notes"]
+        for source, item in zip(gaps.values(), batch["results"], strict=True):
+            if not item["ok"]:
+                source["error"] = item["error"]
+                failed += 1
+            elif item["content"]:
+                source["content"] = item["content"]
+                source["title"] = source["title"] or item["title"]
+                source["origin"] = "fetch"
+                fetched += 1
+
+    remaining = total_chars
+    for source in sources:
+        allowed = min(per_page_chars, remaining)
+        if len(source["content"]) > allowed:
+            source["content"] = source["content"][:allowed]
+            trimmed = True
+        source["chars"] = len(source["content"])
+        remaining -= source["chars"]
+
+    notes: list[str] = []
+    if search["deduped"]:
+        notes.append(f"deduped {search['deduped']} duplicate result(s)")
+    if fetched:
+        notes.append(f"fetched {fetched} page(s) with missing or short search content")
+    if failed:
+        notes.append(f"{failed} fetch(es) failed; see the source's error")
+    if trimmed:
+        notes.append("truncated_to_budget")
+    return {
+        "ok": True,
+        "question": question,
+        "sources": sources,
+        "requests_used": requests_used,
+        "cached": cached,
+        "notes": notes,
+        "partial": failed > 0,
     }
 
 
