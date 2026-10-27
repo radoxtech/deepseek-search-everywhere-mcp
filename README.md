@@ -258,6 +258,7 @@ The cache and the limiter live in the server process and are not shared between 
 - Only successful, non-empty responses are cached. Errors are never cached.
 - Identical concurrent calls share one upstream request (single-flight); only the one that made the request pays a limiter token, and none of them reports `cached: true`.
 - `refresh=true` skips the cache read for that call and replaces the stored entry.
+- `dedupe` changes the upstream request (the search over-fetches), so `dedupe=true` and `dedupe=false` calls do not share a cache entry.
 - Cache hits and rewrite calls cost no limiter token. One logical call takes one token, retries included.
 - If a token would take longer than 5 s to become available, the call fails immediately with `rate_limited_local`
   rather than queueing indefinitely.
@@ -364,6 +365,10 @@ mcp-publisher publish
 
 Bump the version in `pyproject.toml` and `server.json` together and publish to PyPI first; `tests/test_version_sync.py`
 fails when the versions drift apart.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 
