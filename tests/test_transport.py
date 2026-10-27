@@ -23,7 +23,7 @@ def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     async def fake_sleep(delay: float) -> None:
         recorded.append(delay)
 
-    monkeypatch.setattr(transport.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(transport, "_sleep", fake_sleep)
     return recorded
 
 

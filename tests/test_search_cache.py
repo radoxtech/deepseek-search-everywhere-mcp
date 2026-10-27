@@ -276,7 +276,7 @@ async def test_transport_retries_take_a_single_token(
         return None
 
     monkeypatch.setattr(transport, "_attempt", flaky)
-    monkeypatch.setattr(transport.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(transport, "_sleep", no_sleep)
     result = await _search()
     assert result["ok"] is True
     assert len(attempts) == 2

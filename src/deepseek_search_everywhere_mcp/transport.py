@@ -11,6 +11,7 @@ import json
 import math
 import os
 import pathlib
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -28,6 +29,9 @@ RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 ERROR_BODY_CAP = 64 * 1024
 DEFAULT_RETRY_DELAY = 2.0
 MAX_RETRY_DELAY = 10.0
+
+# Retry backoff sleep; a module-level seam so tests can replace it without patching asyncio.
+_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
 
 def _base_url() -> str:
@@ -163,5 +167,5 @@ async def request(method: str, path: str, *, payload: dict[str, Any] | None = No
         except httpx.RequestError as exc:
             last = _fail("network_error", f"{type(exc).__name__}: {exc}")
         if attempt + 1 < retries:
-            await asyncio.sleep(delay)
+            await _sleep(delay)
     return _scrub(last, key)
