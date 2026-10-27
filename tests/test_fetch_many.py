@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -153,6 +154,21 @@ async def test_unexpected_exception_is_isolated(upstream: Upstream, monkeypatch:
     assert result["ok"] is True
     assert result["results"][0]["ok"] is True
     assert result["results"][1]["error"]["code"] == "internal_error"
+
+
+async def test_unexpected_exception_is_logged_redacted(
+    upstream: Upstream, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def broken(url: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("boom Bearer sk-abcdefghijklmnop")
+
+    monkeypatch.setattr(server, "_fetch", broken)
+    with caplog.at_level(logging.DEBUG, logger=server.__name__):
+        result = await server.deepseek_fetch_many([A])
+    assert result["results"][0]["error"]["code"] == "internal_error"
+    messages = [record.getMessage() for record in caplog.records if record.name == server.__name__]
+    assert any("RuntimeError" in message for message in messages)
+    assert all("sk-abcdefghijklmnop" not in message for message in messages)
 
 
 async def test_tool_is_registered() -> None:

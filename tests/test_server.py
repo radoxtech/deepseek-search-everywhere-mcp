@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 from deepseek_search_everywhere_mcp import server
 
@@ -418,3 +419,15 @@ def test_blank_title_falls_back_to_host(monkeypatch):
     ]
     result, _ = _run_search(monkeypatch, results)
     assert [r["title"] for r in result["results"]] == ["example.com", "docs.example.org", None, "Real"]
+
+
+def test_rewrite_exception_is_logged_redacted(monkeypatch, caplog):
+    async def broken_request(method, path, **_):
+        raise RuntimeError("upstream exploded with key sk-abcdefghijklmnop")
+
+    monkeypatch.setattr(server, "_request", broken_request)
+    with caplog.at_level(logging.DEBUG, logger=server.__name__):
+        assert asyncio.run(server._rewrite_query("q")) is None
+    messages = [record.getMessage() for record in caplog.records if record.name == server.__name__]
+    assert any("RuntimeError" in message for message in messages)
+    assert all("sk-abcdefghijklmnop" not in message for message in messages)

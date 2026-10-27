@@ -60,6 +60,8 @@ OVERFETCH_RATIO = 0.5
 # Note added by every tool whose content was cut to fit a character budget.
 TRUNCATED_NOTE = "Some page content was truncated to respect the character budget."
 
+logger = logging.getLogger(__name__)
+
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
@@ -380,7 +382,8 @@ async def _rewrite_query(query: str) -> str | None:
         if not cleaned:
             return None
         return cleaned
-    except Exception:
+    except Exception as exc:  # broad on purpose: rewriting is best-effort and must never fail a search
+        logger.debug("Query rewrite failed: %s", redact(f"{type(exc).__name__}: {exc}"))
         return None
 
 
@@ -796,8 +799,10 @@ async def _fetch_isolated(
     async with semaphore:
         try:
             return await _fetch(url, clean, max_chars, refresh=refresh)
-        except Exception as exc:
-            return _fail("internal_error", redact(f"{type(exc).__name__}: {exc}"))
+        except Exception as exc:  # broad on purpose: one failing URL must not fail the whole batch
+            message = redact(f"{type(exc).__name__}: {exc}")
+            logger.debug("Batch fetch of a URL failed: %s", message)
+            return _fail("internal_error", message)
 
 
 async def deepseek_fetch_many(
