@@ -164,3 +164,11 @@ def test_research_budget_defaults_are_named_constants() -> None:
     params = inspect.signature(server.deepseek_research).parameters
     assert params["per_page_chars"].default == server.RESEARCH_PAGE_CHARS == 6000
     assert params["total_chars"].default == server.RESEARCH_TOTAL_CHARS == 30000
+
+
+async def test_research_fetched_title_replaces_host_fallback(upstream: Upstream) -> None:
+    blank_title = {**_result(2, ""), "title": "  "}
+    upstream.results = [_result(1, LONG), blank_title, _result(3, "")]
+    result = await server.deepseek_research("blank title question")
+    titles = [source["title"] for source in result["sources"]]
+    assert titles == ["Result 1", "Fetched https://site2.example.com/page", "Result 3"]

@@ -310,20 +310,23 @@ def _upstream_count(count: int, dedupe: bool) -> int:
     return min(count + extra, MAX_COUNT)
 
 
+def _url_host(url: object) -> str | None:
+    """Return the URL host without ``www.``, or None when the URL has none."""
+    if not isinstance(url, str):
+        return None
+    try:
+        host = urllib.parse.urlsplit(url.strip()).hostname
+    except ValueError:
+        return None
+    return host.removeprefix("www.") if host else None
+
+
 def _title_or_host(item: dict) -> str | None:
     """Return the result title, or the URL host without ``www.`` when the title is blank."""
     title = item.get("title")
     if isinstance(title, str) and title.strip():
         return title
-    url = item.get("url")
-    if isinstance(url, str):
-        try:
-            host = urllib.parse.urlsplit(url.strip()).hostname
-        except ValueError:
-            host = None
-        if host:
-            return host.removeprefix("www.")
-    return title
+    return _url_host(item.get("url")) or title
 
 
 def _unescape_markdown(text: str) -> str:
@@ -954,7 +957,8 @@ async def deepseek_research(
                 failed += 1
             elif item["content"]:
                 source["content"] = item["content"]
-                source["title"] = source["title"] or item["title"]
+                if item["title"] and (not source["title"] or source["title"] == _url_host(source["url"])):
+                    source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
                 source["origin"] = "fetch"
                 source["cached"] = item["cached"]
                 fetched += 1
