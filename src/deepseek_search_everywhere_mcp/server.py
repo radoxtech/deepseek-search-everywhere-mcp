@@ -8,6 +8,8 @@ The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -16,9 +18,12 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from .cache import SingleFlight, TTLCache
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
+from .ratelimit import SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
+from .settings import get_settings
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
 
@@ -27,6 +32,9 @@ MAX_URL = 8192
 SEARCH_TIMEOUT = 60.0
 FETCH_TIMEOUT = 120.0
 CHAT_TIMEOUT = 8.0
+
+SEARCH_PATH = "/v1/tools/search"
+REWRITE_MODEL = "deepseek-flash"
 
 SYSTEM_PROMPT = (
     "You rewrite search queries. Output ONLY the rewritten query, no quotes, no explanation. "
@@ -43,6 +51,73 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 mcp = FastMCP("deepseek-search-everywhere-mcp")
+
+# Runtime state, built lazily from the active settings on first use so nothing is bound
+# to an event loop at import time. ``reset_state()`` drops it all.
+_search_cache: TTLCache | None = None
+_search_flight: SingleFlight | None = None
+_rewrite_cache: TTLCache | None = None
+_rate_limiter: RateLimiter | None = None
+
+
+def reset_state() -> None:
+    """Forget the search and rewrite caches, in-flight searches and the rate limiter."""
+    global _search_cache, _search_flight, _rewrite_cache, _rate_limiter
+    _search_cache = _search_flight = _rewrite_cache = _rate_limiter = None
+
+
+def _get_search_cache() -> TTLCache | None:
+    """Return the search response cache, or ``None`` when caching is disabled."""
+    global _search_cache
+    settings = get_settings()
+    if not settings.cache_enabled:
+        return None
+    if _search_cache is None:
+        _search_cache = TTLCache(settings.cache_search_entries, settings.cache_search_bytes,
+                                 ttl=settings.cache_search_ttl)
+    return _search_cache
+
+
+def _get_search_flight() -> SingleFlight:
+    """Return the single-flight group that collapses identical concurrent searches."""
+    global _search_flight
+    if _search_flight is None:
+        # Cache writes are done by the leader itself so only usable responses are stored.
+        _search_flight = SingleFlight(None)
+    return _search_flight
+
+
+def _get_rewrite_cache() -> TTLCache | None:
+    """Return the query-rewrite cache, or ``None`` when caching is disabled."""
+    global _rewrite_cache
+    settings = get_settings()
+    if not settings.cache_enabled:
+        return None
+    if _rewrite_cache is None:
+        _rewrite_cache = TTLCache(settings.cache_rewrite_entries, settings.cache_rewrite_bytes,
+                                  ttl=settings.cache_rewrite_ttl)
+    return _rewrite_cache
+
+
+def _get_rate_limiter() -> RateLimiter:
+    """Return the process-wide per-endpoint rate limiter."""
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = RateLimiter.from_settings(get_settings())
+    return _rate_limiter
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _search_cache_key(payload: dict[str, Any]) -> str:
+    """Key a search by endpoint and upstream payload only (no key, no shaping options)."""
+    return _sha256(_canonical_json({"path": SEARCH_PATH, "base_url": _base_url(), "payload": payload}))
 
 
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
@@ -157,7 +232,7 @@ def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
 
 async def _rewrite_query(query: str) -> str | None:
     payload: dict[str, Any] = {
-        "model": "deepseek-flash",
+        "model": REWRITE_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": query},
@@ -187,10 +262,48 @@ async def _rewrite_query(query: str) -> str | None:
         return None
 
 
+async def _cached_rewrite(query: str) -> str | None:
+    """Rewrite ``query`` through the rewrite cache; failed rewrites are not remembered."""
+    cache = _get_rewrite_cache()
+    key = (_base_url(), REWRITE_MODEL, _sha256(SYSTEM_PROMPT), query)
+    if cache is not None:
+        hit = cache.get(key)
+        if hit is not None:
+            return hit
+    rewritten = await _rewrite_query(query)
+    if cache is not None and rewritten is not None:
+        cache.set(key, rewritten)
+    return rewritten
+
+
+async def _search_upstream(payload: dict[str, Any], query_original: str | None,
+                           key: str) -> dict[str, Any]:
+    """Leader-only path: take a ``search`` token, call upstream, cache a usable answer.
+
+    Returns ``{"data": ..., "query_original": ...}`` on success or an error envelope.
+    """
+    try:
+        ticket = await _get_rate_limiter().acquire(SEARCH)
+    except RateLimitExceeded as exc:
+        return exc.to_envelope()
+    try:
+        result = await _request("POST", SEARCH_PATH, payload=payload, timeout=SEARCH_TIMEOUT)
+    except asyncio.CancelledError:
+        ticket.refund()
+        raise
+    if not result.get("ok"):
+        return result
+    record = {"data": result["data"], "query_original": query_original}
+    cache = _get_search_cache()
+    if cache is not None and result["data"].get("results"):
+        cache.set(key, record)
+    return record
+
+
 async def _search(query: str, count: int, ori_question: str | None, need_content: bool,
                   lang: str | None, max_chars_per_result: int,
                   max_total_chars: int, dedupe: bool = True,
-                  rewrite: bool = False) -> dict[str, Any]:
+                  rewrite: bool = False, *, refresh: bool = False) -> dict[str, Any]:
     query = (query or "").strip()
     if not query:
         return _fail("empty_query", "query must not be empty.")
@@ -204,7 +317,7 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
     query_original: str | None = None
     rewrite_failed = False
     if rewrite and lang is None and _api_key():
-        rewritten = await _rewrite_query(query)
+        rewritten = await _cached_rewrite(query)
         if rewritten is None:
             rewrite_failed = True
         elif rewritten != query:
@@ -218,11 +331,19 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
     if ori_question:
         payload["ori_question"] = ori_question[:MAX_QUERY]
 
-    result = await _request("POST", "/v1/tools/search", payload=payload, timeout=SEARCH_TIMEOUT)
-    if not result.get("ok"):
-        return result
+    key = _search_cache_key(payload)
+    cache = _get_search_cache()
+    record = None if refresh or cache is None else cache.get(key)
+    cached = record is not None
+    if record is None:
+        flight = await _get_search_flight().run(
+            key, lambda: _search_upstream(payload, query_original, key), refresh=refresh
+        )
+        record = flight.value
+        if record.get("ok") is False:
+            return record
 
-    raw = result["data"].get("results") or []
+    raw = record["data"].get("results") or []
     removed = 0
     if dedupe:
         raw, removed = _dedupe_results(raw)
@@ -281,6 +402,7 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
         "count": len(shaped),
         "need_content": need_content,
         "deduped": removed,
+        "cached": cached,
         "results": shaped,
         "notes": [redact(note) for note in notes],
     }
@@ -300,6 +422,8 @@ async def deepseek_web_search(
     max_total_chars: int = 40000,
     dedupe: bool = True,
     rewrite: bool = False,
+    *,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     """Search the web with DeepSeek's index. Returns titles, URLs, dates, authority and rerank scores.
 
@@ -324,9 +448,11 @@ async def deepseek_web_search(
         dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
         rewrite: Rewrite the query via deepseek-flash before searching, default off. Skipped when
             lang is set; falls back silently to the original query on failure.
+        refresh: Bypass the response cache and query upstream again (the envelope's cached
+            flag says whether the results came from the cache).
     """
     return await _search(query, count, ori_question, need_content, lang,
-                         max_chars_per_result, max_total_chars, dedupe, rewrite)
+                         max_chars_per_result, max_total_chars, dedupe, rewrite, refresh=refresh)
 
 
 @mcp.tool()
@@ -339,6 +465,8 @@ async def deepseek_search_and_read(
     max_total_chars: int = 30000,
     dedupe: bool = True,
     rewrite: bool = False,
+    *,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     """Search and return full page content in one request — the recommended retrieval path.
 
@@ -357,9 +485,11 @@ async def deepseek_search_and_read(
         dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
         rewrite: Rewrite the query via deepseek-flash before searching, default off. Skipped when
             lang is set; falls back silently to the original query on failure.
+        refresh: Bypass the response cache and query upstream again (the envelope's cached
+            flag says whether the results came from the cache).
     """
     return await _search(query, count, ori_question, True, lang,
-                         max_chars_per_result, max_total_chars, dedupe, rewrite)
+                         max_chars_per_result, max_total_chars, dedupe, rewrite, refresh=refresh)
 
 
 @mcp.tool()
