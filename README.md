@@ -11,6 +11,10 @@ It is a thin, careful layer over that API: results are deduplicated, content is 
 repeated calls are served from an in-memory cache, and outgoing calls are paced by a local rate limiter.
 Six tools, stdio by default, optional bearer-protected streamable HTTP.
 
+It is a standard MCP server, so it works with **any MCP-compatible AI client or agent**: Claude Code,
+Claude Desktop, Google Antigravity, Cursor, Windsurf, VS Code (GitHub Copilot), Gemini CLI, Codex CLI, Zed,
+opencode and others. Local clients launch it over stdio; remote or shared setups can connect over HTTP.
+
 <!-- mcp-name: io.github.radoxtech/deepseek-search-everywhere-mcp -->
 
 > Not affiliated with DeepSeek. This is an independent, community-maintained project.
@@ -68,6 +72,17 @@ deepseek-search-everywhere-mcp --check
 
 All examples use stdio. Replace `sk-...` with your key.
 
+The server is client-agnostic: the examples below cover common clients, and any other MCP client
+(Antigravity, Cursor, Windsurf, VS Code, Gemini CLI, Codex CLI, Zed, ...) works with the same
+command, arguments and environment variable in its own MCP configuration format.
+
+### Claude Code
+
+```bash
+claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- \
+  uvx --from git+https://github.com/radoxtech/deepseek-search-everywhere-mcp deepseek-search-everywhere-mcp
+```
+
 ### Claude Desktop
 
 Edit `claude_desktop_config.json` (Settings, Developer, Edit Config):
@@ -113,7 +128,9 @@ In `opencode.json`:
 
 ### Any stdio client
 
-If the package is already installed, point the client at the console script:
+Most clients (including Antigravity, Cursor and Windsurf) use an `mcpServers` JSON block. Use the `uvx`
+form from the Claude Desktop example, or, if the package is already installed, point the client at the
+console script:
 
 ```json
 {
