@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-import server
+from deepseek_search_everywhere_mcp import server
 
 
 def test_lang_prefix_added():
