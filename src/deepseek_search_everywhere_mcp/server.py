@@ -821,12 +821,15 @@ def _research_source(index: int, item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _gap_url(source: dict[str, Any]) -> str | None:
-    """Return the stripped URL of a source that needs a direct fetch, else ``None``."""
+def _gap_check(source: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
+    """Classify a source: ``(url, None)`` to fetch, ``(None, error)`` if unfetchable, else no gap."""
+    if len(source["content"]) >= RESEARCH_GAP_CHARS:
+        return None, None
     url = source["url"].strip() if isinstance(source["url"], str) else ""
-    if len(source["content"]) >= RESEARCH_GAP_CHARS or _check_fetch_url(url) is not None:
-        return None
-    return url
+    rejection = _check_fetch_url(url)
+    if rejection is not None:
+        return None, rejection["error"]
+    return url, None
 
 
 @mcp.tool()
@@ -843,7 +846,8 @@ async def deepseek_research(
     Runs a single search with need_content=True (no query rewrite, no model call, no summary).
     Results whose content is missing or shorter than 200 characters and whose URL passes
     validation are fetched directly with deepseek_fetch_many (at most 5 per call); a fetched page
-    replaces the search content of that source. Failed fetches keep the search content and set the
+    replaces the search content of that source. A URL that fails validation (for example an
+    internal address) is not fetched. Failed or rejected sources keep the search content and set the
     source's error; the call still succeeds with partial=true.
 
     Each source has id, title, url, authority, rerank_score, content, chars, origin ('search' or
@@ -872,13 +876,16 @@ async def deepseek_research(
     trimmed = False
 
     gaps: dict[str, dict[str, Any]] = {}
+    failed = 0
     for source in sources:
-        url = _gap_url(source)
+        url, rejection = _gap_check(source)
+        if rejection is not None:
+            source["error"] = rejection
+            failed += 1
         key = None if url is None else (_canonical_url(url) or url)
         if key is not None and key not in gaps and len(gaps) < get_settings().research_max_pages:
             gaps[key] = source
     fetched = 0
-    failed = 0
     if gaps:
         batch = await deepseek_fetch_many([source["url"].strip() for source in gaps.values()],
                                           max_chars_per_url=per_page_chars,
