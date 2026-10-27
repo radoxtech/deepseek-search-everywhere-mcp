@@ -970,7 +970,7 @@ mcp = create_server()
 async def _check() -> int:
     key = _api_key()
     print(f"base_url: {_base_url()}")
-    print(f"DeepSeek key: {'set' if key else 'MISSING'} (len={len(key)})")
+    print(f"DeepSeek key: {'set' if key else 'MISSING'}")
     if not key:
         print("Set DEEPSEEK_API_KEY or point DEEPSEEK_AUTH_JSON at a JSON file.")
         return 1
