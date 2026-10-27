@@ -121,7 +121,7 @@ def test_fetch_rejects_long_url():
 def _install_fake_request(monkeypatch, responses):
     calls = []
 
-    async def fake_request(method, path, *, payload=None, timeout=None, retries=2):
+    async def fake_request(method, path, *, payload=None, timeout=None, retries=2, **_):
         calls.append({"method": method, "path": path, "payload": payload, "timeout": timeout,
                       "retries": retries})
         return responses[path]

@@ -506,6 +506,11 @@ async def deepseek_web_search(
     results may be mixed-language; for named entities test with and without the operator.
     Each result carries date (RFC 3339) and authority (0-4, -1 unknown).
 
+    Responses are cached in memory for a few minutes and identical concurrent calls share one
+    upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
+    locally per endpoint: if no slot frees up within a short wait the error code is
+    rate_limited_local. A response larger than 8 MiB fails with response_too_large.
+
     Args:
         query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
         count: Number of results, 1-50 (default 10).
@@ -544,6 +549,11 @@ async def deepseek_search_and_read(
     This is search with need_content=True. Measured on 14 benchmark questions it returned content
     for PDFs and Reddit threads where deepseek_fetch returned HTTP 404, in about 0.7s per call.
 
+    Responses are cached in memory for a few minutes and identical concurrent calls share one
+    upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
+    locally per endpoint: if no slot frees up within a short wait the error code is
+    rate_limited_local. A response larger than 8 MiB fails with response_too_large.
+
     Args:
         query: Search query, max 128 characters.
         count: Number of results, 1-50 (default 5).
@@ -579,6 +589,11 @@ async def deepseek_fetch(
 
     The response contains only title and content — no final URL, status code or publication date,
     so keep the provenance on your side.
+
+    Pages are cached in memory for about half an hour and identical concurrent calls share one
+    upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
+    locally per endpoint: if no slot frees up within a short wait the error code is
+    rate_limited_local. A response larger than 32 MiB fails with response_too_large.
 
     Args:
         url: Absolute http(s) URL, max 8192 characters.
