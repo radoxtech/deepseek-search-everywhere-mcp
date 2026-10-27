@@ -353,3 +353,15 @@ def test_rewrite_path_sets_ori_question_to_original(monkeypatch):
     _, calls = _run_search(monkeypatch, [], query="jak działa sen", rewrite=True)
     assert calls[0]["payload"]["ori_question"] == "jak działa sen"
 
+
+
+def test_blank_title_falls_back_to_host(monkeypatch):
+    results = [
+        {"title": "", "url": "https://www.example.com/a", "site_name": "Example"},
+        {"title": "   ", "url": "https://docs.example.org:8080/b", "site_name": "Docs"},
+        {"title": None, "url": "not a url", "site_name": "Odd"},
+        {"title": "Real", "url": "https://real.test/c", "site_name": "Real"},
+    ]
+    result, _ = _run_search(monkeypatch, results)
+    assert [r["title"] for r in result["results"]] == [
+        "example.com", "docs.example.org", None, "Real"]

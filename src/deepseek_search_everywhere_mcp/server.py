@@ -296,6 +296,22 @@ def _dedupe_results(items: list[dict]) -> tuple[list[dict], int]:
     return kept, removed
 
 
+def _title_or_host(item: dict) -> str | None:
+    """Return the result title, or the URL host without ``www.`` when the title is blank."""
+    title = item.get("title")
+    if isinstance(title, str) and title.strip():
+        return title
+    url = item.get("url")
+    if isinstance(url, str):
+        try:
+            host = urllib.parse.urlsplit(url.strip()).hostname
+        except ValueError:
+            host = None
+        if host:
+            return host.removeprefix("www.")
+    return title
+
+
 def _unescape_markdown(text: str) -> str:
     text = re.sub(r"\\([,.;:!?])", r"\1", text)
     return re.sub(r"(?m)^\\#(?=\s)", "#", text)
@@ -430,7 +446,7 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
 
     for item in raw:
         entry: dict[str, Any] = {
-            "title": item.get("title"),
+            "title": _title_or_host(item),
             "url": item.get("url"),
             "date": item.get("date"),
             "authority": item.get("authority"),
@@ -533,7 +549,7 @@ async def deepseek_web_search(
 
     Args:
         query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
-        count: Number of results, 1-50 (default 10).
+        count: Number of results to return, 1-50 (default 10).
         ori_question: Original natural-language question, max 128 characters; improves ranking.
         need_content: Return full page text per result (recommended for reading).
         lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
@@ -575,7 +591,7 @@ async def deepseek_search_and_read(
 
     Args:
         query: Search query, max 128 characters.
-        count: Number of results, 1-50 (default 5).
+        count: Number of results to return, 1-50 (default 5).
         ori_question: Original natural-language question, max 128 characters.
         lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
             appropriate code; without it results may be mixed-language. For named entities test

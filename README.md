@@ -205,7 +205,7 @@ Every tool returns a JSON object with `ok`.
 | `error` | failures | `{ "code", "message", "status"? }`; `status` is the upstream HTTP status when there was one |
 | `partial` | `deepseek_research` | `true` when some sources failed; each failed source carries its own `error` |
 
-Search results carry `title`, `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
+Search results carry `title` (the URL host without `www.` when the upstream title is blank), `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
 and `content`/`content_chars` or `summary` where available. `deepseek_fetch` returns `title`, `content`,
 `content_chars`, `truncated`.
 
