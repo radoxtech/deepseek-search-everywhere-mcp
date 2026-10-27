@@ -72,13 +72,19 @@ async def test_second_identical_search_is_served_from_cache(upstream: Upstream) 
 async def test_shaping_options_share_one_upstream_call(upstream: Upstream) -> None:
     wide = await _search(total=4000)
     narrow = await _search(total=600)
-    raw = await _search(dedupe=False)
     assert len(upstream.calls) == 1
-    assert narrow["cached"] is True and raw["cached"] is True
+    assert narrow["cached"] is True
     assert sum(len(r.get("content", "")) for r in narrow["results"]) < sum(
         len(r.get("content", "")) for r in wide["results"]
     )
     assert wide["deduped"] == 1 and wide["count"] == 2
+
+
+async def test_dedupe_off_uses_its_own_upstream_request(upstream: Upstream) -> None:
+    await _search()
+    raw = await _search(dedupe=False)
+    assert len(upstream.calls) == 2  # dedupe=False does not over-fetch, so the payload differs
+    assert raw["cached"] is False
     assert raw["deduped"] == 0 and raw["count"] == 3
 
 

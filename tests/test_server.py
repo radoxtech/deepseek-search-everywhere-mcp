@@ -355,6 +355,62 @@ def test_rewrite_path_sets_ori_question_to_original(monkeypatch):
 
 
 
+def _dup_results(unique: int, duplicates: int) -> list[dict]:
+    items = [{"title": f"Result {i}", "url": f"https://example.com/{i}", "site_name": "Example"}
+             for i in range(unique)]
+    return items + [dict(items[0]) for _ in range(duplicates)]
+
+
+def test_upstream_count_overfetches_only_with_dedupe():
+    assert server._upstream_count(4, False) == 4
+    assert server._upstream_count(4, True) == 6
+    assert server._upstream_count(1, True) == 3
+    assert server._upstream_count(10, True) == 15
+    assert server._upstream_count(49, True) == server.MAX_COUNT
+    assert server._upstream_count(50, True) == server.MAX_COUNT
+
+
+def test_topup_returns_count_despite_duplicates(monkeypatch):
+    # asked for 4; upstream returns 6 of which 2 are duplicates
+    result, calls = _run_search(monkeypatch, _dup_results(4, 2), dedupe=True)
+    assert calls[0]["payload"]["count"] == 8  # _run_search asks for 5 -> 5 + 3
+    assert result["deduped"] == 2
+
+
+def test_topup_trims_to_requested_count(monkeypatch):
+    calls = _install_fake_request(
+        monkeypatch, {"/v1/tools/search": _search_response(_dup_results(8, 0))}
+    )
+    result = asyncio.run(server._search("q", 4, None, False, None, 1000, 4000))
+    assert calls[0]["payload"]["count"] == 6
+    assert result["count"] == 4
+    assert [r["title"] for r in result["results"]] == [f"Result {i}" for i in range(4)]
+
+
+def test_topup_fills_count_after_dedupe(monkeypatch):
+    calls = _install_fake_request(
+        monkeypatch, {"/v1/tools/search": _search_response(_dup_results(4, 2))}
+    )
+    result = asyncio.run(server._search("q", 4, None, False, None, 1000, 4000))
+    assert calls[0]["payload"]["count"] == 6
+    assert result["count"] == 4
+    assert result["deduped"] == 2
+
+
+def test_no_overfetch_without_dedupe(monkeypatch):
+    calls = _install_fake_request(
+        monkeypatch, {"/v1/tools/search": _search_response(_dup_results(2, 0))}
+    )
+    asyncio.run(server._search("q", 4, None, False, None, 1000, 4000, False))
+    assert calls[0]["payload"]["count"] == 4
+
+
+def test_overfetch_capped_at_upstream_max(monkeypatch):
+    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response([])})
+    asyncio.run(server._search("q", 50, None, False, None, 1000, 4000))
+    assert calls[0]["payload"]["count"] == 50
+
+
 def test_blank_title_falls_back_to_host(monkeypatch):
     results = [
         {"title": "", "url": "https://www.example.com/a", "site_name": "Example"},

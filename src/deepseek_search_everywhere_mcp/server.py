@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import re
 import urllib.parse
 from collections.abc import Awaitable, Callable
@@ -51,6 +52,11 @@ SYSTEM_PROMPT = (
 TRACKING_PARAMS = {"fbclid", "gclid", "yclid", "mc_cid", "mc_eid"}
 MIN_TITLE_SITE_CHARS = 20
 MIN_TITLE_SITE_WORDS = 3
+MAX_COUNT = 50  # largest ``count`` accepted from callers and by the upstream search API
+# With dedupe on, the upstream is asked for up to max(OVERFETCH_MIN, ceil(count * OVERFETCH_RATIO))
+# extra results (capped at MAX_COUNT) so that removing duplicates still leaves ``count`` results.
+OVERFETCH_MIN = 2
+OVERFETCH_RATIO = 0.5
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -296,6 +302,14 @@ def _dedupe_results(items: list[dict]) -> tuple[list[dict], int]:
     return kept, removed
 
 
+def _upstream_count(count: int, dedupe: bool) -> int:
+    """Number of results to request upstream: ``count`` plus a dedupe margin, capped at the API max."""
+    if not dedupe:
+        return count
+    extra = max(OVERFETCH_MIN, math.ceil(count * OVERFETCH_RATIO))
+    return min(count + extra, MAX_COUNT)
+
+
 def _title_or_host(item: dict) -> str | None:
     """Return the result title, or the URL host without ``www.`` when the title is blank."""
     title = item.get("title")
@@ -406,8 +420,8 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
         return _fail("empty_query", "query must not be empty.")
     if len(query) > MAX_QUERY:
         return _fail("query_too_long", f"query must be at most {MAX_QUERY} characters.")
-    if not 1 <= count <= 50:
-        return _fail("bad_count", "count must be between 1 and 50.")
+    if not 1 <= count <= MAX_COUNT:
+        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
     if lang and not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2})?", lang):
         return _fail("bad_lang", "lang must look like 'es' or 'pt-BR'.")
 
@@ -424,7 +438,8 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
                 ori_question = query_original[:MAX_QUERY]
 
     used, trimmed = _with_lang(query, lang)
-    payload: dict[str, Any] = {"query": used, "count": count, "need_content": need_content}
+    payload: dict[str, Any] = {"query": used, "count": _upstream_count(count, dedupe),
+                               "need_content": need_content}
     if ori_question:
         payload["ori_question"] = ori_question[:MAX_QUERY]
 
@@ -440,6 +455,7 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
     removed = 0
     if dedupe:
         raw, removed = _dedupe_results(raw)
+        raw = raw[:count]
     remaining = max_total_chars
     shaped: list[dict[str, Any]] = []
     content_truncated = False
@@ -549,7 +565,8 @@ async def deepseek_web_search(
 
     Args:
         query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
-        count: Number of results to return, 1-50 (default 10).
+        count: Number of results to return, 1-50 (default 10). With dedupe on, extras are
+            requested upstream so duplicates do not leave you short.
         ori_question: Original natural-language question, max 128 characters; improves ranking.
         need_content: Return full page text per result (recommended for reading).
         lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
@@ -591,7 +608,8 @@ async def deepseek_search_and_read(
 
     Args:
         query: Search query, max 128 characters.
-        count: Number of results to return, 1-50 (default 5).
+        count: Number of results to return, 1-50 (default 5). With dedupe on, extras are
+            requested upstream so duplicates do not leave you short.
         ori_question: Original natural-language question, max 128 characters.
         lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
             appropriate code; without it results may be mixed-language. For named entities test

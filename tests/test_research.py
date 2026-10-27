@@ -74,7 +74,7 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
     assert result["sources"][1]["content"].startswith("Fetched body https://site2.example.com/page")
     assert all(source["error"] is None for source in result["sources"])
     assert upstream.searches[0]["need_content"] is True
-    assert upstream.searches[0]["count"] == 5
+    assert upstream.searches[0]["count"] == 8  # 5 requested + dedupe over-fetch margin
     assert set(result["sources"][0]) == {"id", "title", "url", "authority", "rerank_score", "content",
                                          "chars", "origin", "error", "cached"}
 

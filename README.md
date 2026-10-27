@@ -174,6 +174,9 @@ Notes on the parameters:
   `after:` and `before:`. `ori_question` (max 128 characters) is the natural-language question and improves ranking.
 - `lang` is an explicit language operator such as `es`, `de`, `ja` or `pt-BR`. Without it, results for
   non-English queries may be mixed-language; for named entities, compare with and without it.
+- With `dedupe=True`, searches ask the upstream for a few extra results (`max(2, ceil(count * 0.5))`, capped at 50)
+  and trim to `count` after removing duplicates, so you still get `count` results when the index returns repeats.
+  With `dedupe=False` exactly `count` are requested.
 - `rewrite=True` translates the query to English with `deepseek-flash` before searching. It is skipped when `lang`
   is set and falls back silently to the original query if the rewrite fails.
 - `deepseek_fetch_many` skips empty entries, fetches duplicate URLs (same canonical URL) once, keeps the input
