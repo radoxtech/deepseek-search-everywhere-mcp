@@ -65,7 +65,8 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
     assert result["partial"] is False
     assert sorted(upstream.fetches) == ["https://site2.example.com/page", "https://site4.example.com/page"]
     assert result["requests_used"] == 3
-    assert result["cached"] == 0
+    assert result["cached_count"] == 0
+    assert all(source["cached"] is False for source in result["sources"])
     assert [source["id"] for source in result["sources"]] == [1, 2, 3, 4, 5]
     origins = [source["origin"] for source in result["sources"]]
     assert origins == ["search", "fetch", "search", "fetch", "search"]
@@ -74,7 +75,7 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
     assert upstream.searches[0]["need_content"] is True
     assert upstream.searches[0]["count"] == 5
     assert set(result["sources"][0]) == {"id", "title", "url", "authority", "rerank_score", "content",
-                                         "chars", "origin", "error"}
+                                         "chars", "origin", "error", "cached"}
 
 
 async def test_research_partial_fetch_failure(upstream: Upstream) -> None:
@@ -140,7 +141,8 @@ async def test_research_repeat_is_served_from_cache(upstream: Upstream) -> None:
     await server.deepseek_research("cached question")
     again = await server.deepseek_research("cached question")
     assert again["requests_used"] == 0
-    assert again["cached"] == 3
+    assert again["cached_count"] == 3
+    assert all(source["cached"] is True for source in again["sources"])
     assert len(upstream.searches) == 1
     assert len(upstream.fetches) == 2
 

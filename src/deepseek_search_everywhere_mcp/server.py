@@ -710,7 +710,8 @@ async def deepseek_fetch_many(
     Each page gets min(max_chars_per_url, max_total_chars // count) characters and the total
     content never exceeds max_total_chars; the note truncated_to_budget marks any cut.
     The envelope reports count (unique URLs), requests_used (upstream fetches attempted),
-    cached (items served from the cache), results and notes.
+    cached_count (items served from the cache), results and notes. Each result carries its own
+    cached flag.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
@@ -793,7 +794,7 @@ async def deepseek_fetch_many(
         "ok": True,
         "count": len(results),
         "requests_used": requests_used,
-        "cached": sum(item["cached"] for item in results),
+        "cached_count": sum(item["cached"] for item in results),
         "results": results,
         "notes": notes,
     }
@@ -803,7 +804,7 @@ async def deepseek_fetch_many(
 RESEARCH_GAP_CHARS = 200
 
 
-def _research_source(index: int, item: dict[str, Any]) -> dict[str, Any]:
+def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str, Any]:
     """Turn one shaped search result into a research source (``origin`` = ``search``)."""
     return {
         "id": index,
@@ -815,6 +816,7 @@ def _research_source(index: int, item: dict[str, Any]) -> dict[str, Any]:
         "chars": 0,
         "origin": "search",
         "error": None,
+        "cached": cached,
     }
 
 
@@ -847,10 +849,11 @@ async def deepseek_research(
     source's error; the call still succeeds with partial=true.
 
     Each source has id, title, url, authority, rerank_score, content, chars, origin ('search' or
-    'fetch') and error (null or {code, message}). Content is capped at per_page_chars per source
-    and total_chars overall, in source order; the note truncated_to_budget marks any cut.
+    'fetch'), error (null or {code, message}) and cached (whether its content came from the cache).
+    Content is capped at per_page_chars per source and total_chars overall, in source order; the
+    note truncated_to_budget marks any cut.
     requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
-    and cached counts responses served from the cache. Synthesis is left to the caller.
+    and cached_count counts responses served from the cache. Synthesis is left to the caller.
 
     Args:
         question: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:.
@@ -866,9 +869,10 @@ async def deepseek_research(
     if search.get("ok") is False:
         return search
 
-    sources = [_research_source(index, item) for index, item in enumerate(search["results"], 1)]
+    sources = [_research_source(index, item, search["cached"])
+               for index, item in enumerate(search["results"], 1)]
     requests_used = 0 if search["cached"] else 1
-    cached = 1 if search["cached"] else 0
+    cached_count = 1 if search["cached"] else 0
     trimmed = False
 
     gaps: dict[str, dict[str, Any]] = {}
@@ -887,7 +891,7 @@ async def deepseek_research(
                                           max_chars_per_url=per_page_chars,
                                           max_total_chars=total_chars, refresh=refresh)
         requests_used += batch["requests_used"]
-        cached += batch["cached"]
+        cached_count += batch["cached_count"]
         trimmed = trimmed or "truncated_to_budget" in batch["notes"]
         for source, item in zip(gaps.values(), batch["results"], strict=True):
             if not item["ok"]:
@@ -897,6 +901,7 @@ async def deepseek_research(
                 source["content"] = item["content"]
                 source["title"] = source["title"] or item["title"]
                 source["origin"] = "fetch"
+                source["cached"] = item["cached"]
                 fetched += 1
 
     remaining = total_chars
@@ -922,7 +927,7 @@ async def deepseek_research(
         "question": question,
         "sources": sources,
         "requests_used": requests_used,
-        "cached": cached,
+        "cached_count": cached_count,
         "notes": notes,
         "partial": failed > 0,
     }

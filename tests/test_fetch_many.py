@@ -84,10 +84,10 @@ async def test_cache_is_shared_with_deepseek_fetch(upstream: Upstream) -> None:
     result = await server.deepseek_fetch_many([A, B])
     assert upstream.calls == [A, B]
     assert [item["cached"] for item in result["results"]] == [True, False]
-    assert result["cached"] == 1
+    assert result["cached_count"] == 1
     assert result["requests_used"] == 1
     refreshed = await server.deepseek_fetch_many([A], refresh=True)
-    assert refreshed["cached"] == 0 and upstream.calls.count(A) == 2
+    assert refreshed["cached_count"] == 0 and upstream.calls.count(A) == 2
 
 
 @pytest.mark.parametrize("urls", [[], [f"https://example.com/{i}" for i in range(11)], ["", " "]])
