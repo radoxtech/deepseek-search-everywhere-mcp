@@ -1,0 +1,15 @@
+[project]
+name = "deepseek-search-everywhere-mcp"
+version = "0.1.0"
+description = "Research-grade MCP server for the DeepSeek Search & Fetch API"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.26.0,<2.0",
+    "httpx>=0.28.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
