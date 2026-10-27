@@ -42,10 +42,8 @@ class Upstream:
 
 
 @pytest.fixture
-def upstream(monkeypatch: pytest.MonkeyPatch) -> Upstream:
-    fake = Upstream()
-    monkeypatch.setattr(server, "_request", fake)
-    return fake
+def upstream(fake_upstream: Any) -> Upstream:
+    return fake_upstream(Upstream())
 
 
 async def test_partial_failure_keeps_order_and_ok(upstream: Upstream) -> None:

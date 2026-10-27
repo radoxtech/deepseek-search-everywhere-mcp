@@ -162,14 +162,9 @@ def test_tools_list_returns_every_tool(client: TestClient) -> None:
     assert len(names) == 6
 
 
-def test_tools_call_uses_stubbed_upstream(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, str]] = []
-
-    async def fake_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append((method, path))
-        return {"ok": True, "data": {"is_available": True, "balance_infos": [{"currency": "USD"}]}}
-
-    monkeypatch.setattr(server, "_request", fake_request)
+def test_tools_call_uses_stubbed_upstream(client: TestClient, fake_upstream: Any) -> None:
+    balance = {"ok": True, "data": {"is_available": True, "balance_infos": [{"currency": "USD"}]}}
+    upstream = fake_upstream(default=balance)
     response = client.post(
         "/mcp",
         json=_rpc("tools/call", {"name": "deepseek_balance", "arguments": {}}),
@@ -179,7 +174,7 @@ def test_tools_call_uses_stubbed_upstream(client: TestClient, monkeypatch: pytes
     result = response.json()["result"]
     assert result["isError"] is False
     assert result["structuredContent"]["is_available"] is True
-    assert calls == [("GET", "/user/balance")]
+    assert [(call["method"], call["path"]) for call in upstream.calls] == [("GET", "/user/balance")]
 
 
 @pytest.mark.parametrize(

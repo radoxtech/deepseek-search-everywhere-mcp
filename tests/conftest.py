@@ -7,7 +7,8 @@ import importlib.util
 import os
 import pathlib
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from typing import Any, Protocol
 
 import pytest
 
@@ -96,3 +97,80 @@ class FakeClock:
 def fake_clock() -> FakeClock:
     """A fresh clock starting at 0.0 for cache and rate-limiter tests (no ``time.sleep``)."""
     return FakeClock()
+
+
+class FakeUpstream:
+    """Stand-in for ``server._request`` that records every call and answers per path.
+
+    Each call is stored in ``calls`` as ``{"method", "path", "payload", "timeout", "attempts"}``
+    (``attempts`` defaults to 2, as in the real transport). The answer is ``responses[path]``,
+    else ``default``; an unexpected path with no default raises ``AssertionError``.
+    """
+
+    def __init__(
+        self, responses: Mapping[str, dict[str, Any]] | None = None, default: dict[str, Any] | None = None
+    ) -> None:
+        self.responses = dict(responses or {})
+        self.default = default
+        self.calls: list[dict[str, Any]] = []
+
+    async def __call__(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        attempts: int = 2,
+        **_: Any,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {"method": method, "path": path, "payload": payload, "timeout": timeout, "attempts": attempts}
+        )
+        if path in self.responses:
+            return self.responses[path]
+        if self.default is None:
+            raise AssertionError(f"unexpected upstream path {path!r}")
+        return self.default
+
+
+RequestFake = Callable[..., Awaitable[dict[str, Any]]]
+
+
+class InstallUpstream(Protocol):
+    """Signature of the ``fake_upstream`` fixture's installer."""
+
+    def __call__(
+        self,
+        upstream: Any = None,
+        *,
+        responses: Mapping[str, dict[str, Any]] | None = None,
+        default: dict[str, Any] | None = None,
+        api_key: str | None = "test-key",
+    ) -> Any: ...
+
+
+@pytest.fixture
+def fake_upstream(monkeypatch: pytest.MonkeyPatch) -> InstallUpstream:
+    """Install a fake ``server._request`` (and a dummy API key) for the test; return the installer.
+
+    ``fake_upstream(responses=..., default=...)`` installs a recording :class:`FakeUpstream`;
+    ``fake_upstream(custom)`` installs any async callable (e.g. a file-specific fake) as-is.
+    Either way the installed fake is returned. ``api_key=None`` leaves the key lookup alone.
+    """
+    from deepseek_search_everywhere_mcp import server
+
+    def install(
+        upstream: RequestFake | None = None,
+        *,
+        responses: Mapping[str, dict[str, Any]] | None = None,
+        default: dict[str, Any] | None = None,
+        api_key: str | None = "test-key",
+    ) -> Any:
+        fake = upstream if upstream is not None else FakeUpstream(responses, default)
+        monkeypatch.setattr(server, "_request", fake)
+        if api_key is not None:
+            monkeypatch.setattr(server, "_api_key", lambda: api_key)
+        return fake
+
+    return install

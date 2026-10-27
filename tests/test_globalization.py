@@ -17,18 +17,11 @@ NON_ENGLISH_QUERIES = (
 
 
 def _search(
-    monkeypatch: pytest.MonkeyPatch, query: str, lang: str | None = None
+    fake_upstream: Any, query: str, lang: str | None = None
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    calls: list[dict[str, Any]] = []
-
-    async def fake_request(method, path, *, payload=None, timeout=None, attempts=2, **_):
-        calls.append({"method": method, "path": path, "payload": payload})
-        return {"ok": True, "data": {"results": []}}
-
-    monkeypatch.setattr(server, "_request", fake_request)
-    monkeypatch.setattr(server, "_api_key", lambda: "test-key")
+    upstream = fake_upstream(default={"ok": True, "data": {"results": []}})
     result = asyncio.run(server._search(query, 5, None, False, lang, 1000, 4000))
-    return result, calls
+    return result, upstream.calls
 
 
 def test_rewrite_prompt_is_language_agnostic() -> None:
@@ -39,8 +32,8 @@ def test_rewrite_prompt_is_language_agnostic() -> None:
 
 
 @pytest.mark.parametrize("query", NON_ENGLISH_QUERIES)
-def test_no_language_specific_note(monkeypatch: pytest.MonkeyPatch, query: str) -> None:
-    result, calls = _search(monkeypatch, query)
+def test_no_language_specific_note(fake_upstream: Any, query: str) -> None:
+    result, calls = _search(fake_upstream, query)
     assert result["ok"] is True
     assert result["notes"] == []
     assert result["query_used"] == query
@@ -48,8 +41,8 @@ def test_no_language_specific_note(monkeypatch: pytest.MonkeyPatch, query: str) 
     assert not any("lang:" in note or "Polish" in note for note in result["notes"])
 
 
-def test_no_language_specific_operator_without_lang(monkeypatch: pytest.MonkeyPatch) -> None:
-    _, calls = _search(monkeypatch, "popołudniowy spadek energii")
+def test_no_language_specific_operator_without_lang(fake_upstream: Any) -> None:
+    _, calls = _search(fake_upstream, "popołudniowy spadek energii")
     assert "lang:" not in calls[0]["payload"]["query"]
 
 
@@ -59,7 +52,7 @@ def test_with_lang_still_accepts_pl_code() -> None:
     assert trimmed is False
 
 
-def test_bad_lang_example_is_language_neutral(monkeypatch: pytest.MonkeyPatch) -> None:
-    result, _ = _search(monkeypatch, "test", lang="polish")
+def test_bad_lang_example_is_language_neutral(fake_upstream: Any) -> None:
+    result, _ = _search(fake_upstream, "test", lang="polish")
     assert result["ok"] is False
     assert "'es' or 'pt-BR'" in result["error"]["message"]

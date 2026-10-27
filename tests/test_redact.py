@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import httpx
 import pytest
@@ -85,21 +86,21 @@ def test_transport_network_error_hides_key(monkeypatch: pytest.MonkeyPatch) -> N
     assert "sk-livekeyvalue123" not in result["error"]["message"]
 
 
-def test_notes_are_redacted_but_result_content_is_not(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+def test_notes_are_redacted_but_result_content_is_not(
+    monkeypatch: pytest.MonkeyPatch, fake_upstream: Any
+) -> None:
     content = "Docs say to use sk-abcdefghijkl for testing."
 
     async def fake_rewrite(query: str) -> str:
         return "find sk-abcdefghijkl"
 
-    async def fake_request(method: str, path: str, **kwargs: object) -> dict:
-        return {
+    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    fake_upstream(
+        default={
             "ok": True,
             "data": {"results": [{"title": "T", "url": "https://a.test", "content": content}]},
         }
-
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    monkeypatch.setattr(server, "_request", fake_request)
+    )
 
     envelope = asyncio.run(server._search("original question", 5, None, True, None, 4000, 30000, True, True))
     assert any("query rewritten" in note for note in envelope["notes"])

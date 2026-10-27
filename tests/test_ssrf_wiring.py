@@ -21,10 +21,8 @@ class Upstream:
 
 
 @pytest.fixture
-def upstream(monkeypatch: pytest.MonkeyPatch) -> Upstream:
-    fake = Upstream()
-    monkeypatch.setattr(server, "_request", fake)
-    return fake
+def upstream(fake_upstream: Any) -> Upstream:
+    return fake_upstream(Upstream())
 
 
 @pytest.mark.parametrize(

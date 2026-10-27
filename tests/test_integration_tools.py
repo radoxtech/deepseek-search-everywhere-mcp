@@ -57,18 +57,8 @@ def _result(url: str, content: str) -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-def install(monkeypatch: pytest.MonkeyPatch):
-    def _install(upstream: Upstream) -> Upstream:
-        monkeypatch.setattr(server, "_request", upstream)
-        monkeypatch.setattr(server, "_api_key", lambda: "test-key")
-        return upstream
-
-    return _install
-
-
-async def test_mixed_batch_makes_one_upstream_call_and_reports_two_errors(install: Any) -> None:
-    upstream = install(Upstream())
+async def test_mixed_batch_makes_one_upstream_call_and_reports_two_errors(fake_upstream: Any) -> None:
+    upstream = fake_upstream(Upstream())
     urls = [PUBLIC, INTERNAL, PUBLIC, "not a url", OTHER]
     result = await server.deepseek_fetch_many(urls)
     assert result["ok"] is True
@@ -79,9 +69,9 @@ async def test_mixed_batch_makes_one_upstream_call_and_reports_two_errors(instal
     assert sorted(upstream.fetches) == sorted([PUBLIC, OTHER])
 
 
-async def test_research_marks_internal_source_ssrf_blocked_and_still_succeeds(install: Any) -> None:
+async def test_research_marks_internal_source_ssrf_blocked_and_still_succeeds(fake_upstream: Any) -> None:
     results = [_result(PUBLIC, SHORT), _result(INTERNAL, SHORT), _result(OTHER, LONG)]
-    upstream = install(Upstream(results))
+    upstream = fake_upstream(Upstream(results))
     result = await server.deepseek_research("internal source question")
     assert result["ok"] is True
     by_url = {source["url"]: source for source in result["sources"]}
@@ -92,9 +82,9 @@ async def test_research_marks_internal_source_ssrf_blocked_and_still_succeeds(in
     assert upstream.fetches == [PUBLIC]
 
 
-async def test_search_content_is_not_served_as_a_fetch_cache_hit(install: Any) -> None:
+async def test_search_content_is_not_served_as_a_fetch_cache_hit(fake_upstream: Any) -> None:
     results = [_result(PUBLIC, LONG)]
-    upstream = install(Upstream(results))
+    upstream = fake_upstream(Upstream(results))
     search = await server.deepseek_search_and_read("topic")
     assert search["ok"] is True and search["cached"] is False
     fetched = await server.deepseek_fetch(PUBLIC)
@@ -109,11 +99,9 @@ async def test_search_content_is_not_served_as_a_fetch_cache_hit(install: Any) -
 
 
 async def test_batch_of_ten_is_paced_by_the_limiter_without_blocking(
-    monkeypatch: pytest.MonkeyPatch, fake_clock: Any
+    monkeypatch: pytest.MonkeyPatch, fake_clock: Any, fake_upstream: Any
 ) -> None:
-    upstream = Upstream(clock=fake_clock)
-    monkeypatch.setattr(server, "_request", upstream)
-    monkeypatch.setattr(server, "_api_key", lambda: "test-key")
+    upstream = fake_upstream(Upstream(clock=fake_clock))
     delays: list[float] = []
 
     async def sleep(delay: float) -> None:

@@ -54,10 +54,8 @@ def _mixed() -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def upstream(monkeypatch: pytest.MonkeyPatch) -> Upstream:
-    fake = Upstream(_mixed())
-    monkeypatch.setattr(server, "_request", fake)
-    return fake
+def upstream(fake_upstream: Any) -> Upstream:
+    return fake_upstream(Upstream(_mixed()))
 
 
 async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
@@ -108,11 +106,10 @@ async def test_research_partial_fetch_failure(upstream: Upstream) -> None:
     assert result["requests_used"] == 3
 
 
-async def test_research_ssrf_url_is_not_fetched(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_research_ssrf_url_is_not_fetched(fake_upstream: Any) -> None:
     results = _mixed()
     results[1]["url"] = "http://127.0.0.1/admin"
-    fake = Upstream(results)
-    monkeypatch.setattr(server, "_request", fake)
+    fake = fake_upstream(Upstream(results))
     result = await server.deepseek_research("internal url question")
     assert fake.fetches == ["https://site4.example.com/page"]
     assert result["sources"][1]["origin"] == "search"

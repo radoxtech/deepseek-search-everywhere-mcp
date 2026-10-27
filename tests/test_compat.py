@@ -11,20 +11,12 @@ from deepseek_search_everywhere_mcp import server
 TOOL_NAMES = {"deepseek_web_search", "deepseek_search_and_read", "deepseek_fetch", "deepseek_balance"}
 
 
-def _install_fake_request(monkeypatch: pytest.MonkeyPatch, results: list[dict[str, Any]]) -> list[dict]:
-    calls: list[dict] = []
-
-    async def fake_request(method, path, *, payload=None, timeout=None, attempts=2, **_):
-        calls.append({"path": path, "payload": payload})
-        return {"ok": True, "data": {"results": results}}
-
-    monkeypatch.setattr(server, "_request", fake_request)
-    monkeypatch.setattr(server, "_api_key", lambda: "test-key")
-    return calls
+def _install_fake_request(fake_upstream: Any, results: list[dict[str, Any]]) -> list[dict]:
+    return fake_upstream(default={"ok": True, "data": {"results": results}}).calls
 
 
-def test_search_accepts_nine_positional_arguments(monkeypatch):
-    calls = _install_fake_request(monkeypatch, [])
+def test_search_accepts_nine_positional_arguments(fake_upstream):
+    calls = _install_fake_request(fake_upstream, [])
     result = asyncio.run(server._search("q", 5, None, False, None, 1000, 4000, True, False))
     assert result["ok"] is True
     assert len(calls) == 1
@@ -86,26 +78,26 @@ def test_missing_api_key_error_code():
     assert result["error"]["code"] == "missing_api_key"
 
 
-def test_dedupe_note(monkeypatch):
+def test_dedupe_note(fake_upstream):
     item = {"title": "T", "url": "https://a.test/x", "site_name": "a.test"}
-    _install_fake_request(monkeypatch, [item, dict(item, url="https://a.test/x?utm_source=z")])
+    _install_fake_request(fake_upstream, [item, dict(item, url="https://a.test/x?utm_source=z")])
     result = asyncio.run(server._search("q", 5, None, False, None, 1000, 4000))
     assert "deduped 1 duplicate result(s)" in result["notes"]
 
 
-def test_rewrite_note(monkeypatch):
+def test_rewrite_note(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return "better query"
 
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    _install_fake_request(monkeypatch, [])
+    _install_fake_request(fake_upstream, [])
     result = asyncio.run(server._search("q", 5, None, False, None, 1000, 4000, True, True))
     assert "query rewritten (flash): 'better query'" in result["notes"]
 
 
-def test_truncation_note_is_shared(monkeypatch):
+def test_truncation_note_is_shared(fake_upstream):
     item = {"title": "T", "url": "https://a.test/x", "site_name": "a.test", "content": "y" * 500}
-    _install_fake_request(monkeypatch, [item])
+    _install_fake_request(fake_upstream, [item])
     result = asyncio.run(server._search("q", 5, None, True, None, 100, 4000))
     expected = "Some page content was truncated to respect the character budget."
     assert server.TRUNCATED_NOTE == expected

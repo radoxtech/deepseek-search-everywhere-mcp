@@ -119,26 +119,12 @@ def test_fetch_rejects_long_url():
     assert result["error"]["code"] == "url_too_long"
 
 
-def _install_fake_request(monkeypatch, responses):
-    calls = []
-
-    async def fake_request(method, path, *, payload=None, timeout=None, attempts=2, **_):
-        calls.append(
-            {"method": method, "path": path, "payload": payload, "timeout": timeout, "attempts": attempts}
-        )
-        return responses[path]
-
-    monkeypatch.setattr(server, "_request", fake_request)
-    monkeypatch.setattr(server, "_api_key", lambda: "test-key")
-    return calls
-
-
 def _search_response(results):
     return {"ok": True, "data": {"results": results}}
 
 
-def _run_search(monkeypatch, results, **kwargs):
-    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(results)})
+def _run_search(fake_upstream, results, **kwargs):
+    calls = fake_upstream(responses={"/v1/tools/search": _search_response(results)}).calls
     result = asyncio.run(
         server._search(
             kwargs.pop("query", "test query"),
@@ -154,29 +140,29 @@ def _run_search(monkeypatch, results, **kwargs):
     return result, calls
 
 
-def test_dedupe_removes_tracking_and_trailing_slash(monkeypatch):
+def test_dedupe_removes_tracking_and_trailing_slash(fake_upstream):
     results = [
         {"title": "A", "url": "https://example.com/post?utm_source=x&b=2&a=1", "site_name": "Example"},
         {"title": "B", "url": "https://www.example.com/post/?fbclid=y&a=1&b=2", "site_name": "Mirror"},
         {"title": "C", "url": "https://EXAMPLE.com/post?a=1&b=2#frag", "site_name": "Third"},
     ]
-    result, _ = _run_search(monkeypatch, results)
+    result, _ = _run_search(fake_upstream, results)
     assert result["count"] == 1
     assert result["deduped"] == 2
     assert result["results"][0]["title"] == "A"
 
 
-def test_dedupe_keeps_distinct_urls(monkeypatch):
+def test_dedupe_keeps_distinct_urls(fake_upstream):
     results = [
         {"title": "One", "url": "https://example.com/one", "site_name": "Example"},
         {"title": "Two", "url": "https://example.com/two", "site_name": "Example"},
     ]
-    result, _ = _run_search(monkeypatch, results)
+    result, _ = _run_search(fake_upstream, results)
     assert result["count"] == 2
     assert result["deduped"] == 0
 
 
-def test_dedupe_collapses_same_title_and_site(monkeypatch):
+def test_dedupe_collapses_same_title_and_site(fake_upstream):
     results = [
         {
             "title": "Hello World From The Example Blog",
@@ -189,28 +175,28 @@ def test_dedupe_collapses_same_title_and_site(monkeypatch):
             "site_name": "example",
         },
     ]
-    result, _ = _run_search(monkeypatch, results)
+    result, _ = _run_search(fake_upstream, results)
     assert result["count"] == 1
     assert result["deduped"] == 1
     assert result["results"][0]["url"] == "https://example.com/a"
 
 
-def test_dedupe_keeps_short_generic_titles(monkeypatch):
+def test_dedupe_keeps_short_generic_titles(fake_upstream):
     results = [
         {"title": "Home", "url": "https://example.com/a", "site_name": "Example"},
         {"title": "Home", "url": "https://example.com/b", "site_name": "Example"},
     ]
-    result, _ = _run_search(monkeypatch, results)
+    result, _ = _run_search(fake_upstream, results)
     assert result["count"] == 2
     assert result["deduped"] == 0
 
 
-def test_dedupe_does_not_collapse_empty_title(monkeypatch):
+def test_dedupe_does_not_collapse_empty_title(fake_upstream):
     results = [
         {"title": "", "url": "https://example.com/a", "site_name": "Example"},
         {"title": "", "url": "https://mirror.test/amp/a", "site_name": "example"},
     ]
-    result, _ = _run_search(monkeypatch, results)
+    result, _ = _run_search(fake_upstream, results)
     assert result["count"] == 2
     assert result["deduped"] == 0
 
@@ -228,44 +214,44 @@ def test_dedupe_preserves_input_and_order():
     assert removed == 1
 
 
-def test_dedupe_false_preserves_duplicates(monkeypatch):
+def test_dedupe_false_preserves_duplicates(fake_upstream):
     results = [
         {"title": "Same", "url": "https://example.com/a?utm_source=x", "site_name": "Example"},
         {"title": "Same", "url": "https://example.com/a", "site_name": "Example"},
     ]
-    result, _ = _run_search(monkeypatch, results, dedupe=False)
+    result, _ = _run_search(fake_upstream, results, dedupe=False)
     assert result["count"] == 2
     assert result["deduped"] == 0
     assert not any("deduped" in note for note in result["notes"])
 
 
-def test_dedupe_note_and_count_in_envelope(monkeypatch):
+def test_dedupe_note_and_count_in_envelope(fake_upstream):
     results = [
         {"title": "Same", "url": "https://example.com/a", "site_name": "Example"},
         {"title": "Same", "url": "https://example.com/a/", "site_name": "Example"},
         {"title": "Same", "url": "https://www.example.com/a?gclid=1", "site_name": "Example"},
     ]
-    result, _ = _run_search(monkeypatch, results)
+    result, _ = _run_search(fake_upstream, results)
     assert result["deduped"] == 2
     assert "deduped 2 duplicate result(s)" in result["notes"]
     assert result["count"] == 1
 
 
-def test_rewrite_disabled_never_calls_rewrite(monkeypatch):
+def test_rewrite_disabled_never_calls_rewrite(monkeypatch, fake_upstream):
     async def boom(query):
         raise AssertionError("_rewrite_query must not be called")
 
     monkeypatch.setattr(server, "_rewrite_query", boom)
-    result, _ = _run_search(monkeypatch, [], rewrite=False)
+    result, _ = _run_search(fake_upstream, [], rewrite=False)
     assert result["ok"] is True
 
 
-def test_rewrite_uses_rewritten_query_and_sets_original(monkeypatch):
+def test_rewrite_uses_rewritten_query_and_sets_original(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return "how sleep works"
 
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    result, calls = _run_search(monkeypatch, [], query="jak działa sen", rewrite=True)
+    result, calls = _run_search(fake_upstream, [], query="jak działa sen", rewrite=True)
     search_calls = [c for c in calls if c["path"] == "/v1/tools/search"]
     assert search_calls[0]["payload"]["query"] == "how sleep works"
     assert result["query_used"] == "how sleep works"
@@ -273,35 +259,35 @@ def test_rewrite_uses_rewritten_query_and_sets_original(monkeypatch):
     assert "query rewritten (flash): 'how sleep works'" in result["notes"]
 
 
-def test_rewrite_noop_adds_no_note(monkeypatch):
+def test_rewrite_noop_adds_no_note(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return query
 
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    result, calls = _run_search(monkeypatch, [], query="test query", rewrite=True)
+    result, calls = _run_search(fake_upstream, [], query="test query", rewrite=True)
     assert calls[0]["payload"]["query"] == "test query"
     assert "query_original" not in result
     assert not any("rewrite" in note for note in result["notes"])
 
 
-def test_rewrite_failure_falls_back_to_original(monkeypatch):
+def test_rewrite_failure_falls_back_to_original(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return None
 
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    result, calls = _run_search(monkeypatch, [], query="test query", rewrite=True)
+    result, calls = _run_search(fake_upstream, [], query="test query", rewrite=True)
     assert calls[0]["payload"]["query"] == "test query"
     assert result["query_used"] == "test query"
     assert "query_original" not in result
     assert "query rewrite failed; using original query" in result["notes"]
 
 
-def test_rewrite_skipped_when_lang_is_set(monkeypatch):
+def test_rewrite_skipped_when_lang_is_set(monkeypatch, fake_upstream):
     async def boom(query):
         raise AssertionError("_rewrite_query must not be called with lang")
 
     monkeypatch.setattr(server, "_rewrite_query", boom)
-    result, calls = _run_search(monkeypatch, [], query="test query", lang="pl", rewrite=True)
+    result, calls = _run_search(fake_upstream, [], query="test query", lang="pl", rewrite=True)
     assert calls[0]["payload"]["query"] == "lang:pl test query"
     assert "query_original" not in result
     assert not any("rewrite" in note for note in result["notes"])
@@ -318,9 +304,9 @@ def test_rewrite_with_missing_key_makes_no_chat_call(monkeypatch, tmp_path):
     assert result["error"]["code"] == "missing_api_key"
 
 
-def test_rewrite_payload_is_flash_without_thinking(monkeypatch):
+def test_rewrite_payload_is_flash_without_thinking(fake_upstream):
     response = {"ok": True, "data": {"choices": [{"message": {"content": "better query"}}]}}
-    calls = _install_fake_request(monkeypatch, {"/v1/chat/completions": response})
+    calls = fake_upstream(responses={"/v1/chat/completions": response}).calls
     rewritten = asyncio.run(server._rewrite_query("query"))
     assert rewritten == "better query"
     payload = calls[0]["payload"]
@@ -336,25 +322,25 @@ def test_rewrite_payload_is_flash_without_thinking(monkeypatch):
     assert payload["messages"][0]["content"] == server.SYSTEM_PROMPT
 
 
-def test_rewrite_truncates_long_model_answer(monkeypatch):
+def test_rewrite_truncates_long_model_answer(fake_upstream):
     response = {"ok": True, "data": {"choices": [{"message": {"content": "x" * 200}}]}}
-    _install_fake_request(monkeypatch, {"/v1/chat/completions": response})
+    fake_upstream(responses={"/v1/chat/completions": response})
     rewritten = asyncio.run(server._rewrite_query("query"))
     assert rewritten is not None
     assert len(rewritten) <= server.MAX_QUERY
 
 
-def test_rewrite_query_returns_none_on_error_envelope(monkeypatch):
-    _install_fake_request(monkeypatch, {"/v1/chat/completions": {"ok": False, "error": {"code": "timeout"}}})
+def test_rewrite_query_returns_none_on_error_envelope(fake_upstream):
+    fake_upstream(responses={"/v1/chat/completions": {"ok": False, "error": {"code": "timeout"}}})
     assert asyncio.run(server._rewrite_query("query")) is None
 
 
-def test_rewrite_path_sets_ori_question_to_original(monkeypatch):
+def test_rewrite_path_sets_ori_question_to_original(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return "how sleep works"
 
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    _, calls = _run_search(monkeypatch, [], query="jak działa sen", rewrite=True)
+    _, calls = _run_search(fake_upstream, [], query="jak działa sen", rewrite=True)
     assert calls[0]["payload"]["ori_question"] == "jak działa sen"
 
 
@@ -375,57 +361,57 @@ def test_upstream_count_overfetches_only_with_dedupe():
     assert server._upstream_count(50, True) == server.MAX_COUNT
 
 
-def test_topup_returns_count_despite_duplicates(monkeypatch):
+def test_topup_returns_count_despite_duplicates(fake_upstream):
     # asked for 4; upstream returns 6 of which 2 are duplicates
-    result, calls = _run_search(monkeypatch, _dup_results(4, 2), dedupe=True)
+    result, calls = _run_search(fake_upstream, _dup_results(4, 2), dedupe=True)
     assert calls[0]["payload"]["count"] == 8  # _run_search asks for 5 -> 5 + 3
     assert result["deduped"] == 2
 
 
-def test_topup_trims_to_requested_count(monkeypatch):
-    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(_dup_results(8, 0))})
+def test_topup_trims_to_requested_count(fake_upstream):
+    calls = fake_upstream(responses={"/v1/tools/search": _search_response(_dup_results(8, 0))}).calls
     result = asyncio.run(server._search("q", 4, None, False, None, 1000, 4000))
     assert calls[0]["payload"]["count"] == 6
     assert result["count"] == 4
     assert [r["title"] for r in result["results"]] == [f"Result {i}" for i in range(4)]
 
 
-def test_topup_fills_count_after_dedupe(monkeypatch):
-    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(_dup_results(4, 2))})
+def test_topup_fills_count_after_dedupe(fake_upstream):
+    calls = fake_upstream(responses={"/v1/tools/search": _search_response(_dup_results(4, 2))}).calls
     result = asyncio.run(server._search("q", 4, None, False, None, 1000, 4000))
     assert calls[0]["payload"]["count"] == 6
     assert result["count"] == 4
     assert result["deduped"] == 2
 
 
-def test_no_overfetch_without_dedupe(monkeypatch):
-    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response(_dup_results(2, 0))})
+def test_no_overfetch_without_dedupe(fake_upstream):
+    calls = fake_upstream(responses={"/v1/tools/search": _search_response(_dup_results(2, 0))}).calls
     asyncio.run(server._search("q", 4, None, False, None, 1000, 4000, False))
     assert calls[0]["payload"]["count"] == 4
 
 
-def test_overfetch_capped_at_upstream_max(monkeypatch):
-    calls = _install_fake_request(monkeypatch, {"/v1/tools/search": _search_response([])})
+def test_overfetch_capped_at_upstream_max(fake_upstream):
+    calls = fake_upstream(responses={"/v1/tools/search": _search_response([])}).calls
     asyncio.run(server._search("q", 50, None, False, None, 1000, 4000))
     assert calls[0]["payload"]["count"] == 50
 
 
-def test_blank_title_falls_back_to_host(monkeypatch):
+def test_blank_title_falls_back_to_host(fake_upstream):
     results = [
         {"title": "", "url": "https://www.example.com/a", "site_name": "Example"},
         {"title": "   ", "url": "https://docs.example.org:8080/b", "site_name": "Docs"},
         {"title": None, "url": "not a url", "site_name": "Odd"},
         {"title": "Real", "url": "https://real.test/c", "site_name": "Real"},
     ]
-    result, _ = _run_search(monkeypatch, results)
+    result, _ = _run_search(fake_upstream, results)
     assert [r["title"] for r in result["results"]] == ["example.com", "docs.example.org", None, "Real"]
 
 
-def test_rewrite_exception_is_logged_redacted(monkeypatch, caplog):
+def test_rewrite_exception_is_logged_redacted(fake_upstream, caplog):
     async def broken_request(method, path, **_):
         raise RuntimeError("upstream exploded with key sk-abcdefghijklmnop")
 
-    monkeypatch.setattr(server, "_request", broken_request)
+    fake_upstream(broken_request)
     with caplog.at_level(logging.DEBUG, logger=server.__name__):
         assert asyncio.run(server._rewrite_query("q")) is None
     messages = [record.getMessage() for record in caplog.records if record.name == server.__name__]

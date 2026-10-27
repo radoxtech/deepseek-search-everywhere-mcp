@@ -34,11 +34,8 @@ class Upstream:
 
 
 @pytest.fixture
-def upstream(monkeypatch: pytest.MonkeyPatch) -> Upstream:
-    fake = Upstream()
-    monkeypatch.setattr(server, "_request", fake)
-    monkeypatch.setattr(server, "_api_key", lambda: "test-key")
-    return fake
+def upstream(fake_upstream: Any) -> Upstream:
+    return fake_upstream(Upstream())
 
 
 @pytest.fixture
@@ -193,9 +190,7 @@ async def test_refresh_still_uses_rewrite_cache(upstream: Upstream, monkeypatch:
     assert len(upstream.calls) == 2
 
 
-async def test_concurrent_rewrites_share_one_flash_call(
-    upstream: Upstream, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_concurrent_rewrites_share_one_flash_call(upstream: Upstream, fake_upstream: Any) -> None:
     gate = asyncio.Event()
     paths: list[str] = []
 
@@ -206,7 +201,7 @@ async def test_concurrent_rewrites_share_one_flash_call(
             return {"ok": True, "data": {"choices": [{"message": {"content": "sleep science"}}]}}
         return {"ok": True, "data": {"results": RESULTS}}
 
-    monkeypatch.setattr(server, "_request", fake_request)
+    fake_upstream(fake_request)
     tasks = [asyncio.create_task(_search("jak działa sen", rewrite=True)) for _ in range(10)]
     await asyncio.sleep(0)
     gate.set()
