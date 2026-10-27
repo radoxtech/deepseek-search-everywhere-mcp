@@ -22,6 +22,7 @@ htmlcov/
 # Local runtime state
 .sisyphus/
 *.log
+*.db
 
 # OS and editors
 .DS_Store
