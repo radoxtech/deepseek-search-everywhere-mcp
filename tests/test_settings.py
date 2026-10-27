@@ -39,7 +39,7 @@ def test_constructor_overrides_and_frozen() -> None:
         ("response_cap_search", 0),
         ("cache_search_bytes", 0),
         ("batch_concurrency", 0),
-        ("batch_concurrency", 11),
+        ("batch_concurrency", 6),
         ("limiter_max_wait", 0),
         ("http_port", 70000),
         ("http_path", "mcp"),
@@ -49,6 +49,11 @@ def test_constructor_overrides_and_frozen() -> None:
 def test_invalid_values_name_the_field(field: str, value: object) -> None:
     with pytest.raises(ValueError, match=field):
         Settings(**{field: value})
+
+
+@pytest.mark.parametrize("value", [1, 5])
+def test_batch_concurrency_boundaries_are_allowed(value: int) -> None:
+    assert Settings(batch_concurrency=value).batch_concurrency == value
 
 
 def test_zero_ttl_is_allowed() -> None:
