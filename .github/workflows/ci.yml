@@ -32,7 +32,9 @@ jobs:
         run: python -m pip install -e ".[test,lint]" build twine
 
       - name: Lint
-        run: ruff check .
+        run: |
+          ruff check .
+          ruff format --check .
 
       - name: Test
         run: pytest -q
