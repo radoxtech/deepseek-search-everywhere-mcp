@@ -8,19 +8,19 @@ The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import os
-import pathlib
 import re
 import urllib.parse
 from typing import Any
 
-import httpx
 from mcp.server.fastmcp import FastMCP
 
-BASE_DEFAULT = "https://api.deepseek.com"
+from .errors import _fail
+from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
+from .transport import _api_key, _base_url
+from .transport import request as _request  # tests monkeypatch server._request
+
 MAX_QUERY = 128
 MAX_URL = 8192
 SEARCH_TIMEOUT = 60.0
@@ -42,36 +42,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 mcp = FastMCP("deepseek-search-everywhere-mcp")
-
-
-def _fail(code: str, message: str, status: int | None = None) -> dict[str, Any]:
-    err: dict[str, Any] = {"ok": False, "error": {"code": code, "message": message}}
-    if status is not None:
-        err["error"]["status"] = status
-    return err
-
-
-def _base_url() -> str:
-    return os.environ.get("DEEPSEEK_BASE_URL", BASE_DEFAULT).rstrip("/")
-
-
-def _api_key() -> str:
-    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-    if key:
-        return key
-    configured = os.environ.get("DEEPSEEK_AUTH_JSON")
-    candidates = [pathlib.Path(configured).expanduser()] if configured else [
-        pathlib.Path.home() / ".local/share/opencode/auth.json",
-    ]
-    for candidate in candidates:
-        try:
-            data = json.loads(candidate.read_text())
-            found = (data.get("deepseek") or {}).get("key") or ""
-        except (OSError, ValueError):
-            continue
-        if found.strip():
-            return found.strip()
-    return ""
 
 
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
@@ -182,65 +152,6 @@ def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
     room = MAX_QUERY - len(prefix)
     trimmed = query[:room]
     return prefix + trimmed, len(trimmed) < len(query)
-
-
-def _map_http_error(status: int, body: str) -> dict[str, Any]:
-    try:
-        payload = json.loads(body)
-        message = (payload.get("error") or {}).get("message") or body[:400]
-        code = (payload.get("error") or {}).get("code") or "http_error"
-    except json.JSONDecodeError:
-        message, code = body[:400], "http_error"
-
-    hints = {
-        400: "Invalid request parameters.",
-        402: "Insufficient DeepSeek balance. Top up or switch provider.",
-        403: "Rejected by the target site's security policy.",
-        404: "Fetch failed: PDFs, Reddit and some sites are not extractable via /tools/fetch. "
-             "Use deepseek_search_and_read instead, which returns content via the search index.",
-        413: "Request body too large.",
-        429: "Rate limit exceeded (search 100 QPS, fetch 25 QPS per account).",
-        504: "Upstream timeout; the page took too long to fetch.",
-    }
-    if status in hints:
-        message = f"{message} — {hints[status]}"
-    return _fail(code, message, status)
-
-
-async def _request(method: str, path: str, *, payload: dict[str, Any] | None = None,
-                   timeout: float, retries: int = 2) -> dict[str, Any]:
-    key = _api_key()
-    if not key:
-        return _fail("missing_api_key",
-                     "No DeepSeek key: set DEEPSEEK_API_KEY or a readable DEEPSEEK_AUTH_JSON.")
-
-    url = f"{_base_url()}{path}"
-    headers = {"Authorization": f"Bearer {key}"}
-    last: dict[str, Any] = _fail("request_failed", "No attempt was made.")
-
-    for attempt in range(retries):
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.request(method, url, json=payload, headers=headers)
-            if response.status_code >= 400:
-                last = _map_http_error(response.status_code, response.text)
-                if response.status_code in (429, 500, 502, 503, 504) and attempt + 1 < retries:
-                    delay = float(response.headers.get("Retry-After", "2") or 2)
-                    await asyncio.sleep(min(delay, 10))
-                    continue
-                return last
-            try:
-                return {"ok": True, "data": response.json()}
-            except ValueError:
-                return _fail("invalid_json", "DeepSeek returned a non-JSON response.",
-                             response.status_code)
-        except httpx.TimeoutException:
-            last = _fail("timeout", f"Request to {path} timed out after {timeout:.0f}s.")
-        except httpx.RequestError as exc:
-            last = _fail("network_error", f"{type(exc).__name__}: {exc}")
-        if attempt + 1 < retries:
-            await asyncio.sleep(2)
-    return last
 
 
 async def _rewrite_query(query: str) -> str | None:
