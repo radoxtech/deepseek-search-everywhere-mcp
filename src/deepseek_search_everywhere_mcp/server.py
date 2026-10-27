@@ -18,6 +18,7 @@ import math
 import re
 import urllib.parse
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -423,6 +424,133 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None, 
     return record
 
 
+def _check_search_args(query: str, count: int, lang: str | None) -> dict[str, Any] | None:
+    """Validate a stripped query, ``count`` and ``lang``; return an error envelope or ``None``."""
+    if not query:
+        return _fail("empty_query", "query must not be empty.")
+    if len(query) > MAX_QUERY:
+        return _fail("query_too_long", f"query must be at most {MAX_QUERY} characters.")
+    if not 1 <= count <= MAX_COUNT:
+        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
+    if lang and not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2})?", lang):
+        return _fail("bad_lang", "lang must look like 'es' or 'pt-BR'.")
+    return None
+
+
+async def _maybe_rewrite(
+    query: str, ori_question: str | None, rewrite: bool, lang: str | None
+) -> tuple[str, str | None, str | None, bool]:
+    """Apply the optional query rewrite.
+
+    Returns ``(query, ori_question, query_original, rewrite_failed)``; ``query_original`` is
+    set only when the rewrite changed the query, and then also seeds a missing ``ori_question``.
+    """
+    if not (rewrite and lang is None and _api_key()):
+        return query, ori_question, None, False
+    rewritten = await _cached_rewrite(query)
+    if rewritten is None:
+        return query, ori_question, None, True
+    if rewritten == query:
+        return query, ori_question, None, False
+    return rewritten, ori_question or query[:MAX_QUERY], query, False
+
+
+def _build_search_payload(
+    query: str, count: int, dedupe: bool, need_content: bool, ori_question: str | None
+) -> dict[str, Any]:
+    """Build the upstream search payload (``query`` already carries any ``lang:`` operator)."""
+    payload: dict[str, Any] = {
+        "query": query,
+        "count": _upstream_count(count, dedupe),
+        "need_content": need_content,
+    }
+    if ori_question:
+        payload["ori_question"] = ori_question[:MAX_QUERY]
+    return payload
+
+
+def _result_entry(item: dict[str, Any]) -> dict[str, Any]:
+    """Map one upstream result to its metadata fields, with the host as a blank-title fallback."""
+    entry: dict[str, Any] = {
+        "title": _title_or_host(item),
+        "url": item.get("url"),
+        "date": item.get("date"),
+        "authority": item.get("authority"),
+        "rerank_score": item.get("rerank_score"),
+        "site": item.get("site_name"),
+    }
+    snippet = item.get("snippet") or ""
+    if snippet:
+        entry["snippet"] = snippet
+    return entry
+
+
+def _apply_char_budget(
+    entry: dict[str, Any], item: dict[str, Any], need_content: bool, per_result: int, remaining: int
+) -> tuple[int, bool]:
+    """Add the result's content (or summary) to ``entry``, cut to the per-result and total budgets.
+
+    Returns ``(remaining, truncated)``: the budget left afterwards and whether any text was cut.
+    """
+    allowed = max(0, min(per_result, remaining))
+    body = item.get("content") if need_content else None
+    if body:
+        cleaned = _unescape_markdown(body)
+        entry["content"], cut = _truncate(cleaned, allowed)
+        entry["content_chars"] = len(cleaned)
+        return remaining - len(entry["content"]), cut
+    if item.get("summary"):
+        entry["summary"], cut = _truncate(item["summary"], allowed)
+        return remaining - len(entry["summary"]), cut
+    return remaining, False
+
+
+def _shape_results(
+    raw: list[dict[str, Any]], need_content: bool, per_result: int, total: int
+) -> tuple[list[dict[str, Any]], bool]:
+    """Shape upstream results under the character budgets; return ``(results, truncated)``.
+
+    With ``need_content`` set, results stop once the total budget is spent.
+    """
+    remaining = total
+    shaped: list[dict[str, Any]] = []
+    truncated = False
+    for item in raw:
+        entry = _result_entry(item)
+        remaining, cut = _apply_char_budget(entry, item, need_content, per_result, remaining)
+        truncated = truncated or cut
+        shaped.append(entry)
+        if need_content and remaining <= 0:
+            break
+    return shaped, truncated
+
+
+def _search_notes(
+    used: str,
+    query_original: str | None,
+    rewrite_failed: bool,
+    removed: int,
+    trimmed: bool,
+    lang: str | None,
+    truncated: bool,
+) -> list[str]:
+    """Assemble the (redacted) notes of a search envelope, in their fixed order."""
+    notes: list[str] = []
+    if query_original is not None:
+        notes.append(f"query rewritten (flash): '{used}'")
+    elif rewrite_failed:
+        notes.append("query rewrite failed; using original query")
+    if removed:
+        notes.append(f"deduped {removed} duplicate result(s)")
+    if trimmed:
+        notes.append(f"Query trimmed to fit the {MAX_QUERY}-character limit.")
+    if lang:
+        notes.append(f"Language operator lang:{lang} applied.")
+    if truncated:
+        notes.append(TRUNCATED_NOTE)
+    return [redact(note) for note in notes]
+
+
 async def _search(
     query: str,
     count: int,
@@ -436,37 +564,17 @@ async def _search(
     *,
     refresh: bool = False,
 ) -> dict[str, Any]:
+    """Run one validated, cached search and shape the envelope shared by the search tools."""
     query = (query or "").strip()
-    if not query:
-        return _fail("empty_query", "query must not be empty.")
-    if len(query) > MAX_QUERY:
-        return _fail("query_too_long", f"query must be at most {MAX_QUERY} characters.")
-    if not 1 <= count <= MAX_COUNT:
-        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
-    if lang and not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2})?", lang):
-        return _fail("bad_lang", "lang must look like 'es' or 'pt-BR'.")
+    rejection = _check_search_args(query, count, lang)
+    if rejection is not None:
+        return rejection
 
-    query_original: str | None = None
-    rewrite_failed = False
-    if rewrite and lang is None and _api_key():
-        rewritten = await _cached_rewrite(query)
-        if rewritten is None:
-            rewrite_failed = True
-        elif rewritten != query:
-            query_original = query
-            query = rewritten
-            if not ori_question:
-                ori_question = query_original[:MAX_QUERY]
-
+    query, ori_question, query_original, rewrite_failed = await _maybe_rewrite(
+        query, ori_question, rewrite, lang
+    )
     used, trimmed = _with_lang(query, lang)
-    payload: dict[str, Any] = {
-        "query": used,
-        "count": _upstream_count(count, dedupe),
-        "need_content": need_content,
-    }
-    if ori_question:
-        payload["ori_question"] = ori_question[:MAX_QUERY]
-
+    payload = _build_search_payload(used, count, dedupe, need_content, ori_question)
     key = _search_cache_key(payload)
     record, cached = await _cached_call(
         _get_search_cache(),
@@ -483,54 +591,7 @@ async def _search(
     if dedupe:
         raw, removed = _dedupe_results(raw)
         raw = raw[:count]
-    remaining = max_total_chars
-    shaped: list[dict[str, Any]] = []
-    content_truncated = False
-
-    for item in raw:
-        entry: dict[str, Any] = {
-            "title": _title_or_host(item),
-            "url": item.get("url"),
-            "date": item.get("date"),
-            "authority": item.get("authority"),
-            "rerank_score": item.get("rerank_score"),
-            "site": item.get("site_name"),
-        }
-        snippet = item.get("snippet") or ""
-        if snippet:
-            entry["snippet"] = snippet
-
-        body = item.get("content") if need_content else None
-        if body:
-            cleaned = _unescape_markdown(body)
-            allowed = max(0, min(max_chars_per_result, remaining))
-            entry["content"], cut = _truncate(cleaned, allowed)
-            remaining -= len(entry["content"])
-            entry["content_chars"] = len(cleaned)
-            content_truncated = content_truncated or cut
-        elif item.get("summary"):
-            allowed = max(0, min(max_chars_per_result, remaining))
-            entry["summary"], cut = _truncate(item["summary"], allowed)
-            remaining -= len(entry["summary"])
-            content_truncated = content_truncated or cut
-        shaped.append(entry)
-
-        if need_content and remaining <= 0:
-            break
-
-    notes: list[str] = []
-    if query_original is not None:
-        notes.append(f"query rewritten (flash): '{used}'")
-    elif rewrite_failed:
-        notes.append("query rewrite failed; using original query")
-    if removed:
-        notes.append(f"deduped {removed} duplicate result(s)")
-    if trimmed:
-        notes.append(f"Query trimmed to fit the {MAX_QUERY}-character limit.")
-    if lang:
-        notes.append(f"Language operator lang:{lang} applied.")
-    if content_truncated:
-        notes.append(TRUNCATED_NOTE)
+    shaped, truncated = _shape_results(raw, need_content, max_chars_per_result, max_total_chars)
 
     envelope: dict[str, Any] = {
         "ok": True,
@@ -540,7 +601,7 @@ async def _search(
         "deduped": removed,
         "cached": cached,
         "results": shaped,
-        "notes": [redact(note) for note in notes],
+        "notes": _search_notes(used, query_original, rewrite_failed, removed, trimmed, lang, truncated),
     }
     if query_original is not None:
         envelope["query_original"] = query_original
@@ -805,6 +866,120 @@ async def _fetch_isolated(
             return _fail("internal_error", message)
 
 
+# A batch entry: the stripped URL and its rejection envelope (``None`` when it is fetchable).
+_BatchItem = tuple[str, dict[str, Any] | None]
+
+
+def _dedupe_urls(urls: list[str]) -> tuple[list[_BatchItem], int]:
+    """Strip and validate ``urls``, skip empty entries and collapse canonical duplicates.
+
+    Returns ``(items, duplicates)``. Rejected URLs are kept (keyed verbatim) so they can be
+    reported in place; fetchable ones are keyed by their canonical form.
+    """
+    items: list[_BatchItem] = []
+    seen: set[str] = set()
+    duplicates = 0
+    for raw in urls:
+        url = raw.strip() if isinstance(raw, str) else ""
+        if not url:
+            continue
+        rejection = _check_fetch_url(url)
+        key = url if rejection is not None else (_canonical_url(url) or url)
+        if key in seen:
+            duplicates += 1
+            continue
+        seen.add(key)
+        items.append((url, rejection))
+    return items, duplicates
+
+
+async def _run_batch(
+    items: list[_BatchItem], clean: bool, per_url: int, refresh: bool
+) -> dict[int, asyncio.Task[dict[str, Any]]]:
+    """Fetch every non-rejected item concurrently under the batch concurrency and deadline.
+
+    Returns the tasks by item index; those still pending at the deadline are cancelled.
+    """
+    settings = get_settings()
+    semaphore = asyncio.Semaphore(settings.batch_concurrency)
+    tasks = {
+        index: asyncio.create_task(_fetch_isolated(url, clean, per_url, refresh, semaphore))
+        for index, (url, rejection) in enumerate(items)
+        if rejection is None
+    }
+    try:
+        if tasks:
+            await asyncio.wait(tasks.values(), timeout=settings.batch_deadline)
+    finally:
+        pending = [task for task in tasks.values() if not task.done()]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    return tasks
+
+
+def _batch_results(
+    items: list[_BatchItem], tasks: dict[int, asyncio.Task[dict[str, Any]]], max_total_chars: int
+) -> tuple[list[dict[str, Any]], bool, int]:
+    """Collect batch results in input order, trimming content to ``max_total_chars`` overall.
+
+    Returns ``(results, trimmed, requests_used)``.
+    """
+    deadline_error = _fail(
+        "deadline_exceeded", f"Not fetched within the {get_settings().batch_deadline:g} s batch deadline."
+    )
+    results: list[dict[str, Any]] = []
+    remaining = max_total_chars
+    trimmed = False
+    requests_used = 0
+    for index, (url, rejection) in enumerate(items):
+        if rejection is not None:
+            envelope = rejection
+        elif tasks[index].cancelled():
+            envelope = deadline_error
+        else:
+            envelope = tasks[index].result()
+        item = _batch_item(url, envelope)
+        if item["ok"]:
+            trimmed = trimmed or envelope["truncated"]
+            if item["chars"] > remaining:
+                item["content"] = item["content"][:remaining]
+                item["chars"] = remaining
+                trimmed = True
+            remaining -= item["chars"]
+            requests_used += not item["cached"]
+        elif rejection is None and item["error"].get("code") not in _LOCAL_ERROR_CODES:
+            requests_used += 1
+        results.append(item)
+    return results, trimmed, requests_used
+
+
+def _assemble_batch(
+    items: list[_BatchItem],
+    tasks: dict[int, asyncio.Task[dict[str, Any]]],
+    duplicates: int,
+    max_total_chars: int,
+) -> dict[str, Any]:
+    """Build the ``deepseek_fetch_many`` envelope from the finished batch."""
+    results, trimmed, requests_used = _batch_results(items, tasks, max_total_chars)
+    notes: list[str] = []
+    if duplicates:
+        notes.append(f"deduped {duplicates} duplicate URL(s)")
+    if trimmed:
+        notes.append(TRUNCATED_NOTE)
+    failed_count = sum(not item["ok"] for item in results)
+    return {
+        "ok": True,
+        "count": len(results),
+        "requests_used": requests_used,
+        "cached_count": sum(item["cached"] for item in results),
+        "failed_count": failed_count,
+        "partial": failed_count > 0,
+        "results": results,
+        "notes": notes,
+    }
+
+
 async def deepseek_fetch_many(
     urls: list[str],
     max_chars_per_url: int = 4000,
@@ -841,82 +1016,12 @@ async def deepseek_fetch_many(
     if max_chars_per_url < 1 or max_total_chars < 1:
         return _fail("bad_request", "max_chars_per_url and max_total_chars must be at least 1.")
 
-    items: list[tuple[str, dict[str, Any] | None]] = []
-    seen: set[str] = set()
-    duplicates = 0
-    for raw in urls:
-        url = raw.strip() if isinstance(raw, str) else ""
-        if not url:
-            continue
-        rejection = _check_fetch_url(url)
-        key = url if rejection is not None else (_canonical_url(url) or url)
-        if key in seen:
-            duplicates += 1
-            continue
-        seen.add(key)
-        items.append((url, rejection))
+    items, duplicates = _dedupe_urls(urls)
     if not items:
         return _fail("bad_request", "urls must contain at least one non-empty URL.")
-
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
-    semaphore = asyncio.Semaphore(settings.batch_concurrency)
-    tasks = {
-        index: asyncio.create_task(_fetch_isolated(url, clean, per_url, refresh, semaphore))
-        for index, (url, rejection) in enumerate(items)
-        if rejection is None
-    }
-    try:
-        if tasks:
-            await asyncio.wait(tasks.values(), timeout=settings.batch_deadline)
-    finally:
-        pending = [task for task in tasks.values() if not task.done()]
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-
-    deadline_error = _fail(
-        "deadline_exceeded", f"Not fetched within the {settings.batch_deadline:g} s batch deadline."
-    )
-    results: list[dict[str, Any]] = []
-    remaining = max_total_chars
-    trimmed = False
-    requests_used = 0
-    for index, (url, rejection) in enumerate(items):
-        if rejection is not None:
-            envelope = rejection
-        elif tasks[index].cancelled():
-            envelope = deadline_error
-        else:
-            envelope = tasks[index].result()
-        item = _batch_item(url, envelope)
-        if item["ok"]:
-            trimmed = trimmed or envelope["truncated"]
-            if item["chars"] > remaining:
-                item["content"] = item["content"][:remaining]
-                item["chars"] = remaining
-                trimmed = True
-            remaining -= item["chars"]
-            requests_used += not item["cached"]
-        elif rejection is None and item["error"].get("code") not in _LOCAL_ERROR_CODES:
-            requests_used += 1
-        results.append(item)
-
-    notes: list[str] = []
-    if duplicates:
-        notes.append(f"deduped {duplicates} duplicate URL(s)")
-    if trimmed:
-        notes.append(TRUNCATED_NOTE)
-    failed_count = sum(not item["ok"] for item in results)
-    return {
-        "ok": True,
-        "count": len(results),
-        "requests_used": requests_used,
-        "cached_count": sum(item["cached"] for item in results),
-        "failed_count": failed_count,
-        "partial": failed_count > 0,
-        "results": results,
-        "notes": notes,
-    }
+    tasks = await _run_batch(items, clean, per_url, refresh)
+    return _assemble_batch(items, tasks, duplicates, max_total_chars)
 
 
 # Search results whose content is shorter than this are treated as gaps and fetched directly.
@@ -951,6 +1056,104 @@ def _gap_check(source: dict[str, Any]) -> tuple[str | None, dict[str, Any] | Non
     if rejection is not None:
         return None, rejection["error"]
     return url, None
+
+
+@dataclass
+class _GapFill:
+    """Outcome of fetching the research gaps (counts only cover the fetch phase)."""
+
+    requests_used: int = 0
+    cached_count: int = 0
+    fetched: int = 0
+    failed: int = 0
+    trimmed: bool = False
+
+
+def _select_gaps(sources: list[dict[str, Any]], fill: _GapFill) -> dict[str, dict[str, Any]]:
+    """Pick the sources to fetch, keyed by canonical URL; mark rejected ones in place.
+
+    At most ``research_max_pages`` distinct URLs are selected; rejections count as failures.
+    """
+    gaps: dict[str, dict[str, Any]] = {}
+    for source in sources:
+        url, rejection = _gap_check(source)
+        if rejection is not None:
+            source["error"] = rejection
+            fill.failed += 1
+        key = None if url is None else (_canonical_url(url) or url)
+        if key is not None and key not in gaps and len(gaps) < get_settings().research_max_pages:
+            gaps[key] = source
+    return gaps
+
+
+async def _fill_gaps(
+    sources: list[dict[str, Any]], per_page_chars: int, total_chars: int, refresh: bool
+) -> _GapFill:
+    """Fetch sources with missing or short content and merge the fetched pages in place."""
+    fill = _GapFill()
+    gaps = _select_gaps(sources, fill)
+    if not gaps:
+        return fill
+    batch = await deepseek_fetch_many(
+        [source["url"].strip() for source in gaps.values()],
+        max_chars_per_url=per_page_chars,
+        max_total_chars=total_chars,
+        refresh=refresh,
+    )
+    fill.requests_used = batch["requests_used"]
+    fill.cached_count = batch["cached_count"]
+    fill.trimmed = TRUNCATED_NOTE in batch["notes"]
+    for source, item in zip(gaps.values(), batch["results"], strict=True):
+        if not item["ok"]:
+            source["error"] = item["error"]
+            fill.failed += 1
+        elif item["content"]:
+            source["content"] = item["content"]
+            if item["title"] and (not source["title"] or source["title"] == _url_host(source["url"])):
+                source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
+            source["origin"] = "fetch"
+            source["cached"] = item["cached"]
+            fill.fetched += 1
+    return fill
+
+
+def _budget_sources(sources: list[dict[str, Any]], per_page_chars: int, total_chars: int) -> bool:
+    """Cut source content to the per-source and total budgets in order; return whether any was cut."""
+    trimmed = False
+    remaining = total_chars
+    for source in sources:
+        allowed = min(per_page_chars, remaining)
+        if len(source["content"]) > allowed:
+            source["content"] = source["content"][:allowed]
+            trimmed = True
+        source["chars"] = len(source["content"])
+        remaining -= source["chars"]
+    return trimmed
+
+
+def _research_envelope(
+    question: str, sources: list[dict[str, Any]], search: dict[str, Any], fill: _GapFill, trimmed: bool
+) -> dict[str, Any]:
+    """Build the ``deepseek_research`` envelope from the search, the gap fill and the budget pass."""
+    notes: list[str] = []
+    if search["deduped"]:
+        notes.append(f"deduped {search['deduped']} duplicate result(s)")
+    if fill.fetched:
+        notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
+    if fill.failed:
+        notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
+    if trimmed:
+        notes.append(TRUNCATED_NOTE)
+    return {
+        "ok": True,
+        "question": question,
+        "sources": sources,
+        "requests_used": (0 if search["cached"] else 1) + fill.requests_used,
+        "cached_count": (1 if search["cached"] else 0) + fill.cached_count,
+        "notes": notes,
+        "failed_count": fill.failed,
+        "partial": fill.failed > 0,
+    }
 
 
 async def deepseek_research(
@@ -1005,71 +1208,9 @@ async def deepseek_research(
     sources = [
         _research_source(index, item, search["cached"]) for index, item in enumerate(search["results"], 1)
     ]
-    requests_used = 0 if search["cached"] else 1
-    cached_count = 1 if search["cached"] else 0
-    trimmed = False
-
-    gaps: dict[str, dict[str, Any]] = {}
-    failed = 0
-    for source in sources:
-        url, rejection = _gap_check(source)
-        if rejection is not None:
-            source["error"] = rejection
-            failed += 1
-        key = None if url is None else (_canonical_url(url) or url)
-        if key is not None and key not in gaps and len(gaps) < get_settings().research_max_pages:
-            gaps[key] = source
-    fetched = 0
-    if gaps:
-        batch = await deepseek_fetch_many(
-            [source["url"].strip() for source in gaps.values()],
-            max_chars_per_url=per_page_chars,
-            max_total_chars=total_chars,
-            refresh=refresh,
-        )
-        requests_used += batch["requests_used"]
-        cached_count += batch["cached_count"]
-        trimmed = trimmed or TRUNCATED_NOTE in batch["notes"]
-        for source, item in zip(gaps.values(), batch["results"], strict=True):
-            if not item["ok"]:
-                source["error"] = item["error"]
-                failed += 1
-            elif item["content"]:
-                source["content"] = item["content"]
-                if item["title"] and (not source["title"] or source["title"] == _url_host(source["url"])):
-                    source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
-                source["origin"] = "fetch"
-                source["cached"] = item["cached"]
-                fetched += 1
-
-    remaining = total_chars
-    for source in sources:
-        allowed = min(per_page_chars, remaining)
-        if len(source["content"]) > allowed:
-            source["content"] = source["content"][:allowed]
-            trimmed = True
-        source["chars"] = len(source["content"])
-        remaining -= source["chars"]
-
-    notes: list[str] = []
-    if search["deduped"]:
-        notes.append(f"deduped {search['deduped']} duplicate result(s)")
-    if fetched:
-        notes.append(f"fetched {fetched} page(s) with missing or short search content")
-    if failed:
-        notes.append(f"{failed} fetch(es) failed; see the source's error")
-    if trimmed:
-        notes.append(TRUNCATED_NOTE)
-    return {
-        "ok": True,
-        "question": question,
-        "sources": sources,
-        "requests_used": requests_used,
-        "cached_count": cached_count,
-        "notes": notes,
-        "failed_count": failed,
-        "partial": failed > 0,
-    }
+    gaps = await _fill_gaps(sources, per_page_chars, total_chars, refresh)
+    trimmed = _budget_sources(sources, per_page_chars, total_chars) or gaps.trimmed
+    return _research_envelope(question, sources, search, gaps, trimmed)
 
 
 async def deepseek_balance() -> dict[str, Any]:
