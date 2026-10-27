@@ -44,11 +44,6 @@ def test_truncate_disabled():
     assert (text, cut) == ("abcdef", False)
 
 
-def test_looks_polish():
-    assert server._looks_polish("popołudniowy spadek energii")
-    assert not server._looks_polish("afternoon energy dip")
-
-
 def test_http_error_404_mentions_pdf():
     result = server._map_http_error(404, json.dumps({"error": {"message": "failed to fetch URL"}}))
     assert result["ok"] is False

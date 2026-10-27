@@ -29,7 +29,7 @@ CHAT_TIMEOUT = 8.0
 
 SYSTEM_PROMPT = (
     "You rewrite search queries. Output ONLY the rewritten query, no quotes, no explanation. "
-    "Translate Polish to English. Keep search operators verbatim: site:, -site:, lang:, after:, "
+    "Translate the query to English. Keep search operators verbatim: site:, -site:, lang:, after:, "
     "before:, and quoted phrases. Keep proper nouns, product names and numbers unchanged. "
     "Maximum 120 characters."
 )
@@ -184,10 +184,6 @@ def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
     return prefix + trimmed, len(trimmed) < len(query)
 
 
-def _looks_polish(query: str) -> bool:
-    return any(ch in "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ" for ch in query)
-
-
 def _map_http_error(status: int, body: str) -> dict[str, Any]:
     try:
         payload = json.loads(body)
@@ -291,7 +287,7 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
     if not 1 <= count <= 50:
         return _fail("bad_count", "count must be between 1 and 50.")
     if lang and not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2})?", lang):
-        return _fail("bad_lang", "lang must look like 'pl' or 'pt-BR'.")
+        return _fail("bad_lang", "lang must look like 'es' or 'pt-BR'.")
 
     query_original: str | None = None
     rewrite_failed = False
@@ -364,10 +360,6 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
         notes.append(f"Query trimmed to fit the {MAX_QUERY}-character limit.")
     if lang:
         notes.append(f"Language operator lang:{lang} applied.")
-    elif _looks_polish(query):
-        notes.append("Polish query without lang: DeepSeek may return foreign-language pages "
-                     "(measured 2026-10-20). Retry with lang='pl'; for named entities also try "
-                     "without it, because the operator can reduce entity precision.")
     if content_truncated:
         notes.append("Some page content was truncated to respect the character budget.")
 
@@ -403,16 +395,18 @@ async def deepseek_web_search(
     same call (billed as one request, no per-page charge) — this is usually cheaper and more
     reliable than calling deepseek_fetch afterwards.
 
-    For Polish queries set lang='pl'. Without it DeepSeek can return Indonesian, Spanish or
-    Portuguese pages for Polish queries; with it, exact named-entity matches can get worse, so for
-    entities run both variants. Each result carries date (RFC 3339) and authority (0-4, -1 unknown).
+    For non-English queries set lang to the appropriate code (e.g. 'es', 'de', 'ja'). Without it
+    results may be mixed-language; for named entities test with and without the operator.
+    Each result carries date (RFC 3339) and authority (0-4, -1 unknown).
 
     Args:
         query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
         count: Number of results, 1-50 (default 10).
         ori_question: Original natural-language question, max 128 characters; improves ranking.
         need_content: Return full page text per result (recommended for reading).
-        lang: Two-letter language operator, e.g. 'pl' or 'en'.
+        lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
+            appropriate code; without it results may be mixed-language. For named entities test
+            with and without the operator.
         max_chars_per_result: Content cap per result when need_content is set.
         max_total_chars: Total content budget across all results.
         dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
@@ -443,7 +437,9 @@ async def deepseek_search_and_read(
         query: Search query, max 128 characters.
         count: Number of results, 1-50 (default 5).
         ori_question: Original natural-language question, max 128 characters.
-        lang: Two-letter language operator, e.g. 'pl' or 'en'.
+        lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
+            appropriate code; without it results may be mixed-language. For named entities test
+            with and without the operator.
         max_chars_per_result: Content cap per result.
         max_total_chars: Total content budget across all results.
         dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
