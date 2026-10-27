@@ -1253,15 +1253,3 @@ def create_server(**options: Any) -> FastMCP:
 
 
 mcp = create_server()
-
-
-async def _check() -> int:
-    key = _api_key()
-    print(f"base_url: {_base_url()}")
-    print(f"DeepSeek key: {'set' if key else 'MISSING'}")
-    if not key:
-        print("Set DEEPSEEK_API_KEY or point DEEPSEEK_AUTH_JSON at a JSON file.")
-        return 1
-    result = await deepseek_balance()
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result.get("ok") else 1

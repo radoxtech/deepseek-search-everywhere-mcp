@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import json
 import logging
 import os
 import sys
@@ -81,6 +82,19 @@ def _http_settings(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error(str(exc))
 
 
+async def _check() -> int:
+    """Print the endpoint, whether a key is configured and the balance; return the exit code."""
+    key = server._api_key()
+    print(f"base_url: {server._base_url()}")
+    print(f"DeepSeek key: {'set' if key else 'MISSING'}")
+    if not key:
+        print("Set DEEPSEEK_API_KEY or point DEEPSEEK_AUTH_JSON at a JSON file.")
+        return 1
+    result = await server.deepseek_balance()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok") else 1
+
+
 def _serve_http(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     token = os.environ.get(ENV_BEARER_TOKEN, "").strip()
     if not token:
@@ -112,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.check:
         if args.transport != STDIO:
             parser.error("--check cannot be combined with --transport streamable-http")
-        sys.exit(asyncio.run(server._check()))
+        sys.exit(asyncio.run(_check()))
     if args.transport == STREAMABLE_HTTP:
         _serve_http(parser, args)
     else:
