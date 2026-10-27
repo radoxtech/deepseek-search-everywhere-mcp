@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import urllib.parse
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -21,7 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from .cache import SingleFlight, TTLCache
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
-from .ratelimit import SEARCH, RateLimiter, RateLimitExceeded
+from .ratelimit import FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
 from .settings import get_settings
 from .transport import _api_key, _base_url
@@ -34,6 +35,7 @@ FETCH_TIMEOUT = 120.0
 CHAT_TIMEOUT = 8.0
 
 SEARCH_PATH = "/v1/tools/search"
+FETCH_PATH = "/v1/tools/fetch"
 REWRITE_MODEL = "deepseek-flash"
 
 SYSTEM_PROMPT = (
@@ -56,14 +58,17 @@ mcp = FastMCP("deepseek-search-everywhere-mcp")
 # to an event loop at import time. ``reset_state()`` drops it all.
 _search_cache: TTLCache | None = None
 _search_flight: SingleFlight | None = None
+_fetch_cache: TTLCache | None = None
+_fetch_flight: SingleFlight | None = None
 _rewrite_cache: TTLCache | None = None
 _rate_limiter: RateLimiter | None = None
 
 
 def reset_state() -> None:
-    """Forget the search and rewrite caches, in-flight searches and the rate limiter."""
-    global _search_cache, _search_flight, _rewrite_cache, _rate_limiter
-    _search_cache = _search_flight = _rewrite_cache = _rate_limiter = None
+    """Forget the response and rewrite caches, in-flight calls and the rate limiter."""
+    global _search_cache, _search_flight, _fetch_cache, _fetch_flight, _rewrite_cache, _rate_limiter
+    _search_cache = _search_flight = _fetch_cache = _fetch_flight = None
+    _rewrite_cache = _rate_limiter = None
 
 
 def _get_search_cache() -> TTLCache | None:
@@ -85,6 +90,27 @@ def _get_search_flight() -> SingleFlight:
         # Cache writes are done by the leader itself so only usable responses are stored.
         _search_flight = SingleFlight(None)
     return _search_flight
+
+
+def _get_fetch_cache() -> TTLCache | None:
+    """Return the fetch response cache, or ``None`` when caching is disabled."""
+    global _fetch_cache
+    settings = get_settings()
+    if not settings.cache_enabled:
+        return None
+    if _fetch_cache is None:
+        _fetch_cache = TTLCache(settings.cache_fetch_entries, settings.cache_fetch_bytes,
+                                ttl=settings.cache_fetch_ttl)
+    return _fetch_cache
+
+
+def _get_fetch_flight() -> SingleFlight:
+    """Return the single-flight group that collapses identical concurrent fetches."""
+    global _fetch_flight
+    if _fetch_flight is None:
+        # Cache writes are done by the leader itself so only usable pages are stored.
+        _fetch_flight = SingleFlight(None)
+    return _fetch_flight
 
 
 def _get_rewrite_cache() -> TTLCache | None:
@@ -118,6 +144,48 @@ def _sha256(text: str) -> str:
 def _search_cache_key(payload: dict[str, Any]) -> str:
     """Key a search by endpoint and upstream payload only (no key, no shaping options)."""
     return _sha256(_canonical_json({"path": SEARCH_PATH, "base_url": _base_url(), "payload": payload}))
+
+
+def _fetch_cache_key(url: str) -> str:
+    """Key a fetch by endpoint and the exact URL, minus its fragment (never sent upstream).
+
+    The URL is deliberately not canonicalised; shaping options (``clean``, ``max_chars``)
+    are applied per call and stay out of the key, as does the API key.
+    """
+    target = url.strip().split("#", 1)[0]
+    return _sha256(_canonical_json({"path": FETCH_PATH, "base_url": _base_url(), "url": target}))
+
+
+async def _limited_request(endpoint: str, path: str, payload: dict[str, Any],
+                           timeout: float) -> dict[str, Any]:
+    """Take one ``endpoint`` token, then call upstream once (transport retries included).
+
+    Returns the transport envelope, or a ``rate_limited_local`` error envelope when no token
+    is available in time. The token is refunded if the call is cancelled.
+    """
+    try:
+        ticket = await _get_rate_limiter().acquire(endpoint)
+    except RateLimitExceeded as exc:
+        return exc.to_envelope()
+    try:
+        return await _request("POST", path, payload=payload, timeout=timeout)
+    except asyncio.CancelledError:
+        ticket.refund()
+        raise
+
+
+async def _cached_call(cache: TTLCache | None, flight: SingleFlight, key: str,
+                       leader: Callable[[], Awaitable[dict[str, Any]]],
+                       *, refresh: bool) -> tuple[dict[str, Any], bool]:
+    """Serve ``key`` from ``cache`` or through a single-flight ``leader`` call.
+
+    Returns ``(record, cached)``; the record is an error envelope when the leader failed.
+    """
+    record = None if refresh or cache is None else cache.get(key)
+    if record is not None:
+        return record, True
+    result = await flight.run(key, leader, refresh=refresh)
+    return result.value, False
 
 
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
@@ -282,15 +350,7 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None,
 
     Returns ``{"data": ..., "query_original": ...}`` on success or an error envelope.
     """
-    try:
-        ticket = await _get_rate_limiter().acquire(SEARCH)
-    except RateLimitExceeded as exc:
-        return exc.to_envelope()
-    try:
-        result = await _request("POST", SEARCH_PATH, payload=payload, timeout=SEARCH_TIMEOUT)
-    except asyncio.CancelledError:
-        ticket.refund()
-        raise
+    result = await _limited_request(SEARCH, SEARCH_PATH, payload, SEARCH_TIMEOUT)
     if not result.get("ok"):
         return result
     record = {"data": result["data"], "query_original": query_original}
@@ -332,16 +392,12 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
         payload["ori_question"] = ori_question[:MAX_QUERY]
 
     key = _search_cache_key(payload)
-    cache = _get_search_cache()
-    record = None if refresh or cache is None else cache.get(key)
-    cached = record is not None
-    if record is None:
-        flight = await _get_search_flight().run(
-            key, lambda: _search_upstream(payload, query_original, key), refresh=refresh
-        )
-        record = flight.value
-        if record.get("ok") is False:
-            return record
+    record, cached = await _cached_call(
+        _get_search_cache(), _get_search_flight(), key,
+        lambda: _search_upstream(payload, query_original, key), refresh=refresh,
+    )
+    if record.get("ok") is False:
+        return record
 
     raw = record["data"].get("results") or []
     removed = 0
@@ -409,6 +465,21 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
     if query_original is not None:
         envelope["query_original"] = query_original
     return envelope
+
+
+async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
+    """Leader-only path: take a ``fetch`` token, call upstream, cache a non-empty page.
+
+    Returns ``{"data": ...}`` with the raw upstream page on success or an error envelope.
+    """
+    result = await _limited_request(FETCH, FETCH_PATH, {"url": url}, FETCH_TIMEOUT)
+    if not result.get("ok"):
+        return result
+    record = {"data": result["data"]}
+    cache = _get_fetch_cache()
+    if cache is not None and result["data"].get("content"):
+        cache.set(key, record)
+    return record
 
 
 @mcp.tool()
@@ -497,6 +568,8 @@ async def deepseek_fetch(
     url: str,
     clean: bool = True,
     max_chars: int = 20000,
+    *,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
@@ -511,6 +584,8 @@ async def deepseek_fetch(
         url: Absolute http(s) URL, max 8192 characters.
         clean: Remove DeepSeek's spurious Markdown escaping (\\# at line start, \\, \\, etc.).
         max_chars: Content cap, applied after cleaning.
+        refresh: Bypass the response cache and fetch the page again (the envelope's cached
+            flag says whether the page came from the cache).
     """
     url = (url or "").strip()
     if not url:
@@ -520,11 +595,17 @@ async def deepseek_fetch(
     if not re.match(r"^https?://", url, re.I):
         return _fail("bad_url", "url must start with http:// or https://.")
 
-    result = await _request("POST", "/v1/tools/fetch", payload={"url": url}, timeout=FETCH_TIMEOUT)
-    if not result.get("ok"):
-        return result
+    # Any further URL validation belongs here, before the cache or upstream is touched.
 
-    data = result["data"]
+    key = _fetch_cache_key(url)
+    record, cached = await _cached_call(
+        _get_fetch_cache(), _get_fetch_flight(), key, lambda: _fetch_upstream(url, key),
+        refresh=refresh,
+    )
+    if record.get("ok") is False:
+        return record
+
+    data = record["data"]
     content = data.get("content") or ""
     if clean:
         content = _unescape_markdown(content)
@@ -537,6 +618,7 @@ async def deepseek_fetch(
         "content": content,
         "content_chars": len(content),
         "truncated": truncated,
+        "cached": cached,
         "notes": ["Empty content: the page may be a PDF, JS-only or blocked. "
                   "Try deepseek_search_and_read instead."] if not content else [],
     }
