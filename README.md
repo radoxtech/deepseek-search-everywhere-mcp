@@ -319,10 +319,25 @@ pytest -m live
 
 Judge scores and reasons are printed after the run. `.env` is git-ignored; never commit it.
 
-### Publishing to the MCP Registry
+### Releasing
+
+Releases are published by `.github/workflows/release.yml` when a `v*` tag is pushed. The workflow builds once,
+checks that the tag equals the version in `pyproject.toml` and `server.json`, runs `twine check` and a clean-wheel
+smoke test, publishes to PyPI through [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no
+tokens), creates a GitHub Release with the artifacts and then updates the MCP Registry. Running the workflow
+manually publishes to TestPyPI only.
+
+```bash
+# bump the version in pyproject.toml and server.json (tests/test_version_sync.py checks they agree), commit, then:
+git tag v0.2.1 && git push origin v0.2.1
+bash scripts/smoke_package.sh   # optional local check: build, install into a clean venv, run the CLI
+```
+
+### Publishing to the MCP Registry manually
 
 `server.json` describes the PyPI package for the [MCP Registry](https://modelcontextprotocol.io/registry). The
-README carries an `mcp-name` comment that the registry uses to verify package ownership. To release:
+README carries an `mcp-name` comment that the registry uses to verify package ownership. The release workflow
+does this automatically; to publish by hand:
 
 ```bash
 python scripts/validate_server_json.py   # structural checks; also runs `mcp-publisher validate` if installed

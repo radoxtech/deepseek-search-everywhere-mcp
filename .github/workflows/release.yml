@@ -1,0 +1,151 @@
+name: Release
+
+# Tag pushes (v*) publish to PyPI, create a GitHub Release and update the MCP Registry.
+# Manual runs build and verify the package and publish to TestPyPI only.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify the tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python - <<'PY'
+          import json, os, sys, tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          with open("pyproject.toml", "rb") as fh:
+              version = tomllib.load(fh)["project"]["version"]
+          with open("server.json", encoding="utf-8") as fh:
+              manifest = json.load(fh)
+          if tag != f"v{version}":
+              sys.exit(f"Tag {tag} does not match pyproject version v{version}")
+          if manifest["version"] != version:
+              sys.exit(f"server.json version {manifest['version']} does not match {version}")
+          print(f"Releasing {version}")
+          PY
+
+      - name: Build
+        run: |
+          python -m pip install build twine
+          python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Smoke-test the wheel in a clean environment
+        run: |
+          python -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/pip" install dist/*.whl
+          "$RUNNER_TEMP/smoke/bin/deepseek-search-everywhere-mcp" --version
+          "$RUNNER_TEMP/smoke/bin/deepseek-search-everywhere-mcp" --help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    name: Publish to TestPyPI
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/deepseek-search-everywhere-mcp/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  pypi:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/deepseek-search-everywhere-mcp/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: Create GitHub Release
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag
+
+  mcp-registry:
+    name: Publish to the MCP Registry
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Validate server.json
+        run: ./mcp-publisher validate
+
+      - name: Authenticate with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish
