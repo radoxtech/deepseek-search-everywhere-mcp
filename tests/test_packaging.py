@@ -37,5 +37,5 @@ def test_wheel_contains_the_package(wheel_names: list[str]) -> None:
 
 def test_wheel_has_no_top_level_server_module(wheel_names: list[str]) -> None:
     assert "server.py" not in wheel_names
-    top_level = {name.split("/")[0] for name in wheel_names}
-    assert {name for name in top_level if not name.endswith(".dist-info")} == {"deepseek_search_everywhere_mcp"}
+    packages = {name.split("/")[0] for name in wheel_names if not name.split("/")[0].endswith(".dist-info")}
+    assert packages == {"deepseek_search_everywhere_mcp"}
