@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
+from .redact import redact
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
 
@@ -281,7 +282,7 @@ async def _search(query: str, count: int, ori_question: str | None, need_content
         "need_content": need_content,
         "deduped": removed,
         "results": shaped,
-        "notes": notes,
+        "notes": [redact(note) for note in notes],
     }
     if query_original is not None:
         envelope["query_original"] = query_original

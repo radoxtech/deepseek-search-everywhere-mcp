@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .redact import redact
+
 HTTP_HINTS = {
     400: "Invalid request parameters.",
     402: "Insufficient DeepSeek balance. Top up or switch provider.",
@@ -36,4 +38,4 @@ def _map_http_error(status: int, body: str) -> dict[str, Any]:
 
     if status in HTTP_HINTS:
         message = f"{message} — {HTTP_HINTS[status]}"
-    return _fail(code, message, status)
+    return _fail(code, redact(message), status)

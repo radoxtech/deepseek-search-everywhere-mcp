@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 
 from .errors import _fail, _map_http_error
+from .redact import redact
 from .settings import get_settings
 
 BASE_DEFAULT = "https://api.deepseek.com"
@@ -54,6 +55,14 @@ def _api_key() -> str:
         if found.strip():
             return found.strip()
     return ""
+
+
+def _scrub(envelope: dict[str, Any], key: str) -> dict[str, Any]:
+    """Redact the DeepSeek key and other credentials from an error message."""
+    if not envelope.get("ok"):
+        error = envelope["error"]
+        error["message"] = redact(error["message"], (key,))
+    return envelope
 
 
 def _utcnow() -> datetime:
@@ -147,7 +156,7 @@ async def request(method: str, path: str, *, payload: dict[str, Any] | None = No
             result, retry_delay = await _attempt(method, url, path, payload=payload,
                                                  headers=headers, timeout=timeout)
             if retry_delay is None:
-                return result
+                return _scrub(result, key)
             last, delay = result, retry_delay
         except httpx.TimeoutException:
             last = _fail("timeout", f"Request to {path} timed out after {timeout:.0f}s.")
@@ -155,4 +164,4 @@ async def request(method: str, path: str, *, payload: dict[str, Any] | None = No
             last = _fail("network_error", f"{type(exc).__name__}: {exc}")
         if attempt + 1 < retries:
             await asyncio.sleep(delay)
-    return last
+    return _scrub(last, key)
