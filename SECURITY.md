@@ -39,6 +39,16 @@ literal private or loopback addresses, and URLs that embed credentials such as `
 is a behavior change in v0.2 and returns the `ssrf_blocked` error code). It does not guarantee
 network-level isolation of the DeepSeek fetch infrastructure.
 
+## HTTP transport
+
+- The streamable HTTP transport always requires a bearer token (`MCP_BEARER_TOKEN`). Requests to the MCP path
+  without `Authorization: Bearer <token>`, or with a different token, get `401` before reaching the MCP server.
+  Tokens are compared in constant time and are never logged.
+- DNS-rebinding protection (Host/Origin checks) of the MCP SDK is disabled on purpose: the bearer token is the trust
+  boundary, and the Host check would reject legitimate clients when the server binds to `0.0.0.0`.
+- The default bind address is `127.0.0.1`. When exposing the server beyond loopback, use a long random token and put
+  TLS in front of it (for example a reverse proxy); the server itself speaks plain HTTP.
+
 ## Telemetry
 
 This server has no telemetry. It does not phone home and does not collect usage data.

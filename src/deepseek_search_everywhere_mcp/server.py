@@ -1,7 +1,8 @@
 """MCP server for the DeepSeek Search & Fetch API.
 
-Exposes web search, page fetch (single and batch), search-and-read, research and balance tools
-over stdio.
+Exposes web search, page fetch (single and batch), search-and-read, research and balance tools.
+``create_server()`` builds a FastMCP instance with every tool registered; the module-level
+``mcp`` serves stdio, and ``deepseek_search_everywhere_mcp.http_app`` builds fresh ones for HTTP.
 Requires DEEPSEEK_API_KEY; DEEPSEEK_BASE_URL overrides the endpoint.
 
 The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
@@ -54,7 +55,7 @@ MIN_TITLE_SITE_WORDS = 3
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-mcp = FastMCP("deepseek-search-everywhere-mcp")
+SERVER_NAME = "deepseek-search-everywhere-mcp"
 
 # Runtime state, built lazily from the active settings on first use so nothing is bound
 # to an event loop at import time. ``reset_state()`` drops it all.
@@ -484,7 +485,6 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
     return record
 
 
-@mcp.tool()
 async def deepseek_web_search(
     query: str,
     count: int = 10,
@@ -533,7 +533,6 @@ async def deepseek_web_search(
                          max_chars_per_result, max_total_chars, dedupe, rewrite, refresh=refresh)
 
 
-@mcp.tool()
 async def deepseek_search_and_read(
     query: str,
     count: int = 5,
@@ -600,7 +599,6 @@ def _check_fetch_url(url: str) -> dict[str, Any] | None:
     return _reject_url(url)
 
 
-@mcp.tool()
 async def deepseek_fetch(
     url: str,
     clean: bool = True,
@@ -693,7 +691,6 @@ async def _fetch_isolated(url: str, clean: bool, max_chars: int, refresh: bool,
             return _fail("internal_error", redact(f"{type(exc).__name__}: {exc}"))
 
 
-@mcp.tool()
 async def deepseek_fetch_many(
     urls: list[str],
     max_chars_per_url: int = 4000,
@@ -832,7 +829,6 @@ def _gap_check(source: dict[str, Any]) -> tuple[str | None, dict[str, Any] | Non
     return url, None
 
 
-@mcp.tool()
 async def deepseek_research(
     question: str,
     max_pages: int = 5,
@@ -932,7 +928,6 @@ async def deepseek_research(
     }
 
 
-@mcp.tool()
 async def deepseek_balance() -> dict[str, Any]:
     """Check the DeepSeek account balance (granted and topped-up, in CNY and USD)."""
     result = await _request("GET", "/user/balance", timeout=20.0)
@@ -944,6 +939,32 @@ async def deepseek_balance() -> dict[str, Any]:
         "is_available": data.get("is_available"),
         "balances": data.get("balance_infos") or data.get("balances") or data,
     }
+
+
+TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
+    deepseek_web_search,
+    deepseek_search_and_read,
+    deepseek_fetch,
+    deepseek_fetch_many,
+    deepseek_research,
+    deepseek_balance,
+)
+
+
+def create_server(**options: Any) -> FastMCP:
+    """Build a new FastMCP instance with every tool registered.
+
+    ``options`` are passed to :class:`FastMCP` (host, port, HTTP path, transport flags).
+    Each call returns an independent server, so each HTTP application gets its own
+    session manager.
+    """
+    server = FastMCP(SERVER_NAME, **options)
+    for tool in TOOLS:
+        server.add_tool(tool)
+    return server
+
+
+mcp = create_server()
 
 
 async def _check() -> int:
