@@ -17,18 +17,29 @@ NOT_FOUND = {"ok": False, "error": {"code": "http_404", "message": "failed to fe
 
 
 class Upstream:
-    """Fake ``server._request`` that counts fetch calls and serves a scripted response."""
+    """Fake ``server._request`` that counts fetch calls and serves a scripted response.
+
+    With a ``gate`` set, each call signals ``entered`` and then blocks until the gate opens;
+    a call cancelled while blocked signals ``cancelled`` before the cancellation propagates.
+    """
 
     def __init__(self) -> None:
         self.responses: list[dict[str, Any]] = []
         self.default: dict[str, Any] = {"ok": True, "data": PAGE}
         self.calls: list[dict[str, Any]] = []
         self.gate: asyncio.Event | None = None
+        self.entered = asyncio.Event()
+        self.cancelled = asyncio.Event()
 
     async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         self.calls.append({"path": path, **kwargs})
         if self.gate is not None:
-            await self.gate.wait()
+            self.entered.set()
+            try:
+                await self.gate.wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
         return self.responses.pop(0) if self.responses else self.default
 
 
@@ -155,8 +166,9 @@ async def test_concurrent_fetches_share_one_call_and_one_token(
 ) -> None:
     upstream.gate = asyncio.Event()
     tasks = [asyncio.create_task(server.deepseek_fetch(URL, max_chars=n)) for n in (10, 50, 100)]
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    # Every caller joins the single flight before its first await, so all three are waiting
+    # by the time the shared call reaches upstream.
+    await upstream.entered.wait()
     upstream.gate.set()
     results = await asyncio.gather(*tasks)
     assert len(upstream.calls) == 1
@@ -168,16 +180,15 @@ async def test_concurrent_fetches_share_one_call_and_one_token(
 async def test_cancelled_leader_refunds_its_token(upstream: Upstream, limiter: RateLimiter) -> None:
     upstream.gate = asyncio.Event()
     task = asyncio.create_task(server.deepseek_fetch(URL))
-    for _ in range(5):
-        await asyncio.sleep(0)
+    await upstream.entered.wait()
     assert len(upstream.calls) == 1
     bucket = limiter.buckets["fetch"]
     assert bucket.tokens == bucket.burst - 1
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    for _ in range(3):
-        await asyncio.sleep(0)
+    # The refund runs as the cancellation leaves the upstream call, before ``cancelled`` wakes us.
+    await upstream.cancelled.wait()
     assert bucket.tokens == bucket.burst
 
 
