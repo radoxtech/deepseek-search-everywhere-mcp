@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,18 +7,33 @@ name = "deepseek-search-everywhere-mcp"
 version = "0.2.0"
 description = "Research-grade MCP server for the DeepSeek Search & Fetch API"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "deepseek",
+    "web-search",
+    "research",
+    "llm",
+    "ai-agents",
+]
 authors = [{ name = "radoxtech" }]
 requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Framework :: AsyncIO",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 dependencies = [
     "mcp>=1.26.0,<2.0",
@@ -36,6 +51,8 @@ deepseek-search-everywhere-mcp = "deepseek_search_everywhere_mcp.cli:main"
 [project.urls]
 Homepage = "https://github.com/radoxtech/deepseek-search-everywhere-mcp"
 Repository = "https://github.com/radoxtech/deepseek-search-everywhere-mcp"
+Changelog = "https://github.com/radoxtech/deepseek-search-everywhere-mcp/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/radoxtech/deepseek-search-everywhere-mcp#readme"
 Issues = "https://github.com/radoxtech/deepseek-search-everywhere-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
