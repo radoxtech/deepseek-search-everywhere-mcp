@@ -37,6 +37,7 @@ MAX_QUERY = 128
 MAX_URL = 8192
 SEARCH_TIMEOUT = 60.0
 FETCH_TIMEOUT = 120.0
+BALANCE_TIMEOUT = 20.0
 CHAT_TIMEOUT = 8.0
 
 SEARCH_PATH = "/v1/tools/search"
@@ -1215,7 +1216,7 @@ async def deepseek_research(
 
 async def deepseek_balance() -> dict[str, Any]:
     """Check the DeepSeek account balance (granted and topped-up, in CNY and USD)."""
-    result = await _request("GET", "/user/balance", timeout=20.0)
+    result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
         return result
     data = result["data"]
