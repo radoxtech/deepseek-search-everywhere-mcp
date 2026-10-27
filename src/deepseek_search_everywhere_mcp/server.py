@@ -366,7 +366,7 @@ async def _rewrite_query(query: str) -> str | None:
     }
     try:
         result = await _request(
-            "POST", "/v1/chat/completions", payload=payload, timeout=CHAT_TIMEOUT, retries=1
+            "POST", "/v1/chat/completions", payload=payload, timeout=CHAT_TIMEOUT, attempts=1
         )
         if not result.get("ok"):
             return None

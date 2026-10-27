@@ -151,12 +151,13 @@ async def _attempt(
 
 
 async def request(
-    method: str, path: str, *, payload: dict[str, Any] | None = None, timeout: float, retries: int = 2
+    method: str, path: str, *, payload: dict[str, Any] | None = None, timeout: float, attempts: int = 2
 ) -> dict[str, Any]:
     """Call the DeepSeek API and return ``{"ok": True, "data": ...}`` or an error envelope.
 
-    Each of the ``retries`` attempts gets its own ``timeout``; 429 and 5xx gateway errors,
-    timeouts and network errors are retried, other 4xx responses are returned at once.
+    ``attempts`` is the total number of tries, so ``attempts=1`` means no retry and the
+    default of 2 allows one retry. Each attempt gets its own ``timeout``; 429 and 5xx gateway
+    errors, timeouts and network errors are retried, other 4xx responses are returned at once.
     """
     key = _api_key()
     if not key:
@@ -168,7 +169,7 @@ async def request(
     headers = {"Authorization": f"Bearer {key}"}
     last: dict[str, Any] = _fail("request_failed", "No attempt was made.")
 
-    for attempt in range(retries):
+    for attempt in range(attempts):
         delay = DEFAULT_RETRY_DELAY
         try:
             result, retry_delay = await _attempt(
@@ -181,6 +182,6 @@ async def request(
             last = _fail("timeout", f"Request to {path} timed out after {timeout:.0f}s.")
         except httpx.RequestError as exc:
             last = _fail("network_error", f"{type(exc).__name__}: {exc}")
-        if attempt + 1 < retries:
+        if attempt + 1 < attempts:
             await _sleep(delay)
     return _scrub(last, key)

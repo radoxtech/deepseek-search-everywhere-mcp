@@ -14,7 +14,7 @@ TOOL_NAMES = {"deepseek_web_search", "deepseek_search_and_read", "deepseek_fetch
 def _install_fake_request(monkeypatch: pytest.MonkeyPatch, results: list[dict[str, Any]]) -> list[dict]:
     calls: list[dict] = []
 
-    async def fake_request(method, path, *, payload=None, timeout=None, retries=2, **_):
+    async def fake_request(method, path, *, payload=None, timeout=None, attempts=2, **_):
         calls.append({"path": path, "payload": payload})
         return {"ok": True, "data": {"results": results}}
 

@@ -121,9 +121,9 @@ def test_fetch_rejects_long_url():
 def _install_fake_request(monkeypatch, responses):
     calls = []
 
-    async def fake_request(method, path, *, payload=None, timeout=None, retries=2, **_):
+    async def fake_request(method, path, *, payload=None, timeout=None, attempts=2, **_):
         calls.append(
-            {"method": method, "path": path, "payload": payload, "timeout": timeout, "retries": retries}
+            {"method": method, "path": path, "payload": payload, "timeout": timeout, "attempts": attempts}
         )
         return responses[path]
 
@@ -331,7 +331,7 @@ def test_rewrite_payload_is_flash_without_thinking(monkeypatch):
     assert payload["max_tokens"] == 64
     assert payload["stream"] is False
     assert calls[0]["timeout"] == server.CHAT_TIMEOUT
-    assert calls[0]["retries"] == 1
+    assert calls[0]["attempts"] == 1
     assert payload["messages"][0]["content"] == server.SYSTEM_PROMPT
 
 

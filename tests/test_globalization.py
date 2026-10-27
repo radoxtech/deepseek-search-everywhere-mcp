@@ -21,7 +21,7 @@ def _search(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     calls: list[dict[str, Any]] = []
 
-    async def fake_request(method, path, *, payload=None, timeout=None, retries=2, **_):
+    async def fake_request(method, path, *, payload=None, timeout=None, attempts=2, **_):
         calls.append({"method": method, "path": path, "payload": payload})
         return {"ok": True, "data": {"results": []}}
 

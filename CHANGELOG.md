@@ -39,6 +39,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Settings are a frozen dataclass with documented defaults; `batch_concurrency` is capped at 5.
 - The 429 hint no longer depends on upstream rate limits.
 - Retry backoff uses an injectable sleep function.
+- The transport's `retries` argument is renamed `attempts`: it always counted total tries, so the default of 2
+  means one retry.
 - The license is declared as a PEP 639 SPDX expression.
 
 ### Security

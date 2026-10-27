@@ -159,7 +159,7 @@ async def _ask(system: str, user: str) -> dict[str, Any]:
         "thinking": {"type": "disabled"},
         "response_format": {"type": "json_object"},
     }
-    result = await request("POST", "/v1/chat/completions", payload=payload, timeout=JUDGE_TIMEOUT, retries=2)
+    result = await request("POST", "/v1/chat/completions", payload=payload, timeout=JUDGE_TIMEOUT, attempts=2)
     if not result.get("ok"):
         pytest.fail(f"judge request failed: {result.get('error')}", pytrace=False)
     try:

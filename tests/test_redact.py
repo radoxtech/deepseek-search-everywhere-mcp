@@ -79,7 +79,7 @@ def test_transport_network_error_hides_key(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(transport, "_attempt", boom)
     monkeypatch.setattr(transport, "_sleep", _no_sleep)
 
-    result = asyncio.run(transport.request("GET", "/user/balance", timeout=1.0, retries=1))
+    result = asyncio.run(transport.request("GET", "/user/balance", timeout=1.0, attempts=1))
     assert result["ok"] is False
     assert result["error"]["code"] == "network_error"
     assert "sk-livekeyvalue123" not in result["error"]["message"]

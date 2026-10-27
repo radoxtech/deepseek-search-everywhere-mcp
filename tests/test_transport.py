@@ -184,7 +184,19 @@ async def test_network_errors_keep_their_code(upstream, sleeps) -> None:
 
     upstream(handler)
 
-    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5, retries=1)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5, attempts=1)
 
     assert result["error"]["code"] == "network_error"
     assert sleeps == []
+
+
+@pytest.mark.parametrize(("attempts", "expected_calls"), [(None, 2), (1, 1), (3, 3)])
+async def test_attempts_is_the_total_number_of_tries(upstream, sleeps, attempts, expected_calls) -> None:
+    seen = upstream(lambda request: httpx.Response(503, json={"error": {"message": "busy"}}))
+    options = {} if attempts is None else {"attempts": attempts}
+
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5, **options)
+
+    assert result["ok"] is False
+    assert len(seen) == expected_calls
+    assert len(sleeps) == expected_calls - 1
