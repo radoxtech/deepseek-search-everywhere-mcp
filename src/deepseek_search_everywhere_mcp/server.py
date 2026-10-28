@@ -609,8 +609,10 @@ def _build_search_payload(
 # A calendar date written as YYYY-MM-DD on its own (optionally followed by an ISO time), not part
 # of a longer number, identifier or version string.
 _ISO_DATE = re.compile(r"(?<![\w./-])(\d{4})-(\d{2})-(\d{2})(?![0-9]|[-./][0-9]|[A-SU-Za-z])")
-# How far into a page's text a publication date is looked for, and how much raw text is cleaned first.
-CONTENT_DATE_WINDOW = 300
+# How far into a page's text a publication date (ISO or month name) is looked for, and how much raw
+# text is cleaned first. Journal pages often open with a few hundred characters of site navigation,
+# authors and affiliations before the issue line, so the window reaches past them.
+CONTENT_DATE_WINDOW = 600
 _CONTENT_DATE_RAW = 2000
 MIN_CONTENT_YEAR = 1990
 

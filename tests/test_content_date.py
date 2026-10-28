@@ -126,6 +126,8 @@ JOURNAL_TOC = (
         ("2025 Sep; 151(9) and 2025 Septembers", None),
         ("in 1850 June and in 2025-06 June", None),
         ("First June 2024, then 2025 May", "2024-06-01"),
+        ("By Hilary DarrahSeptember 2025", None),
+        ("Hilary Darrah2025 September", None),
     ],
 )
 def test_month_date_in(text: str, expected: str | None) -> None:
@@ -146,6 +148,21 @@ def test_content_date_prefers_an_iso_date() -> None:
 def test_content_date_ignores_a_month_outside_the_window() -> None:
     late = "x" * (server.CONTENT_DATE_WINDOW + 10) + " September 2025"
     assert server._content_date(None, late, TODAY) is None
+
+
+def test_content_date_window_reaches_past_a_long_page_header() -> None:
+    header = "Journal navigation, authors and affiliations. " * 7  # about 330 characters
+    assert 320 < len(header) < 340
+    assert server._content_date(None, header + "2025 September; 151(9)", TODAY) == "2025-09-01"
+    assert server._content_date(None, header + "Published 2025-06-26.", TODAY) == "2025-06-26"
+
+
+def test_content_date_window_is_600_characters() -> None:
+    assert server.CONTENT_DATE_WINDOW == 600
+    fits = "x" * (600 - len(" September 2025")) + " September 2025"
+    assert server._content_date(None, fits, TODAY) == "2025-09-01"
+    assert server._content_date(None, "x" * 601 + " September 2025", TODAY) is None
+    assert server._content_date(None, "x" * 601 + " 2025-06-26", TODAY) is None
 
 
 def test_search_reads_a_month_date_from_content(fake_upstream) -> None:
