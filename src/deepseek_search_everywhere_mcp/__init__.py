@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version
-
+from ._version import __version__
 from .server import mcp
-
-try:
-    __version__ = version("deepseek-search-everywhere-mcp")
-except PackageNotFoundError:
-    __version__ = "0.0.0"
 
 __all__ = ["__version__", "mcp"]

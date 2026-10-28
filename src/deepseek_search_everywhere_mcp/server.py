@@ -23,6 +23,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ._version import __version__
 from .cache import SingleFlight, TTLCache
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
@@ -1299,10 +1300,13 @@ def create_server(**options: Any) -> FastMCP:
     ``log_level``). ``log_level`` defaults to WARNING so FastMCP's one-time root logging
     setup stays quiet; the CLI applies ``DEEPSEEK_MCP_LOG_LEVEL`` to the loggers themselves.
     Each call returns an independent server, so each HTTP application gets its own
-    session manager.
+    session manager. The server reports the package version in the ``initialize`` handshake.
     """
     options.setdefault("log_level", DEFAULT_LOG_LEVEL)
     server = FastMCP(SERVER_NAME, **options)
+    # FastMCP has no ``version`` argument, so the handshake would report the MCP SDK's version.
+    # The low-level server's ``version`` is what ``initialize`` returns as ``serverInfo.version``.
+    server._mcp_server.version = __version__
     for tool in TOOLS:
         server.add_tool(tool)
     return server

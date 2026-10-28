@@ -15,7 +15,7 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import __version__, server
 from deepseek_search_everywhere_mcp.http_app import BearerAuthMiddleware, build_http_app
 from deepseek_search_everywhere_mcp.settings import Settings
 
@@ -81,6 +81,12 @@ def test_auth_valid_token_reaches_mcp(client: TestClient, scheme: str) -> None:
     assert body["jsonrpc"] == "2.0"
     assert body["id"] == 1
     assert body["result"]["serverInfo"]["name"] == "deepseek-search-everywhere-mcp"
+
+
+def test_initialize_reports_the_package_version(client: TestClient) -> None:
+    response = _post_initialize(client, AUTH)
+    info = response.json()["result"]["serverInfo"]
+    assert info == {"name": server.SERVER_NAME, "version": __version__}
 
 
 def test_auth_non_ascii_token_is_compared_as_bytes() -> None:

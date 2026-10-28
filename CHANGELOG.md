@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The MCP handshake reports the package version as `serverInfo.version` instead of the MCP SDK's version.
 - `clean=True` removes backslash escapes from all ASCII punctuation (`\(`, `\-`, `\[`, `\/`...), not just a few,
   and leaves fenced code blocks and inline code spans untouched.
 - The query-rewrite prompt and user-facing notes are language-neutral.
