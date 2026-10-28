@@ -91,13 +91,45 @@ def test_strip_html_tags_leaves_other_angle_brackets_and_code() -> None:
     assert server._strip_html_tags(text) == text
 
 
+# Index content with tags leaking between paragraphs, next to a code sample that must survive.
+TAGGED_CONTENT = (
+    "Wyniki są spójne. <p>W metaanalizie <strong>badacze podkreślają</strong> efekt.</p>"
+    "<h2>Przykład</h2>\n\n```python\n>>> print('<p>')\n<p>\n```\n\n"
+    "Porównanie `a < b` i typ List<T> zostają."
+)
+
+
+def test_search_and_read_strips_html_tags_from_content(fake_upstream) -> None:
+    content = _search(fake_upstream, content=TAGGED_CONTENT)["results"][0]["content"]
+    for tag in ("<strong>", "</strong>", "</p>", "<h2>", "</h2>"):
+        assert tag not in content.replace("```python\n>>> print('<p>')\n<p>\n```", "")
+    assert "W metaanalizie badacze podkreślają efekt. Przykład" in content
+    assert "```python\n>>> print('<p>')\n<p>\n```" in content
+    assert "`a < b`" in content and "List<T>" in content
+
+
+def test_search_and_read_leaves_clean_content_and_code_untouched(fake_upstream) -> None:
+    clean = "Docs.\n\n```pycon\n>>> 1 < 2\nTrue\n```\n\nUse `dict[str, int]` and List<T>."
+    result = _search(fake_upstream, content=clean)["results"][0]
+    assert result["content"] == clean
+
+
+def test_research_sources_strip_html_tags(fake_upstream) -> None:
+    long_content = TAGGED_CONTENT * 3  # long enough that research does not fetch the page
+    fake_upstream(default={"ok": True, "data": {"results": [_item(content=long_content)]}})
+    source = asyncio.run(server.deepseek_research("brainrot", max_pages=1))["sources"][0]
+    assert source["origin"] == "search"
+    assert "<strong>" not in source["content"] and "</h2>" not in source["content"]
+    assert ">>> print('<p>')" in source["content"]
+
+
 def test_search_and_read_decodes_content_snippet_and_summary(fake_upstream) -> None:
     envelope = _search(fake_upstream, content=ESCAPED_CONTENT, snippet=ESCAPED_SNIPPET)
     result = envelope["results"][0]
-    assert result["content"] == DECODED_CONTENT
+    assert result["content"] == DECODED_CONTENT.replace(" <p>", " ")
     assert "\\u0" not in result["snippet"] and "<\\/" not in result["snippet"]
     assert "<p>" not in result["snippet"] and "samotność" in result["snippet"]
-    assert result["chars"] == len(DECODED_CONTENT)
+    assert result["chars"] == len(DECODED_CONTENT.replace(" <p>", " "))
 
 
 def test_web_search_decodes_summary(fake_upstream) -> None:

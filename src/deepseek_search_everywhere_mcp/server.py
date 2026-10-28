@@ -454,7 +454,7 @@ def _decode_json_escapes(text: str) -> str:
     return _JSON_ESCAPE_TOKEN.sub(_decode_json_escape, text)
 
 
-# Simple attribute-less block and inline tags that leak into index snippets and summaries.
+# Simple attribute-less block and inline tags that leak into index content, snippets and summaries.
 _HTML_TAG = re.compile(r"</?(?:p|br|h[1-6]|div|span|li|ul|ol|strong|em|b|i)\s*/?>", re.IGNORECASE)
 _TAG_TOKEN = re.compile(
     r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
@@ -694,8 +694,8 @@ def _apply_char_budget(
 ) -> tuple[int, bool]:
     """Add the result's content (or summary) to ``entry``, cut to the per-result and total budgets.
 
-    Content is unescaped (Markdown escapes, then any JSON escapes left by the search index) and,
-    with ``strip_boilerplate``, rid of known site-UI lines before it
+    Content is unescaped (Markdown escapes, then any JSON escapes left by the search index), rid of
+    leftover simple HTML tags outside code and, with ``strip_boilerplate``, of known site-UI lines before it
     is capped at ``per_result``; a summary, used when there is no content, is capped at
     ``summary_cap`` and is left out entirely when that cap is 0. With content, ``chars`` is the
     length returned and the deprecated ``content_chars`` the cleaned length before the cap.
@@ -703,7 +703,7 @@ def _apply_char_budget(
     """
     body = item.get("content") if need_content else None
     if body:
-        cleaned = _decode_json_escapes(_unescape_markdown(body))
+        cleaned = _strip_html_tags(_decode_json_escapes(_unescape_markdown(body)))
         if strip_boilerplate:
             cleaned = remove_boilerplate(cleaned, item.get("url"))
         entry["content"], cut = _truncate(cleaned, max(0, min(per_result, remaining)))
