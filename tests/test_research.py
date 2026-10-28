@@ -79,6 +79,7 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
         "title",
         "url",
         "date",
+        "date_source",
         "site",
         "authority",
         "rerank_score",
@@ -202,8 +203,8 @@ async def test_research_sources_carry_date_and_site(fake_upstream: Any) -> None:
     fake_upstream(Upstream([dated, undated]))
     result = await server.deepseek_research("dated question")
     first, second = result["sources"]
-    assert (first["date"], first["site"]) == ("2025-03-01", "Site 1")
-    assert second["date"] is None
+    assert (first["date"], first["date_source"], first["site"]) == ("2025-03-01", "upstream", "Site 1")
+    assert (second["date"], second["date_source"]) == (None, None)
     assert second["site"] is None
 
 

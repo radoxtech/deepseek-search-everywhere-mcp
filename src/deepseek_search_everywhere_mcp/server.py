@@ -21,6 +21,7 @@ import time
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Any, ParamSpec
 
 from mcp.server.fastmcp import FastMCP
@@ -605,12 +606,62 @@ def _build_search_payload(
     return payload
 
 
+# A calendar date written as YYYY-MM-DD on its own (optionally followed by an ISO time), not part
+# of a longer number, identifier or version string.
+_ISO_DATE = re.compile(r"(?<![\w./-])(\d{4})-(\d{2})-(\d{2})(?![0-9]|[-./][0-9]|[A-SU-Za-z])")
+# How far into a page's text a publication date is looked for, and how much raw text is cleaned first.
+CONTENT_DATE_WINDOW = 300
+_CONTENT_DATE_RAW = 2000
+MIN_CONTENT_YEAR = 1990
+
+
+def _date_in(text: str, today: date | None = None) -> str | None:
+    """Return the first valid ``YYYY-MM-DD`` date in ``text`` (year 1990 to next year), or None."""
+    max_year = (today or datetime.now(UTC).date()).year + 1
+    for match in _ISO_DATE.finditer(text):
+        year, month, day = (int(part) for part in match.groups())
+        if not MIN_CONTENT_YEAR <= year <= max_year:
+            continue
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _content_date(title: Any, text: Any, today: date | None = None) -> str | None:
+    """Find a publication date in a result's title or the first characters of its text.
+
+    Used only when the upstream gave no date. The text is cleaned the way content is before the
+    first ``CONTENT_DATE_WINDOW`` characters are searched.
+    """
+    candidates: list[str] = []
+    if isinstance(title, str):
+        candidates.append(title)
+    if isinstance(text, str) and text:
+        head = _decode_json_escapes(_unescape_markdown(text[:_CONTENT_DATE_RAW]))
+        candidates.append(head[:CONTENT_DATE_WINDOW])
+    return next((found for found in (_date_in(c, today) for c in candidates) if found), None)
+
+
+def _dated(upstream: Any, title: Any, text: Any) -> tuple[Any, str | None]:
+    """Return ``(date, date_source)``: the upstream date, else one found in the content, else None."""
+    if upstream:
+        return upstream, "upstream"
+    found = _content_date(title, text)
+    return (found, "content") if found else (None, None)
+
+
 def _result_entry(item: dict[str, Any]) -> dict[str, Any]:
     """Map one upstream result to its metadata fields, with the host as a blank-title fallback."""
+    when, date_source = _dated(
+        item.get("date"), item.get("title"), item.get("content") or item.get("summary")
+    )
     entry: dict[str, Any] = {
         "title": _title_or_host(item),
         "url": item.get("url"),
-        "date": item.get("date"),
+        "date": when,
+        "date_source": date_source,
         "authority": item.get("authority"),
         "rerank_score": item.get("rerank_score"),
         "site": item.get("site_name"),
@@ -833,7 +884,9 @@ async def deepseek_web_search(
 
     For non-English queries set lang to the appropriate code (e.g. 'es', 'de', 'ja'). Without it
     results may be mixed-language; for named entities test with and without the operator.
-    Each result carries date (RFC 3339) and authority (0-4, -1 unknown).
+    Each result carries date and authority (0-4, -1 unknown). date is the upstream RFC 3339 date
+    or, when the upstream has none, a YYYY-MM-DD date found at the start of the result's text;
+    date_source says which ('upstream', 'content' or null when there is no date).
 
     Responses are cached in memory for a few minutes and identical concurrent calls share one
     upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
@@ -1304,6 +1357,7 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
         "title": item.get("title"),
         "url": item.get("url"),
         "date": item.get("date"),
+        "date_source": item.get("date_source"),
         "site": item.get("site"),
         "authority": item.get("authority"),
         "rerank_score": item.get("rerank_score"),
@@ -1386,6 +1440,8 @@ async def _fill_gaps(
                 source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
             source["origin"] = "fetch"
             source["cached"] = item["cached"]
+            if source["date"] is None and (found := _content_date(None, item["content"])):
+                source["date"], source["date_source"] = found, "content"
             fill.fetched += 1
     return fill
 
@@ -1460,8 +1516,10 @@ async def deepseek_research(
     internal address) is not fetched. Failed or rejected sources keep the search content and set the
     source's error; the call still succeeds with partial=true.
 
-    Each source has id, title, url, date, site, authority, rerank_score, content, chars, origin ('search' or
-    'fetch'), error (null or {code, message}) and cached (whether its content came from the cache).
+    Each source has id, title, url, date, date_source, site, authority, rerank_score, content, chars,
+    origin ('search' or 'fetch'), error (null or {code, message}) and cached (whether its content came
+    from the cache). date_source is 'upstream', 'content' (a YYYY-MM-DD date found at the start of the
+    title or content because the upstream gave none) or null.
     query_used is the query sent upstream (with any lang: operator); query_original is set only when
     rewrite changed the question.
     Content is capped at per_page_chars per source and total_chars overall, in source order; a

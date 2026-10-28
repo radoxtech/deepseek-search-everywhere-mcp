@@ -226,8 +226,8 @@ Notes on the parameters:
   fetches, never refines the query or searches again, and does no summarising. It takes the same `lang`,
   `rewrite` and `dedupe` options as search; the envelope's `query_used`
   shows the query that was sent. It does no summarising and makes no model call unless `rewrite=True`: it returns sources for the caller to synthesise.
-  Each source carries `title`, `url`, `date` and `site` (both null when the upstream gave none), `authority` and
-  `rerank_score`, so stale or off-topic sources are visible without opening them.
+  Each source carries `title`, `url`, `date` and `site` (both null when the upstream gave none), `date_source`,
+  `authority` and `rerank_score`, so stale or off-topic sources are visible without opening them.
 
 Example calls:
 
@@ -256,7 +256,10 @@ Every tool returns a JSON object with `ok`.
 | `failed_count` | `deepseek_fetch_many`, `deepseek_research` | number of failed items or sources |
 
 Search results carry `title` (the URL host without `www.` when the upstream title is blank; a title repeated around ` - `, such as Reddit's `X - X`, is collapsed to `X`), `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
-and `content` with `chars` or `summary` where available. `deepseek_fetch` returns `title`, `content`, `chars`,
+and `content` with `chars` or `summary` where available. When the upstream gives no `date`, a `YYYY-MM-DD` date
+(a valid calendar date, year 1990 to next year) found in the title or the first 300 characters of the text is
+used instead; `date_source` is `"upstream"`, `"content"` or `null` (no date), on search results and research
+sources alike. `deepseek_fetch` returns `title`, `content`, `chars`,
 `truncated`. `chars` is always the length of the `content` returned, in every tool.
 
 `content_chars` is deprecated and will be removed in the next release: on `deepseek_fetch` it equals `chars`;
