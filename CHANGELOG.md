@@ -19,7 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Static URL and SSRF validation before the cache, the limiter or the network are touched.
 - `deepseek_fetch_many` tool for batch fetching with a shared deadline and bounded concurrency; `partial` and
   `failed_count` flag per-URL failures (`deepseek_research` reports `failed_count` too).
-- `deepseek_research` tool that searches and fills gaps with follow-up fetches; each source carries `date` and `site`, and `lang`,
+- `deepseek_research` tool for single-pass source gathering: one search, then direct fetches for the gaps (no
+  iteration, no summary); each source carries `date` and `site`, and `lang`,
   `rewrite` and `dedupe` work as in search (`query_used` reports the query sent).
 - Streamable HTTP transport with bearer-token authentication (`http` extra).
 - `summary_chars` on `deepseek_web_search` and `deepseek_search_and_read` caps the summary of a result without

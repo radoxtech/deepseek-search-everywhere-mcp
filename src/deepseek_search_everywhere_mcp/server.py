@@ -1309,9 +1309,12 @@ async def deepseek_research(
     dedupe: bool = True,
     refresh: bool = False,
 ) -> dict[str, Any]:
-    """Gather source material for a question: one search with page content, then fetch the gaps.
+    """Single-pass source gathering: one search with page content, then direct fetches for the gaps.
 
-    Runs a single search with need_content=True (no summary). By default it makes no model call;
+    It does not iterate, refine the query or summarise: there is exactly one search, no follow-up
+    searches, and the sources come back as raw content for the caller to read and synthesise.
+
+    The search runs with need_content=True. By default it makes no model call;
     rewrite=True translates the question to English first, as in deepseek_web_search.
     Results whose content is missing or shorter than 200 characters and whose URL passes
     validation are fetched directly with deepseek_fetch_many (at most 5 per call); a fetched page

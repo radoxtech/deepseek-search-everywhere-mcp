@@ -24,7 +24,8 @@ opencode and others. Local clients launch it over stdio; remote or shared setups
 - **Search with content in one request**: `need_content` returns page text inline, so there is usually no
   need for a second fetch per result.
 - **Batch fetch and research**: `deepseek_fetch_many` fetches up to 10 URLs concurrently;
-  `deepseek_research` runs a search and fills the gaps by fetching pages whose search content is missing.
+  `deepseek_research` gathers sources in a single pass: one search, then direct fetches for pages whose search
+  content is missing. It does not iterate or summarise.
 - **Result hygiene**: canonical-URL and title/site deduplication, per-result and total character budgets,
   Markdown unescaping.
 - **Optional query rewrite** to English through `deepseek-flash` (thinking disabled), plus an explicit `lang`
@@ -182,7 +183,7 @@ The server speaks plain HTTP; when binding beyond loopback, put TLS in front of 
 | `deepseek_search_and_read` | Search with page content in one request; the recommended retrieval path | `query`, `count=5` (1-50), `ori_question`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `refresh=False`, `summary_chars` |
 | `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `clean=True`, `max_chars=20000`, `refresh=False` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `refresh=False` |
-| `deepseek_research` | One search with content, then fetch the sources whose content is missing or shorter than 200 characters (at most 5 fetches) | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False` |
+| `deepseek_research` | Single-pass source gathering: one search with content, then fetch the sources whose content is missing or shorter than 200 characters (at most 5 fetches). No iteration, no summary | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False` |
 | `deepseek_balance` | Account balance | none |
 
 Notes on the parameters:
@@ -206,7 +207,9 @@ Notes on the parameters:
   order, and reports a failing URL as an item with `ok: false` instead of failing the batch. All fetches share
   a 120 s deadline; URLs still pending then are reported as `deadline_exceeded`. Each page gets at most
   `min(max_chars_per_url, max_total_chars // number of URLs)` characters.
-- `deepseek_research` takes the same `lang`, `rewrite` and `dedupe` options as search; the envelope's `query_used`
+- `deepseek_research` is single-pass source gathering, not an agent: it makes exactly one search plus the gap
+  fetches, never refines the query or searches again, and does no summarising. It takes the same `lang`,
+  `rewrite` and `dedupe` options as search; the envelope's `query_used`
   shows the query that was sent. It does no summarising and makes no model call unless `rewrite=True`: it returns sources for the caller to synthesise.
   Each source carries `title`, `url`, `date` and `site` (both null when the upstream gave none), `authority` and
   `rerank_score`, so stale or off-topic sources are visible without opening them.

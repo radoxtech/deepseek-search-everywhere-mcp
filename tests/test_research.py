@@ -273,3 +273,10 @@ async def test_research_collapses_repeated_titles(fake_upstream: Any) -> None:
         "Other",
         "Left - Right",
     ]
+
+
+async def test_tool_description_says_single_pass_up_front() -> None:
+    tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+    description = tools["deepseek_research"].description
+    assert description.startswith("Single-pass source gathering:")
+    assert "does not iterate, refine the query or summarise" in description
