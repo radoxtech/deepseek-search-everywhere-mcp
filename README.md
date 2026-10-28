@@ -365,6 +365,10 @@ Full policy and reporting instructions: [SECURITY.md](SECURITY.md).
 - `deepseek_fetch` returns HTTP 404 for PDFs and Reddit and times out on some sites. Use
   `deepseek_search_and_read` with the page title or a `site:`-scoped query instead.
 - Fetch returns only title and content: no final URL, status code or publication date.
+- Fetch latency is DeepSeek's page render, not this server: an already rendered page returns in about 0.5 s,
+  others take 3-10 s, and a missing page (HTTP 404) still takes 3-5 s before DeepSeek reports it. A 404 is
+  not retried. `deepseek_fetch_many` runs up to 5 fetches at once, so a batch takes about as long as its
+  slowest page; plan for that with larger batches.
 - Search and fetch only. No site mapping or crawling, no asynchronous jobs, a single provider (DeepSeek).
 - The cache and rate limiter are per process; running several server processes multiplies the effective rate.
 - Local rate limits are conservative defaults and do not replace DeepSeek's own quotas.
