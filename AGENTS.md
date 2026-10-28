@@ -67,8 +67,11 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 
 - Conventional Commits; subject at most 72 characters, imperative mood; the body explains why.
 - One logical change per commit. Never commit with failing tests or lint. Stage explicit paths, never `git add -A`.
-- Release automation is release-please in pre-1.0 mode:
-  - `fix` and `feat` bump the patch version; `feat!` or a `BREAKING CHANGE` footer bumps the minor.
+- Release automation is release-please with standard semantic versioning (1.0 and later):
+  - `fix` bumps the patch version and `feat` bumps the minor.
+  - A breaking change must be marked with `!` after the type (`feat!:`) or a `BREAKING CHANGE:` footer,
+    and it implies a major release. Tool names, parameters, envelope fields and error codes are public
+    API: renaming or removing any of them, or changing their meaning, is a breaking change.
   - `docs`, `refactor`, `perf` and `deps` appear in the changelog without a bump.
   - `chore`, `ci`, `test`, `build` and `style` are hidden from the changelog.
 - PR titles must also be Conventional Commits, because squash merges use them as the commit message.
