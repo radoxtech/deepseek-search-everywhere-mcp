@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/deepseek-search-everywhere-mcp)](https://pypi.org/project/deepseek-search-everywhere-mcp/)
 [![Python versions](https://img.shields.io/pypi/pyversions/deepseek-search-everywhere-mcp)](https://pypi.org/project/deepseek-search-everywhere-mcp/)
+[![Glama score](https://glama.ai/mcp/servers/radoxtech/deepseek-search-everywhere-mcp/badges/score.svg)](https://glama.ai/mcp/servers/radoxtech/deepseek-search-everywhere-mcp)
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI agents web search, page fetching and
 multi-source research through the official DeepSeek Search & Fetch API.
