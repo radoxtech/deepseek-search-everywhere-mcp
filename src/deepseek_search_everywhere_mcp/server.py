@@ -629,11 +629,64 @@ def _date_in(text: str, today: date | None = None) -> str | None:
     return None
 
 
+# Full month names, English and Polish (nominative "wrzesień" and genitive "września", the form used
+# after a day number), mapped to the month number. Abbreviations are not accepted.
+_MONTH_NAMES: dict[str, int] = {
+    name: number
+    for number, names in enumerate(
+        (
+            ("january", "styczeń", "stycznia"),
+            ("february", "luty", "lutego"),
+            ("march", "marzec", "marca"),
+            ("april", "kwiecień", "kwietnia"),
+            ("may", "maj", "maja"),
+            ("june", "czerwiec", "czerwca"),
+            ("july", "lipiec", "lipca"),
+            ("august", "sierpień", "sierpnia"),
+            ("september", "wrzesień", "września"),
+            ("october", "październik", "października"),
+            ("november", "listopad", "listopada"),
+            ("december", "grudzień", "grudnia"),
+        ),
+        start=1,
+    )
+    for name in names
+}
+# "September 2025", "wrzesień 2025", with an optional day: "15 września 2025", "September 15, 2025".
+_MONTH_DATE = re.compile(
+    r"(?<![\w.,/-])(?:(?P<day>\d{1,2})\s+)?"
+    r"(?P<month>" + "|".join(sorted(_MONTH_NAMES, key=len, reverse=True)) + r")"
+    r"(?:\s+(?P<day_after>\d{1,2}),)?\s+(?P<year>\d{4})(?![\w-]|[.,/]\d)",
+    re.IGNORECASE,
+)
+
+
+def _month_date_in(text: str, today: date | None = None) -> str | None:
+    """Return the first valid month-name date in ``text`` as ``YYYY-MM-DD``, or None.
+
+    A full English or Polish month name followed by a year (1990 to next year) gives the first of
+    that month; a day written next to it ("15 września 2025", "September 15, 2025") gives that day.
+    """
+    max_year = (today or datetime.now(UTC).date()).year + 1
+    for match in _MONTH_DATE.finditer(text):
+        year = int(match["year"])
+        if not MIN_CONTENT_YEAR <= year <= max_year:
+            continue
+        day = match["day"] or match["day_after"]
+        try:
+            return date(year, _MONTH_NAMES[match["month"].lower()], int(day) if day else 1).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 def _content_date(title: Any, text: Any, today: date | None = None) -> str | None:
     """Find a publication date in a result's title or the first characters of its text.
 
     Used only when the upstream gave no date. The text is cleaned the way content is before the
-    first ``CONTENT_DATE_WINDOW`` characters are searched.
+    first ``CONTENT_DATE_WINDOW`` characters are searched. An ISO ``YYYY-MM-DD`` date anywhere in
+    the title or that window is preferred; otherwise the first month-name date is used. A bare
+    year is never taken as a date.
     """
     candidates: list[str] = []
     if isinstance(title, str):
@@ -641,7 +694,10 @@ def _content_date(title: Any, text: Any, today: date | None = None) -> str | Non
     if isinstance(text, str) and text:
         head = _decode_json_escapes(_unescape_markdown(text[:_CONTENT_DATE_RAW]))
         candidates.append(head[:CONTENT_DATE_WINDOW])
-    return next((found for found in (_date_in(c, today) for c in candidates) if found), None)
+    for find in (_date_in, _month_date_in):
+        if found := next((hit for hit in (find(c, today) for c in candidates) if hit), None):
+            return found
+    return None
 
 
 def _dated(upstream: Any, title: Any, text: Any) -> tuple[Any, str | None]:
@@ -885,7 +941,8 @@ async def deepseek_web_search(
     For non-English queries set lang to the appropriate code (e.g. 'es', 'de', 'ja'). Without it
     results may be mixed-language; for named entities test with and without the operator.
     Each result carries date and authority (0-4, -1 unknown). date is the upstream RFC 3339 date
-    or, when the upstream has none, a YYYY-MM-DD date found at the start of the result's text;
+    or, when the upstream has none, a date found at the start of the result's text (YYYY-MM-DD, or a
+    full English or Polish month name with a year, read as the first of that month);
     date_source says which ('upstream', 'content' or null when there is no date).
 
     Responses are cached in memory for a few minutes and identical concurrent calls share one
@@ -1557,8 +1614,8 @@ async def deepseek_research(
 
     Each source has id, title, url, date, date_source, site, authority, rerank_score, content, chars,
     origin ('search' or 'fetch'), error (null or {code, message}) and cached (whether its content came
-    from the cache). date_source is 'upstream', 'content' (a YYYY-MM-DD date found at the start of the
-    title or content because the upstream gave none) or null.
+    from the cache). date_source is 'upstream', 'content' (a YYYY-MM-DD or "Month YYYY" date found at the
+    start of the title or content because the upstream gave none) or null.
     query_used is the query sent upstream (with any lang: operator); query_original is set only when
     rewrite changed the question.
     Content is capped at per_page_chars per source and total_chars overall, in source order; a

@@ -266,7 +266,10 @@ Every tool returns a JSON object with `ok`.
 Search results carry `title` (the URL host without `www.` when the upstream title is blank; a title repeated around ` - `, such as Reddit's `X - X`, is collapsed to `X`), `url`, `date`, `authority` (0-4, -1 unknown; an upstream field, not a credibility score), `rerank_score`, `site`, `snippet`,
 and `content` with `chars` or `summary` where available. When the upstream gives no `date`, a `YYYY-MM-DD` date
 (a valid calendar date, year 1990 to next year) found in the title or the first 300 characters of the text is
-used instead; `date_source` is `"upstream"`, `"content"` or `null` (no date), on search results and research
+used instead. Without one, a full English or Polish month name followed by a year (`September 2025`,
+`wrzesień 2025`) gives the first of that month, and a day written with it (`15 września 2025`,
+`September 15, 2025`) gives that day; Polish names are matched in the nominative and genitive, abbreviations
+and a bare year are ignored; `date_source` is `"upstream"`, `"content"` or `null` (no date), on search results and research
 sources alike. `deepseek_fetch` returns `title`, `content`, `chars`,
 `truncated`. `chars` is always the length of the `content` returned, in every tool.
 

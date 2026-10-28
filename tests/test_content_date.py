@@ -1,4 +1,4 @@
-"""A missing upstream date falls back to an ISO date found at the start of the result's text."""
+"""A missing upstream date falls back to a date (ISO or month name) found at the start of the text."""
 
 from __future__ import annotations
 
@@ -93,3 +93,62 @@ def test_research_takes_a_date_from_a_fetched_gap(fake_upstream) -> None:
     source = asyncio.run(server.deepseek_research("internet 2025", max_pages=1))["sources"][0]
     assert source["origin"] == "fetch"
     assert (source["date"], source["date_source"]) == ("2025-06-26", "content")
+
+
+# Shaped like a journal table-of-contents entry from the search index (no ISO date, no upstream date).
+JOURNAL_TOC = (
+    "Pediatrics in Review\n\nSeptember 2025: 151(9):1125-1146\n\n"
+    "Original article. Short-form video use and attention in 98 299 participants."
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("September 2025: 151(9):1125-1146", "2025-09-01"),
+        ("published in SEPTEMBER 2025", "2025-09-01"),
+        ("wrzesień 2025", "2025-09-01"),
+        ("Raport, Wrzesień 2025 r.", "2025-09-01"),
+        ("15 września 2025", "2025-09-15"),
+        ("Warszawa, 3 stycznia 2024.", "2024-01-03"),
+        ("September 15, 2025", "2025-09-15"),
+        ("12 May 2025 and June 2024", "2025-05-12"),
+        ("31 lutego 2025, potem marzec 2025", "2025-03-01"),
+        ("98 299 uczestników w 2025 roku", None),
+        ("lato 2025", None),
+        ("Sept 2025, Sep 2025, wrz. 2025", None),
+        ("majątek 2025, Septembers 2025", None),
+        ("June 1989 and December 2028", None),
+        ("June 2025-2026 season", None),
+        ("June 20251", None),
+    ],
+)
+def test_month_date_in(text: str, expected: str | None) -> None:
+    assert server._month_date_in(text, TODAY) == expected
+
+
+def test_content_date_reads_a_month_and_year() -> None:
+    assert server._content_date(None, JOURNAL_TOC, TODAY) == "2025-09-01"
+    assert server._content_date("Wyniki badania, wrzesień 2025", "Bez daty.", TODAY) == "2025-09-01"
+
+
+def test_content_date_prefers_an_iso_date() -> None:
+    text = "September 2025 issue\n\nPublished 2025-06-26."
+    assert server._content_date(None, text, TODAY) == "2025-06-26"
+    assert server._content_date("CBOS: czerwiec 2025", REPORT, TODAY) == "2025-06-26"
+
+
+def test_content_date_ignores_a_month_outside_the_window() -> None:
+    late = "x" * (server.CONTENT_DATE_WINDOW + 10) + " September 2025"
+    assert server._content_date(None, late, TODAY) is None
+
+
+def test_search_reads_a_month_date_from_content(fake_upstream) -> None:
+    result = _result(fake_upstream, "deepseek_search_and_read", date=None, content=JOURNAL_TOC)
+    assert (result["date"], result["date_source"]) == ("2025-09-01", "content")
+
+
+def test_upstream_date_wins_over_a_month_date(fake_upstream) -> None:
+    upstream = "2025-11-23T16:00:00+00:00"
+    result = _result(fake_upstream, "deepseek_search_and_read", date=upstream, content=JOURNAL_TOC)
+    assert (result["date"], result["date_source"]) == (upstream, "upstream")
