@@ -91,11 +91,12 @@ def test_truncate_disabled():
     assert (text, cut) == ("abcdef", False)
 
 
-def test_http_error_404_mentions_pdf():
+def test_http_error_404_hint_is_neutral():
     result = server._map_http_error(404, json.dumps({"error": {"message": "failed to fetch URL"}}))
     assert result["ok"] is False
     assert result["error"]["status"] == 404
-    assert "PDF" in result["error"]["message"]
+    assert "deepseek_search_and_read" not in result["error"]["message"]
+    assert "not found" in result["error"]["message"]
 
 
 def test_http_error_402_mentions_balance():

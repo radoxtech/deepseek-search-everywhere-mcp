@@ -1074,6 +1074,35 @@ async def deepseek_fetch(
     return await _fetch(url, clean, max_chars, refresh=refresh, strip_boilerplate=strip_boilerplate)
 
 
+_SEARCH_ADVICE = (
+    "PDFs and Reddit are not extractable by fetch: use deepseek_search_and_read instead, "
+    "which returns their content via the search index."
+)
+
+
+def _needs_search_advice(url: str) -> bool:
+    """True for a PDF path (query and fragment ignored) or a Reddit host."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return False
+    return (
+        parts.path.lower().endswith(".pdf")
+        or host in ("reddit.com", "redd.it")
+        or host.endswith((".reddit.com", ".redd.it"))
+    )
+
+
+def _with_search_advice(error: dict[str, Any], url: str) -> dict[str, Any]:
+    """Append the search-and-read advice to a 404 for a PDF or Reddit URL; code and status stay."""
+    detail = error.get("error")
+    if not isinstance(detail, dict) or detail.get("status") != 404 or not _needs_search_advice(url):
+        return error
+    message = redact(f"{detail.get('message', '')} — {_SEARCH_ADVICE}")
+    return {**error, "error": {**detail, "message": message}}
+
+
 async def _fetch(
     url: str, clean: bool, max_chars: int, *, refresh: bool, strip_boilerplate: bool = True
 ) -> dict[str, Any]:
@@ -1092,7 +1121,7 @@ async def _fetch(
         refresh=refresh,
     )
     if record.get("ok") is False:
-        return record
+        return _with_search_advice(record, url)
 
     data = record["data"]
     content = data.get("content") or ""

@@ -221,3 +221,29 @@ async def test_reset_state_drops_cached_pages(upstream: Upstream) -> None:
     server.reset_state()
     assert (await server.deepseek_fetch(URL))["cached"] is False
     assert len(upstream.calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("url", "advice"),
+    [
+        (URL, False),
+        ("https://example.com/report.PDF?download=1#page=2", True),
+        ("https://www.reddit.com/r/example/comments/abc123/title/", True),
+        ("https://old.reddit.com/r/example/", True),
+        ("https://redd.it/abc123", True),
+        ("https://example.com/pdf-guide", False),
+        ("https://notreddit.com/page", False),
+    ],
+)
+async def test_404_suggests_search_only_for_pdf_and_reddit(
+    upstream: Upstream, url: str, advice: bool
+) -> None:
+    upstream.responses = [
+        {"ok": False, "error": {"code": "http_404", "message": "failed to fetch URL", "status": 404}}
+    ]
+    result = await server.deepseek_fetch(url)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "http_404"
+    assert result["error"]["status"] == 404
+    assert ("deepseek_search_and_read" in result["error"]["message"]) is advice
+    assert result["error"]["message"].startswith("failed to fetch URL")
