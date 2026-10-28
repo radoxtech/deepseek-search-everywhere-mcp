@@ -371,6 +371,8 @@ python -m twine check dist/*  # validate package metadata
 The offline tests clear `DEEPSEEK_*` variables and point the key fallback at a nonexistent file, so they cannot
 reach the network. CI runs lint, tests and build on Python 3.11, 3.12 and 3.13.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow and commit conventions.
+
 ### Live tests
 
 The live suite calls the real DeepSeek API end to end and uses `deepseek-flash` as an LLM judge to grade whether
