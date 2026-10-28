@@ -1508,6 +1508,10 @@ async def deepseek_research(
     It does not iterate, refine the query or summarise: there is exactly one search, no follow-up
     searches, and the sources come back as raw content for the caller to read and synthesise.
 
+    Use it for reconnaissance: finding candidate sources. There is no quality filter, so results can
+    include low-quality or secondary pages (student papers, aggregators, clickbait); verify facts in
+    the primary source before citing them.
+
     The search runs with need_content=True. By default it makes no model call;
     rewrite=True translates the question to English first, as in deepseek_web_search.
     Results whose content is missing or shorter than 200 characters and whose URL passes

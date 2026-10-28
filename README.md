@@ -228,6 +228,9 @@ Notes on the parameters:
   shows the query that was sent. It does no summarising and makes no model call unless `rewrite=True`: it returns sources for the caller to synthesise.
   Each source carries `title`, `url`, `date` and `site` (both null when the upstream gave none), `date_source`,
   `authority` and `rerank_score`, so stale or off-topic sources are visible without opening them.
+- `deepseek_research` is for reconnaissance: finding candidate sources. There is no quality filter, so results
+  can include low-quality or secondary pages (student papers, aggregators, clickbait). Verify facts in the
+  primary source before citing them.
 
 Example calls:
 
