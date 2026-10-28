@@ -232,6 +232,13 @@ async def test_reset_state_drops_cached_pages(upstream: Upstream) -> None:
         ("https://old.reddit.com/r/example/", True),
         ("https://redd.it/abc123", True),
         ("https://example.com/pdf-guide", False),
+        ("https://arxiv.org/pdf/1706.03762", True),
+        ("https://arxiv.org/pdf/1706.03762v7/", True),
+        ("https://www.biorxiv.org/content/10.1101/2024.01.01.123456v1.full.pdf", True),
+        ("https://www.medrxiv.org/content/10.1101/2024.02.02.24302222v1/PDF/x", True),
+        ("https://example.com/pdf/", False),
+        ("https://example.com/pdf/guide/intro", False),
+        ("https://example.com/404", False),
         ("https://notreddit.com/page", False),
     ],
 )

@@ -1080,8 +1080,12 @@ _SEARCH_ADVICE = (
 )
 
 
+# A PDF served without an extension under a /pdf/<id> path, as arXiv, bioRxiv and medRxiv do.
+_PDF_ID_PATH = re.compile(r"/pdf/[^/]+/?$")
+
+
 def _needs_search_advice(url: str) -> bool:
-    """True for a PDF path (query and fragment ignored) or a Reddit host."""
+    """True for a PDF path (``.pdf`` or ``/pdf/<id>``; query and fragment ignored) or a Reddit host."""
     try:
         parts = urllib.parse.urlsplit(url)
         host = (parts.hostname or "").lower()
@@ -1089,6 +1093,7 @@ def _needs_search_advice(url: str) -> bool:
         return False
     return (
         parts.path.lower().endswith(".pdf")
+        or _PDF_ID_PATH.search(parts.path.lower()) is not None
         or host in ("reddit.com", "redd.it")
         or host.endswith((".reddit.com", ".redd.it"))
     )
