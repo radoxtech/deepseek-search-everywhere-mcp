@@ -203,6 +203,8 @@ Notes on the parameters:
   a 120 s deadline; URLs still pending then are reported as `deadline_exceeded`. Each page gets at most
   `min(max_chars_per_url, max_total_chars // number of URLs)` characters.
 - `deepseek_research` does no summarising and makes no model call: it returns sources for the caller to synthesise.
+  Each source carries `title`, `url`, `date` and `site` (both null when the upstream gave none), `authority` and
+  `rerank_score`, so stale or off-topic sources are visible without opening them.
 
 Example calls:
 

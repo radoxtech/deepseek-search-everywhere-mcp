@@ -1059,6 +1059,8 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
         "id": index,
         "title": item.get("title"),
         "url": item.get("url"),
+        "date": item.get("date"),
+        "site": item.get("site"),
         "authority": item.get("authority"),
         "rerank_score": item.get("rerank_score"),
         "content": item.get("content") or "",
@@ -1195,7 +1197,7 @@ async def deepseek_research(
     internal address) is not fetched. Failed or rejected sources keep the search content and set the
     source's error; the call still succeeds with partial=true.
 
-    Each source has id, title, url, authority, rerank_score, content, chars, origin ('search' or
+    Each source has id, title, url, date, site, authority, rerank_score, content, chars, origin ('search' or
     'fetch'), error (null or {code, message}) and cached (whether its content came from the cache).
     Content is capped at per_page_chars per source and total_chars overall, in source order; a
     note says when any content was truncated.

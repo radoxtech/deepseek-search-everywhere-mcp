@@ -78,6 +78,8 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
         "id",
         "title",
         "url",
+        "date",
+        "site",
         "authority",
         "rerank_score",
         "content",
@@ -192,3 +194,14 @@ async def test_research_notes_are_prose(upstream: Upstream) -> None:
     assert server.TRUNCATED_NOTE in result["notes"]
     assert len(result["notes"]) >= 3
     assert all(" " in note and "_" not in note for note in result["notes"])
+
+
+async def test_research_sources_carry_date_and_site(fake_upstream: Any) -> None:
+    dated = {**_result(1, LONG), "date": "2025-03-01"}
+    undated = {k: v for k, v in _result(2, LONG).items() if k != "site_name"}
+    fake_upstream(Upstream([dated, undated]))
+    result = await server.deepseek_research("dated question")
+    first, second = result["sources"]
+    assert (first["date"], first["site"]) == ("2025-03-01", "Site 1")
+    assert second["date"] is None
+    assert second["site"] is None
