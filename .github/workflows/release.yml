@@ -1,9 +1,15 @@
 name: Release
 
-# Tag pushes (v*) publish to PyPI, create a GitHub Release and update the MCP Registry.
+# Pushes to main run release-please, which maintains a release PR from Conventional Commits. Merging that PR
+# makes release-please tag the version and create the GitHub Release; the same run then publishes to PyPI,
+# attaches the artifacts to the release and updates the MCP Registry. Tags and PRs created with GITHUB_TOKEN
+# do not trigger other workflows, so publishing lives in this workflow rather than behind a tag trigger.
+#
+# Pushing a v* tag by hand still publishes (manual fallback) and creates the GitHub Release itself.
 # Manual runs build and verify the package and publish to TestPyPI only.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -15,24 +21,76 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build distributions
+  release-please:
+    name: Release Please
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    name: Build distributions
+    needs: release-please
+    # release-please is skipped for tag pushes and manual runs, so do not require it to succeed.
+    if: >-
+      !cancelled() && needs.release-please.result != 'failure' && (
+        github.event_name == 'workflow_dispatch' ||
+        startsWith(github.ref, 'refs/tags/v') ||
+        needs.release-please.outputs.release_created == 'true'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release: ${{ steps.mode.outputs.release }}
+      source: ${{ steps.mode.outputs.source }}
+      tag: ${{ steps.mode.outputs.tag }}
+    steps:
+      - name: Determine release mode
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          RP_CREATED: ${{ needs.release-please.outputs.release_created }}
+          RP_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          if [ "$RP_CREATED" = "true" ]; then
+            { echo "release=true"; echo "source=release-please"; echo "tag=$RP_TAG"; } >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "push" ] && [[ "$REF" == refs/tags/v* ]]; then
+            { echo "release=true"; echo "source=tag"; echo "tag=$REF_NAME"; } >> "$GITHUB_OUTPUT"
+          else
+            { echo "release=false"; echo "source=none"; echo "tag="; } >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v5
+        with:
+          # In the release-please path the run was triggered by main; build exactly the tagged commit.
+          ref: ${{ steps.mode.outputs.tag || github.ref }}
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Verify the tag matches the package version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.mode.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.mode.outputs.tag }}
         run: |
           python - <<'PY'
           import json, os, sys, tomllib
 
-          tag = os.environ["GITHUB_REF_NAME"]
+          tag = os.environ["TAG"]
           with open("pyproject.toml", "rb") as fh:
               version = tomllib.load(fh)["project"]["version"]
           with open("server.json", encoding="utf-8") as fh:
@@ -41,6 +99,8 @@ jobs:
               sys.exit(f"Tag {tag} does not match pyproject version v{version}")
           if manifest["version"] != version:
               sys.exit(f"server.json version {manifest['version']} does not match {version}")
+          if any(pkg["version"] != version for pkg in manifest["packages"]):
+              sys.exit(f"server.json package versions do not match {version}")
           print(f"Releasing {version}")
           PY
 
@@ -67,8 +127,8 @@ jobs:
 
   testpypi:
     name: Publish to TestPyPI
-    if: github.event_name == 'workflow_dispatch'
     needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     environment:
       name: testpypi
@@ -88,8 +148,8 @@ jobs:
 
   pypi:
     name: Publish to PyPI
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.release == 'true' }}
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -105,8 +165,9 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   github-release:
-    name: Create GitHub Release
-    needs: pypi
+    name: GitHub Release
+    needs: [build, pypi]
+    if: ${{ !cancelled() && needs.pypi.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,25 +177,38 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Create release
+      # release-please has already created the release with its notes; only attach the artifacts.
+      - name: Upload artifacts to the release-please release
+        if: needs.build.outputs.source == 'release-please'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Create release
+        if: needs.build.outputs.source == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
+            --title "$TAG" \
             --generate-notes \
             --verify-tag
 
   mcp-registry:
     name: Publish to the MCP Registry
-    needs: pypi
+    needs: [build, pypi]
+    if: ${{ !cancelled() && needs.pypi.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.build.outputs.tag }}
 
       # Pinned to a specific release for reproducible publishes (mcp-publisher v1.8.6).
       - name: Install mcp-publisher
