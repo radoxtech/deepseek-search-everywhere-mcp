@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Search results with content and `deepseek_fetch` report `chars`, the length of the content returned, like
+  `deepseek_fetch_many` and `deepseek_research` (see Deprecated for `content_chars`).
 - The MCP handshake reports the package version as `serverInfo.version` instead of the MCP SDK's version.
 - `clean=True` removes backslash escapes from all ASCII punctuation (`\(`, `\-`, `\[`, `\/`...), not just a few,
   and leaves fenced code blocks and inline code spans untouched.
@@ -54,6 +56,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The transport's `retries` argument is renamed `attempts`: it always counted total tries, so the default of 2
   means one retry.
 - The license is declared as a PEP 639 SPDX expression.
+
+### Deprecated
+
+- `content_chars` on search results and in `deepseek_fetch`: use `chars`, which every tool now reports as the length
+  of the content returned. On search results `content_chars` keeps its old meaning (the cleaned page length before
+  the per-result cap). It will be removed in the next release.
 
 ### Security
 

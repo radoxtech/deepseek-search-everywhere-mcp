@@ -238,8 +238,11 @@ Every tool returns a JSON object with `ok`.
 | `failed_count` | `deepseek_fetch_many`, `deepseek_research` | number of failed items or sources |
 
 Search results carry `title` (the URL host without `www.` when the upstream title is blank; a title repeated around ` - `, such as Reddit's `X - X`, is collapsed to `X`), `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
-and `content`/`content_chars` or `summary` where available. `deepseek_fetch` returns `title`, `content`,
-`content_chars`, `truncated`.
+and `content` with `chars` or `summary` where available. `deepseek_fetch` returns `title`, `content`, `chars`,
+`truncated`. `chars` is always the length of the `content` returned, in every tool.
+
+`content_chars` is deprecated and will be removed in the next release: on `deepseek_fetch` it equals `chars`;
+on search results it still reports the cleaned page length before the per-result cap.
 
 ### Error codes
 

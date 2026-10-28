@@ -66,7 +66,7 @@ async def test_search_and_read_returns_relevant_content() -> None:
     results = _assert_results(envelope, 2)
     with_content = [item for item in results if item.get("content")]
     assert len(with_content) >= 2, "expected page content for at least two results"
-    assert all(item["content_chars"] > 0 for item in with_content)
+    assert all(item["chars"] > 0 for item in with_content)
     assert_quality(await judge_items("search_and_read", query, with_content))
 
 
@@ -100,7 +100,7 @@ async def test_fetch_stable_page_matches_its_content() -> None:
     envelope = await server.deepseek_fetch(url, max_chars=3000)
     _assert_ok(envelope)
     assert envelope["url"] == url
-    assert envelope["content_chars"] > 200, "fetched page is (nearly) empty"
+    assert envelope["chars"] > 200, "fetched page is (nearly) empty"
     assert "asyncio" in envelope["content"].lower()
     item = {"title": envelope["title"], "url": url, "content": envelope["content"]}
     record = await judge_items("fetch", "Python asyncio standard library documentation", [item])

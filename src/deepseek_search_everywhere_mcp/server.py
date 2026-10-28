@@ -575,14 +575,16 @@ def _apply_char_budget(
     """Add the result's content (or summary) to ``entry``, cut to the per-result and total budgets.
 
     Content is capped at ``per_result``; a summary, used when there is no content, at
-    ``summary_cap`` and is left out entirely when that cap is 0.
+    ``summary_cap`` and is left out entirely when that cap is 0. With content, ``chars`` is the
+    length returned and the deprecated ``content_chars`` the cleaned length before the cap.
     Returns ``(remaining, truncated)``: the budget left afterwards and whether any text was cut.
     """
     body = item.get("content") if need_content else None
     if body:
         cleaned = _unescape_markdown(body)
         entry["content"], cut = _truncate(cleaned, max(0, min(per_result, remaining)))
-        entry["content_chars"] = len(cleaned)
+        entry["chars"] = len(entry["content"])
+        entry["content_chars"] = len(cleaned)  # deprecated alias, kept for one release
         return remaining - len(entry["content"]), cut
     if item.get("summary") and summary_cap > 0:
         entry["summary"], cut = _truncate(item["summary"], max(0, min(summary_cap, remaining)))
@@ -740,6 +742,8 @@ async def deepseek_web_search(
     same call (billed as one request, no per-page charge) — this is usually cheaper and more
     reliable than calling deepseek_fetch afterwards.
 
+    With content, each result's chars is the length of the content returned (content_chars, the
+    deprecated old name, still reports the page length before the per-result cap).
     Without need_content each result carries a short summary instead, capped at summary_chars
     (default 400) and never longer than max_chars_per_result; summary_chars=0 leaves it out, which
     keeps a 10-result response small.
@@ -887,8 +891,9 @@ async def deepseek_fetch(
     times out on some sites. When the URL is a document or a blocked site, call
     deepseek_search_and_read with the page title or a site:-scoped query instead.
 
-    The response contains only title and content — no final URL, status code or publication date,
-    so keep the provenance on your side.
+    The response contains only title and content (with chars, its length) — no final URL, status
+    code or publication date, so keep the provenance on your side. content_chars is a deprecated
+    alias of chars.
 
     Pages are cached in memory for about half an hour and identical concurrent calls share one
     upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
@@ -941,7 +946,8 @@ async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dic
         "url": url,
         "title": _collapse_repeated_title(data.get("title")),
         "content": content,
-        "content_chars": len(content),
+        "chars": len(content),
+        "content_chars": len(content),  # deprecated alias of chars, kept for one release
         "truncated": truncated,
         "cached": cached,
         "notes": [
