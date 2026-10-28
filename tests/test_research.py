@@ -260,3 +260,16 @@ async def test_research_dedupe_flag(fake_upstream: Any) -> None:
     assert "deduped 1 duplicate result(s)" in deduped["notes"]
     kept = await server.deepseek_research("dedupe off question", max_pages=3, dedupe=False)
     assert len(kept["sources"]) == 3
+
+
+async def test_research_collapses_repeated_titles(fake_upstream: Any) -> None:
+    repeated = {**_result(1, LONG), "title": "Thread - Thread"}
+    short = {**_result(2, ""), "title": "Other - Other"}
+    plain = {**_result(3, LONG), "title": "Left - Right"}
+    fake_upstream(Upstream([repeated, short, plain]))
+    result = await server.deepseek_research("reddit question")
+    assert [source["title"] for source in result["sources"]] == [
+        "Thread",
+        "Other",
+        "Left - Right",
+    ]

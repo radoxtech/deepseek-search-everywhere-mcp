@@ -332,9 +332,28 @@ def _url_host(url: object) -> str | None:
     return host.removeprefix("www.") if host else None
 
 
+TITLE_SEPARATOR = " - "
+
+
+def _collapse_repeated_title(title: Any) -> Any:
+    """Collapse a title made of two identical halves joined by `` - `` (``"X - X"`` becomes ``"X"``).
+
+    Some pages (Reddit threads, for one) repeat the title around the separator. Any other title,
+    including ``"A - B"`` and non-string values, is returned unchanged.
+    """
+    if not isinstance(title, str):
+        return title
+    stripped = title.strip()
+    half, remainder = divmod(len(stripped) - len(TITLE_SEPARATOR), 2)
+    if remainder or half < 1 or stripped[half : half + len(TITLE_SEPARATOR)] != TITLE_SEPARATOR:
+        return title
+    first, second = stripped[:half], stripped[half + len(TITLE_SEPARATOR) :]
+    return first if first == second else title
+
+
 def _title_or_host(item: dict) -> str | None:
-    """Return the result title, or the URL host without ``www.`` when the title is blank."""
-    title = item.get("title")
+    """Return the cleaned result title, or the URL host without ``www.`` when the title is blank."""
+    title = _collapse_repeated_title(item.get("title"))
     if isinstance(title, str) and title.strip():
         return title
     return _url_host(item.get("url")) or title
@@ -843,7 +862,7 @@ async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dic
     return {
         "ok": True,
         "url": url,
-        "title": data.get("title"),
+        "title": _collapse_repeated_title(data.get("title")),
         "content": content,
         "content_chars": len(content),
         "truncated": truncated,

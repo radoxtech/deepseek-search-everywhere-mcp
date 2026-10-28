@@ -24,6 +24,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Streamable HTTP transport with bearer-token authentication (`http` extra).
 - Search over-fetches upstream so `dedupe` still yields the requested number of results.
 - Blank result titles fall back to the URL host; a fetched page title replaces the fallback in research results.
+- A title made of two identical halves joined by ` - ` (Reddit's `X - X`) is collapsed to one in search, fetch and
+  research results.
 - `server.json` for the MCP Registry and a structural validator, `scripts/validate_server_json.py`.
 - CI workflow (Python 3.11-3.13, lint, tests, build, `twine check`) and a tag-triggered release workflow
   (PyPI Trusted Publishing, GitHub Release, MCP Registry).

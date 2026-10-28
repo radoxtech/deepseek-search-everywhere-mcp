@@ -453,6 +453,43 @@ def test_blank_title_falls_back_to_host(fake_upstream):
     assert [r["title"] for r in result["results"]] == ["example.com", "docs.example.org", None, "Real"]
 
 
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("ADHD and social media - ADHD and social media", "ADHD and social media"),
+        ("  X - X  ", "X"),
+        ("Re - Re - Re - Re", "Re - Re"),
+        ("A - B", "A - B"),
+        ("A - A B", "A - A B"),
+        ("A-A", "A-A"),
+        ("A -  A", "A -  A"),
+        ("X - x", "X - x"),
+        (" - ", " - "),
+        ("", ""),
+        (None, None),
+    ],
+)
+def test_collapse_repeated_title(title, expected):
+    assert server._collapse_repeated_title(title) == expected
+
+
+def test_repeated_titles_are_collapsed_in_search_results(fake_upstream):
+    results = [
+        {"title": "Thread - Thread", "url": "https://reddit.test/a", "site_name": "Reddit"},
+        {"title": "Left - Right", "url": "https://reddit.test/b", "site_name": "Reddit"},
+    ]
+    result, _ = _run_search(fake_upstream, results)
+    assert [r["title"] for r in result["results"]] == ["Thread", "Left - Right"]
+
+
+def test_repeated_title_is_collapsed_by_fetch(fake_upstream):
+    fake_upstream(
+        responses={"/v1/tools/fetch": {"ok": True, "data": {"title": "Post - Post", "content": "body"}}}
+    )
+    result = asyncio.run(server.deepseek_fetch("https://example.com/post"))
+    assert result["title"] == "Post"
+
+
 def test_rewrite_exception_is_logged_redacted(fake_upstream, caplog):
     async def broken_request(method, path, **_):
         raise RuntimeError("upstream exploded with key sk-abcdefghijklmnop")

@@ -232,7 +232,7 @@ Every tool returns a JSON object with `ok`.
 | `partial` | `deepseek_fetch_many`, `deepseek_research` | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
 | `failed_count` | `deepseek_fetch_many`, `deepseek_research` | number of failed items or sources |
 
-Search results carry `title` (the URL host without `www.` when the upstream title is blank), `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
+Search results carry `title` (the URL host without `www.` when the upstream title is blank; a title repeated around ` - `, such as Reddit's `X - X`, is collapsed to `X`), `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
 and `content`/`content_chars` or `summary` where available. `deepseek_fetch` returns `title`, `content`,
 `content_chars`, `truncated`.
 
