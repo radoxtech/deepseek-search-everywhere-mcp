@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `summary_chars` on `deepseek_web_search` and `deepseek_search_and_read` caps the summary of a result without
   page content (default 400 characters without `need_content`, always bounded by `max_chars_per_result`);
   `summary_chars=0` omits it. A 3-result search without content drops from about 13 KB to under 4 KB.
+- Every tool envelope, success or error, carries `elapsed_ms`: the call's wall time on a monotonic clock.
 - Search over-fetches upstream so `dedupe` still yields the requested number of results.
 - Blank result titles fall back to the URL host; a fetched page title replaces the fallback in research results.
 - A title made of two identical halves joined by ` - ` (Reddit's `X - X`) is collapsed to one in search, fetch and

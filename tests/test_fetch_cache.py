@@ -101,7 +101,7 @@ async def test_error_404_is_not_cached(upstream: Upstream) -> None:
     upstream.responses = [NOT_FOUND]
     first = await server.deepseek_fetch(URL)
     second = await server.deepseek_fetch(URL)
-    assert first == NOT_FOUND
+    assert {key: value for key, value in first.items() if key != "elapsed_ms"} == NOT_FOUND
     assert "cached" not in first
     assert second["ok"] is True and second["cached"] is False
     assert len(upstream.calls) == 2

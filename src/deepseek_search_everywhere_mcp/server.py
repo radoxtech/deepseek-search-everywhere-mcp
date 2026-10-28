@@ -11,15 +11,17 @@ The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import json
 import logging
 import math
 import re
+import time
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ParamSpec
 
 from mcp.server.fastmcp import FastMCP
 
@@ -66,6 +68,11 @@ SEARCH_SUMMARY_CHARS = 400
 TRUNCATED_NOTE = "Some page content was truncated to respect the character budget."
 
 logger = logging.getLogger(__name__)
+
+# Monotonic clock behind every envelope's ``elapsed_ms``; tests may replace it.
+_clock: Callable[[], float] = time.monotonic
+
+_P = ParamSpec("_P")
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -224,6 +231,25 @@ async def _cached_call(
         return record, True
     result = await flight.run(key, leader, refresh=refresh)
     return result.value, False
+
+
+def _timed(
+    tool: Callable[_P, Awaitable[dict[str, Any]]],
+) -> Callable[_P, Awaitable[dict[str, Any]]]:
+    """Add ``elapsed_ms``, the call's wall time on the monotonic clock, to every envelope ``tool`` returns.
+
+    Success and error envelopes alike get it, on a copy; a cache hit reports its own (small) time.
+    ``functools.wraps`` keeps the signature and docstring that FastMCP turns into the tool schema.
+    """
+
+    @functools.wraps(tool)
+    async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> dict[str, Any]:
+        started = _clock()
+        envelope = await tool(*args, **kwargs)
+        # A copy: the envelope may be shared (single-flight followers, the upstream's error dict).
+        return {**envelope, "elapsed_ms": max(0, round((_clock() - started) * 1000))}
+
+    return wrapper
 
 
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
@@ -693,6 +719,7 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
     return record
 
 
+@_timed
 async def deepseek_web_search(
     query: str,
     count: int = 10,
@@ -725,6 +752,7 @@ async def deepseek_web_search(
     upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
     locally per endpoint: if no slot frees up within a short wait the error code is
     rate_limited_local. A response larger than 8 MiB fails with response_too_large.
+    Every envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
 
     Args:
         query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
@@ -762,6 +790,7 @@ async def deepseek_web_search(
     )
 
 
+@_timed
 async def deepseek_search_and_read(
     query: str,
     count: int = 5,
@@ -784,6 +813,7 @@ async def deepseek_search_and_read(
     upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
     locally per endpoint: if no slot frees up within a short wait the error code is
     rate_limited_local. A response larger than 8 MiB fails with response_too_large.
+    Every envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
 
     Args:
         query: Search query, max 128 characters.
@@ -843,6 +873,7 @@ def _check_fetch_url(url: str) -> dict[str, Any] | None:
     return _reject_url(url)
 
 
+@_timed
 async def deepseek_fetch(
     url: str,
     clean: bool = True,
@@ -863,6 +894,7 @@ async def deepseek_fetch(
     upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
     locally per endpoint: if no slot frees up within a short wait the error code is
     rate_limited_local. A response larger than 32 MiB fails with response_too_large.
+    Every envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
 
     URLs that point at internal hosts or literal private addresses, or that embed credentials
     (user:pass@host), are rejected locally with ssrf_blocked before any request is made.
@@ -1065,6 +1097,7 @@ def _assemble_batch(
     }
 
 
+@_timed
 async def deepseek_fetch_many(
     urls: list[str],
     max_chars_per_url: int = 4000,
@@ -1085,8 +1118,9 @@ async def deepseek_fetch_many(
     content never exceeds max_total_chars; a note says when any content was truncated.
     The envelope reports count (unique URLs), requests_used (upstream fetches attempted),
     cached_count (items served from the cache), failed_count (items with ok=false), partial
-    (true when any item failed), results and notes. The top-level ok only says the batch ran;
-    check partial or each item's ok for per-URL failures. Each result carries its own cached flag.
+    (true when any item failed), results, notes and elapsed_ms (the call's wall time in
+    milliseconds, also on error envelopes). The top-level ok only says the batch ran; check
+    partial or each item's ok for per-URL failures. Each result carries its own cached flag.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
@@ -1246,6 +1280,7 @@ def _research_envelope(
     return envelope
 
 
+@_timed
 async def deepseek_research(
     question: str,
     max_pages: int = 5,
@@ -1275,7 +1310,8 @@ async def deepseek_research(
     note says when any content was truncated.
     requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
     and cached_count counts responses served from the cache. failed_count counts sources whose
-    error is set and partial is true when it is non-zero. Synthesis is left to the caller.
+    error is set and partial is true when it is non-zero. elapsed_ms is the call's wall time in
+    milliseconds, on error envelopes too. Synthesis is left to the caller.
 
     Args:
         question: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:.
@@ -1314,8 +1350,12 @@ async def deepseek_research(
     return _research_envelope(question, sources, search, gaps, trimmed)
 
 
+@_timed
 async def deepseek_balance() -> dict[str, Any]:
-    """Check the DeepSeek account balance (granted and topped-up, in CNY and USD)."""
+    """Check the DeepSeek account balance (granted and topped-up, in CNY and USD).
+
+    The envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
+    """
     result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
         return result
