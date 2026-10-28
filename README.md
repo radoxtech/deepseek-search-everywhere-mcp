@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+[![PyPI](https://img.shields.io/pypi/v/deepseek-search-everywhere-mcp)](https://pypi.org/project/deepseek-search-everywhere-mcp/)
+[![Python versions](https://img.shields.io/pypi/pyversions/deepseek-search-everywhere-mcp)](https://pypi.org/project/deepseek-search-everywhere-mcp/)
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI agents web search, page fetching and
 multi-source research through the official DeepSeek Search & Fetch API.
@@ -40,26 +41,32 @@ opencode and others. Local clients launch it over stdio; remote or shared setups
 
 ## Install
 
-The package is installed from GitHub; no registry release is required.
+The server is published on [PyPI](https://pypi.org/project/deepseek-search-everywhere-mcp/) and listed in the
+[official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=deepseek-search-everywhere)
+as `io.github.radoxtech/deepseek-search-everywhere-mcp`.
 
 ```bash
 # Run without installing (uv)
-uvx --from git+https://github.com/radoxtech/deepseek-search-everywhere-mcp deepseek-search-everywhere-mcp
+uvx deepseek-search-everywhere-mcp
 
 # Or install with pip
-pip install git+https://github.com/radoxtech/deepseek-search-everywhere-mcp.git
-
-# Or from a source checkout
-git clone https://github.com/radoxtech/deepseek-search-everywhere-mcp.git
-cd deepseek-search-everywhere-mcp
-pip install -e .
+pip install deepseek-search-everywhere-mcp
 ```
 
 The HTTP transport needs the `http` extra (it pulls in `uvicorn`):
 
 ```bash
-pip install "deepseek-search-everywhere-mcp[http] @ git+https://github.com/radoxtech/deepseek-search-everywhere-mcp.git"
-# from a checkout: pip install -e ".[http]"
+pip install "deepseek-search-everywhere-mcp[http]"
+```
+
+To run the latest unreleased code from `main`, or from a source checkout:
+
+```bash
+uvx --from git+https://github.com/radoxtech/deepseek-search-everywhere-mcp deepseek-search-everywhere-mcp
+
+git clone https://github.com/radoxtech/deepseek-search-everywhere-mcp.git
+cd deepseek-search-everywhere-mcp
+pip install -e ".[http]"
 ```
 
 Check that the key and connectivity work (prints your balance, then exits):
@@ -81,7 +88,7 @@ command, arguments and environment variable in its own MCP configuration format.
 
 ```bash
 claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- \
-  uvx --from git+https://github.com/radoxtech/deepseek-search-everywhere-mcp deepseek-search-everywhere-mcp
+  uvx deepseek-search-everywhere-mcp
 ```
 
 ### Claude Desktop
@@ -93,11 +100,7 @@ Edit `claude_desktop_config.json` (Settings, Developer, Edit Config):
   "mcpServers": {
     "deepseek-search-everywhere": {
       "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/radoxtech/deepseek-search-everywhere-mcp",
-        "deepseek-search-everywhere-mcp"
-      ],
+      "args": ["deepseek-search-everywhere-mcp"],
       "env": { "DEEPSEEK_API_KEY": "sk-..." }
     }
   }
@@ -114,12 +117,7 @@ In `opencode.json`:
   "mcp": {
     "deepseek-search-everywhere": {
       "type": "local",
-      "command": [
-        "uvx",
-        "--from",
-        "git+https://github.com/radoxtech/deepseek-search-everywhere-mcp",
-        "deepseek-search-everywhere-mcp"
-      ],
+      "command": ["uvx", "deepseek-search-everywhere-mcp"],
       "environment": { "DEEPSEEK_API_KEY": "{env:DEEPSEEK_API_KEY}" },
       "enabled": true
     }
@@ -151,7 +149,7 @@ console script:
 For clients that connect over HTTP. A bearer token is **always** required; the server refuses to start without one.
 
 ```bash
-pip install -e ".[http]"          # or the pip/GitHub form shown above
+pip install "deepseek-search-everywhere-mcp[http]"
 export DEEPSEEK_API_KEY=sk-...
 export MCP_BEARER_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 deepseek-search-everywhere-mcp --transport streamable-http   # http://127.0.0.1:8000/mcp
