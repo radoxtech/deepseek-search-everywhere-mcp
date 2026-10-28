@@ -211,8 +211,13 @@ Notes on the parameters:
   the comment-sort menu (`排序方式：`, `最佳`, `新`...), the `# 评论区域` heading, the archived-post banner,
   `[已删除]` author lines and the sign-up footer. Rules are per site (Reddit only for now, matched on
   `reddit.com` and its subdomains) and only drop lines that consist entirely of a known label, so user text,
-  Chinese included, and code blocks are kept. It runs after `clean` and before the character caps, so budgets
-  count the cleaned text; it does not change caching. `strip_boilerplate=False` returns the content as fetched.
+  Chinese included, and code blocks are kept. One rule applies to every site: a cookie-consent (CMP) dialog
+  at the very start of the content ("Informacje o prywatności", "We value your privacy", "Wir verwenden
+  Cookies"...) is removed when its first line opens with a known consent phrase and the run of lines shows a
+  dialog control ("Accept all", "Zarządzaj preferencjami zgody"...). Removal stops at the first line that is
+  not part of the dialog, and text further down is never touched, so an article about privacy is kept. When a
+  fetched page is nothing but the banner, `content` is empty and a note says so. It runs after `clean` and
+  before the character caps, so budgets count the cleaned text; it does not change caching. `strip_boilerplate=False` returns the content as fetched.
 - `deepseek_fetch_many` skips empty entries, fetches duplicate URLs (same canonical URL) once, keeps the input
   order, and reports a failing URL as an item with `ok: false` instead of failing the batch. All fetches share
   a 120 s deadline; URLs still pending then are reported as `deadline_exceeded`. Each page gets at most

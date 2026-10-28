@@ -863,8 +863,9 @@ async def deepseek_web_search(
             defaults to max_chars_per_result. 0 omits summaries.
         strip_boilerplate: Remove known site-interface lines from page content (default on),
             such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads. Only whole lines matching a known label of that site are removed;
-            False returns the content as fetched.
+            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
+            whole lines matching a known label of that site, or a leading run of consent-dialog
+            lines, are removed; False returns the content as fetched.
     """
     return await _search(
         query,
@@ -927,8 +928,9 @@ async def deepseek_search_and_read(
             most max_chars_per_result (the default). 0 omits such summaries.
         strip_boilerplate: Remove known site-interface lines from page content (default on),
             such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads. Only whole lines matching a known label of that site are removed;
-            False returns the content as fetched.
+            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
+            whole lines matching a known label of that site, or a leading run of consent-dialog
+            lines, are removed; False returns the content as fetched.
     """
     return await _search(
         query,
@@ -1008,8 +1010,9 @@ async def deepseek_fetch(
             flag says whether the page came from the cache).
         strip_boilerplate: Remove known site-interface lines from page content (default on),
             such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads. Only whole lines matching a known label of that site are removed;
-            False returns the content as fetched.
+            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
+            whole lines matching a known label of that site, or a leading run of consent-dialog
+            lines, are removed; False returns the content as fetched.
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
@@ -1042,8 +1045,11 @@ async def _fetch(
     content = data.get("content") or ""
     if clean:
         content = _unescape_markdown(content)
+    only_boilerplate = False
     if strip_boilerplate:
-        content = remove_boilerplate(content, url)
+        stripped = remove_boilerplate(content, url)
+        only_boilerplate = bool(content.strip()) and not stripped
+        content = stripped
     content, truncated = _truncate(content, max_chars)
 
     return {
@@ -1055,12 +1061,20 @@ async def _fetch(
         "content_chars": len(content),  # deprecated alias of chars, kept for one release
         "truncated": truncated,
         "cached": cached,
-        "notes": [
-            "Empty content: the page may be a PDF, JS-only or blocked. Try deepseek_search_and_read instead."
-        ]
-        if not content
-        else [],
+        "notes": _fetch_notes(content, only_boilerplate),
     }
+
+
+def _fetch_notes(content: str, only_boilerplate: bool) -> list[str]:
+    """Explain an empty fetch: a page that was nothing but boilerplate, or one with no content at all."""
+    if content:
+        return []
+    if only_boilerplate:
+        return [
+            "Empty content: the page rendered only a cookie-consent banner or site interface, which was "
+            "removed. Try deepseek_search_and_read instead, or strip_boilerplate=False to see it."
+        ]
+    return ["Empty content: the page may be a PDF, JS-only or blocked. Try deepseek_search_and_read instead."]
 
 
 def _all_cached(requests_used: int, cached_count: int) -> bool:
@@ -1258,8 +1272,9 @@ async def deepseek_fetch_many(
         refresh: Bypass the response cache and fetch every page again.
         strip_boilerplate: Remove known site-interface lines from page content (default on),
             such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads. Only whole lines matching a known label of that site are removed;
-            False returns the content as fetched.
+            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
+            whole lines matching a known label of that site, or a leading run of consent-dialog
+            lines, are removed; False returns the content as fetched.
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -1470,8 +1485,9 @@ async def deepseek_research(
         refresh: Bypass the response caches for the search and the fetches.
         strip_boilerplate: Remove known site-interface lines from page content (default on),
             such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads. Only whole lines matching a known label of that site are removed;
-            False returns the content as fetched.
+            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
+            whole lines matching a known label of that site, or a leading run of consent-dialog
+            lines, are removed; False returns the content as fetched.
     """
     if per_page_chars < 1 or total_chars < 1:
         return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
