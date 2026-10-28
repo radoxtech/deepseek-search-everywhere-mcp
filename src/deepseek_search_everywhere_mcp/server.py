@@ -1544,7 +1544,8 @@ async def deepseek_research(
 
     Use it for reconnaissance: finding candidate sources. There is no quality filter, so results can
     include low-quality or secondary pages (student papers, aggregators, clickbait); verify facts in
-    the primary source before citing them.
+    the primary source before citing them. For primary sources, ask in English for the primary study
+    and/or use site: for local sources. authority is an upstream field, not a credibility score.
 
     The search runs with need_content=True. By default it makes no model call;
     rewrite=True translates the question to English first, as in deepseek_web_search.

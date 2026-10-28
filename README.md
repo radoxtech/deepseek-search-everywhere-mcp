@@ -230,7 +230,12 @@ Notes on the parameters:
   `authority` and `rerank_score`, so stale or off-topic sources are visible without opening them.
 - `deepseek_research` is for reconnaissance: finding candidate sources. There is no quality filter, so results
   can include low-quality or secondary pages (student papers, aggregators, clickbait). Verify facts in the
-  primary source before citing them.
+  primary source before citing them. To reach primary sources, ask in English for the primary study (for
+  example "original study on X, journal article") and use `site:` for Polish or other local sources
+  (`site:cbos.pl ...`).
+- `authority` is passed through from the upstream index as is. Its meaning is not documented and it does not
+  track credibility (a student PDF and a reference database can score alike), so do not use it to judge or
+  filter sources.
 
 Example calls:
 
@@ -258,7 +263,7 @@ Every tool returns a JSON object with `ok`.
 | `partial` | `deepseek_fetch_many`, `deepseek_research` | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
 | `failed_count` | `deepseek_fetch_many`, `deepseek_research` | number of failed items or sources |
 
-Search results carry `title` (the URL host without `www.` when the upstream title is blank; a title repeated around ` - `, such as Reddit's `X - X`, is collapsed to `X`), `url`, `date`, `authority` (0-4, -1 unknown), `rerank_score`, `site`, `snippet`,
+Search results carry `title` (the URL host without `www.` when the upstream title is blank; a title repeated around ` - `, such as Reddit's `X - X`, is collapsed to `X`), `url`, `date`, `authority` (0-4, -1 unknown; an upstream field, not a credibility score), `rerank_score`, `site`, `snippet`,
 and `content` with `chars` or `summary` where available. When the upstream gives no `date`, a `YYYY-MM-DD` date
 (a valid calendar date, year 1990 to next year) found in the title or the first 300 characters of the text is
 used instead; `date_source` is `"upstream"`, `"content"` or `null` (no date), on search results and research
