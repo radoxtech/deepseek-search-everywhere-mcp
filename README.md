@@ -389,17 +389,44 @@ Judge scores and reasons are printed after the run. `.env` is git-ignored; never
 
 ### Releasing
 
-Releases are published by `.github/workflows/release.yml` when a `v*` tag is pushed. The workflow builds once,
-checks that the tag equals the version in `pyproject.toml` and `server.json`, runs `twine check` and a clean-wheel
-smoke test, publishes to PyPI through [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no
-tokens), creates a GitHub Release with the artifacts and then updates the MCP Registry. Running the workflow
-manually publishes to TestPyPI only.
+Versions follow [Semantic Versioning](https://semver.org/) and are automated with
+[release-please](https://github.com/googleapis/release-please) from
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Everything runs in
+`.github/workflows/release.yml`:
+
+1. Every push to `main` runs release-please. It opens (or updates) a release PR that bumps the version in
+   `pyproject.toml`, `server.json` and `.release-please-manifest.json` and prepends a section to `CHANGELOG.md`.
+   While the version is below 1.0.0, `feat` bumps the patch version and breaking changes bump the minor one;
+   `feat`, `fix`, `perf`, `refactor`, `docs` and `deps` commits appear in the changelog.
+2. Merging the release PR makes release-please tag `vX.Y.Z` and create the GitHub Release.
+3. The same workflow run then builds the tagged commit, checks that the tag equals the versions in
+   `pyproject.toml` and `server.json`, runs `twine check` and a clean-wheel smoke test, publishes to PyPI through
+   [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no tokens), attaches the artifacts to
+   the GitHub Release and updates the MCP Registry.
+
+Publishing happens in the same workflow because tags and PRs created with `GITHUB_TOKEN` do not trigger other
+workflows.
+
+Manual fallback: bump the version in `pyproject.toml`, `server.json` and `.release-please-manifest.json`
+(`tests/test_version_sync.py` checks the first two agree), update `CHANGELOG.md`, commit, and push a tag. The
+workflow then publishes and creates the GitHub Release itself.
 
 ```bash
-# bump the version in pyproject.toml and server.json (tests/test_version_sync.py checks they agree), commit, then:
-git tag v0.2.1 && git push origin v0.2.1
+git tag -a v0.2.1 -m "v0.2.1" && git push origin v0.2.1
 bash scripts/smoke_package.sh   # optional local check: build, install into a clean venv, run the CLI
 ```
+
+Running the workflow manually (`workflow_dispatch`) builds and verifies the package and publishes to TestPyPI
+only.
+
+One-time repository setup:
+
+- Settings, Actions, General: enable "Allow GitHub Actions to create and approve pull requests" so
+  release-please can open its PR.
+- Settings, Environments: create a `pypi` environment (and `testpypi` for manual runs); adding required
+  reviewers there gates every PyPI publish.
+- On PyPI (and TestPyPI), add a trusted publisher for this repository with workflow `release.yml` and
+  environment `pypi` (`testpypi` on TestPyPI).
 
 ### Publishing to the MCP Registry manually
 
@@ -413,8 +440,8 @@ mcp-publisher login github               # the io.github.radoxtech namespace req
 mcp-publisher publish
 ```
 
-Bump the version in `pyproject.toml` and `server.json` together and publish to PyPI first; `tests/test_version_sync.py`
-fails when the versions drift apart.
+Publish to PyPI first: the registry checks that the package version exists. release-please keeps `pyproject.toml`
+and `server.json` in step; `tests/test_version_sync.py` fails when they drift apart.
 
 ## Changelog
 
