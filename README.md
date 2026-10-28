@@ -269,6 +269,31 @@ on search results it still reports the cleaned page length before the per-result
 | `internal_error` | unexpected exception while fetching one batch item |
 | other / `http_error` | upstream API errors keep the code from DeepSeek (or `http_error`) and set `error.status` |
 
+## Response size and cost
+
+Serialized JSON size of one response per mode, measured on 2026-10-28 against the live API with the default
+parameters of each tool (compact JSON, UTF-8 bytes):
+
+| Call | Size |
+|---|---|
+| `deepseek_web_search`, `count=3`, `need_content=false` (default `summary_chars`) | 3.7 KB |
+| `deepseek_web_search`, `count=3`, `need_content=false`, `summary_chars=0` | 2.3 KB |
+| `deepseek_web_search`, `count=3`, `need_content=true` | 15.1 KB |
+| `deepseek_search_and_read`, `count=3` | 15.1 KB |
+| `deepseek_fetch`, one documentation page (default `max_chars`) | 20.9 KB |
+| `deepseek_fetch_many`, 3 documentation pages | 13.3 KB |
+| `deepseek_research`, `max_pages=3` | 20.1 KB |
+
+These are single samples, not guarantees: sizes vary with the query and the pages returned, and are bounded by
+`max_chars_per_result`, `max_total_chars` and the other character budgets, not by a fixed number.
+
+Cost: DeepSeek bills Search and Fetch per successful request, not per returned result, so `count` does not change
+the price of a call. See the [DeepSeek Search & Fetch guide](https://api-docs.deepseek.com/guides/search) for
+current prices, billing rules and limits; they may change and this project does not track them. A tool call that
+needs several upstream requests (for example `deepseek_research` fetching pages whose search content is missing,
+or `deepseek_fetch_many`) is billed for each of them, and `rewrite=true` additionally uses `deepseek-flash` tokens.
+Cache hits are not billed.
+
 ## Cache and rate limiting
 
 The cache and the limiter live in the server process and are not shared between processes.
@@ -352,7 +377,7 @@ reach the network. CI runs lint, tests and build on Python 3.11, 3.12 and 3.13.
 
 The live suite calls the real DeepSeek API end to end and uses `deepseek-flash` as an LLM judge to grade whether
 results are relevant and answer the question. It is excluded from the default run, skips itself without a key,
-and a full run costs well under $0.01.
+and a full run costs a few cents at most (it also makes `deepseek-flash` judge calls).
 
 ```bash
 cp .env.example .env          # then put your key in DEEPSEEK_API_KEY=
