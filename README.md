@@ -228,7 +228,7 @@ Every tool returns a JSON object with `ok`.
 | Field | Where | Meaning |
 |---|---|---|
 | `ok` | all | `true` on success, `false` on failure |
-| `cached` | search, search-and-read, fetch; and per item in `deepseek_fetch_many` and per source in `deepseek_research` | `true` when the response came from the in-memory cache |
+| `cached` | all tools except balance; also per item in `deepseek_fetch_many` and per source in `deepseek_research` | `true` when the response came from the in-memory cache. For `deepseek_fetch_many` and `deepseek_research` it is `true` only when no upstream request was made and at least one response came from the cache |
 | `cached_count` | `deepseek_fetch_many`, `deepseek_research` | how many responses in this call were served from the cache |
 | `requests_used` | `deepseek_fetch_many`, `deepseek_research` | upstream requests actually made (cache hits are free) |
 | `elapsed_ms` | all, including errors | wall time of the tool call in milliseconds (monotonic clock); a cache hit reports its own, near-zero time |

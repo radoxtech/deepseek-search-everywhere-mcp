@@ -958,6 +958,11 @@ async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dic
     }
 
 
+def _all_cached(requests_used: int, cached_count: int) -> bool:
+    """Top-level ``cached`` of a multi-response tool: something came from the cache and nothing upstream."""
+    return cached_count > 0 and requests_used == 0
+
+
 # Error codes that mean no upstream request was made for a batch item.
 _LOCAL_ERROR_CODES = frozenset({"rate_limited_local", "deadline_exceeded", "internal_error"})
 
@@ -1091,11 +1096,13 @@ def _assemble_batch(
     if trimmed:
         notes.append(TRUNCATED_NOTE)
     failed_count = sum(not item["ok"] for item in results)
+    cached_count = sum(item["cached"] for item in results)
     return {
         "ok": True,
         "count": len(results),
         "requests_used": requests_used,
-        "cached_count": sum(item["cached"] for item in results),
+        "cached": _all_cached(requests_used, cached_count),
+        "cached_count": cached_count,
         "failed_count": failed_count,
         "partial": failed_count > 0,
         "results": results,
@@ -1123,6 +1130,7 @@ async def deepseek_fetch_many(
     Each page gets min(max_chars_per_url, max_total_chars // count) characters and the total
     content never exceeds max_total_chars; a note says when any content was truncated.
     The envelope reports count (unique URLs), requests_used (upstream fetches attempted),
+    cached (true when no upstream request was made and at least one page came from the cache),
     cached_count (items served from the cache), failed_count (items with ok=false), partial
     (true when any item failed), results, notes and elapsed_ms (the call's wall time in
     milliseconds, also on error envelopes). The top-level ok only says the batch ran; check
@@ -1270,13 +1278,16 @@ def _research_envelope(
         notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
     if trimmed and TRUNCATED_NOTE not in notes:
         notes.append(TRUNCATED_NOTE)
+    requests_used = (0 if search["cached"] else 1) + fill.requests_used
+    cached_count = (1 if search["cached"] else 0) + fill.cached_count
     envelope: dict[str, Any] = {
         "ok": True,
         "question": question,
         "query_used": search["query_used"],
         "sources": sources,
-        "requests_used": (0 if search["cached"] else 1) + fill.requests_used,
-        "cached_count": (1 if search["cached"] else 0) + fill.cached_count,
+        "requests_used": requests_used,
+        "cached": _all_cached(requests_used, cached_count),
+        "cached_count": cached_count,
         "notes": notes,
         "failed_count": fill.failed,
         "partial": fill.failed > 0,
@@ -1315,7 +1326,8 @@ async def deepseek_research(
     Content is capped at per_page_chars per source and total_chars overall, in source order; a
     note says when any content was truncated.
     requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
-    and cached_count counts responses served from the cache. failed_count counts sources whose
+    and cached_count counts responses served from the cache; cached is true when no upstream request
+    was made because everything came from the cache. failed_count counts sources whose
     error is set and partial is true when it is non-zero. elapsed_ms is the call's wall time in
     milliseconds, on error envelopes too. Synthesis is left to the caller.
 

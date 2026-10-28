@@ -46,7 +46,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The query-rewrite prompt and user-facing notes are language-neutral.
 - Notes are human-readable text in every tool; content cut to a character budget is reported with the same
   sentence by search, `deepseek_fetch_many` and `deepseek_research` (no `truncated_to_budget` token).
-- `cached` is a boolean per response and per item; batch tools report the number of hits as `cached_count`.
+- `cached` is a boolean per response and per item; batch tools report the number of hits as `cached_count` and a
+  top-level `cached` that is `true` only when no upstream request was made and something came from the cache.
 - `--check` no longer prints the length of the API key.
 - Settings are a frozen dataclass with documented defaults; `batch_concurrency` is capped at 5.
 - `DEEPSEEK_MCP_LOG_LEVEL` sets the level of the server's, the MCP SDK's and uvicorn's logs and defaults to
