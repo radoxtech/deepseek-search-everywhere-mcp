@@ -413,6 +413,73 @@ def _unescape_markdown(text: str) -> str:
     return _MARKDOWN_TOKEN.sub(lambda match: match["char"] or match[0], text)
 
 
+# Code first, so escapes inside fenced blocks and inline spans are matched as part of the code and kept.
+_JSON_ESCAPE_TOKEN = re.compile(
+    r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
+    r"|(?P<span>(?P<ticks>`+)(?!`)(?:(?!\n[ \t]*\n).)+?(?<!`)(?P=ticks)(?!`))"
+    r"|\\u(?P<high>[dD][89abAB][0-9a-fA-F]{2})\\u(?P<low>[dD][c-fC-F][0-9a-fA-F]{2})"
+    r"|\\u(?P<unit>[0-9a-fA-F]{4})"
+    r"|(?P<slash>\\/)",
+    re.DOTALL | re.MULTILINE,
+)
+_JSON_ESCAPE_HINT = re.compile(r"\\u[0-9a-fA-F]{4}|\\/")
+
+
+def _decode_json_escape(match: re.Match[str]) -> str:
+    if match["slash"]:
+        return "/"
+    if match["high"]:
+        high, low = int(match["high"], 16), int(match["low"], 16)
+        return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+    if match["unit"]:
+        code = int(match["unit"], 16)
+        # Control characters and lone surrogates stay escaped: they are not text worth restoring.
+        if code < 0x20 or 0xD800 <= code <= 0xDFFF:
+            return match[0]
+        return chr(code)
+    return match[0]
+
+
+def _decode_json_escapes(text: str) -> str:
+    """Decode JSON string escapes (``\\uXXXX``, surrogate pairs, ``\\/``) left in search-index text.
+
+    The search index sometimes returns a page's text still JSON-escaped, so ``ó`` arrives as
+    the six characters ``\\u00f3`` and ``</p>`` as ``<\\/p>``. Fenced code blocks and inline code
+    spans are skipped, so a literal escape shown in code is kept; text without such sequences
+    is returned unchanged.
+    """
+    if not _JSON_ESCAPE_HINT.search(text):
+        return text
+    return _JSON_ESCAPE_TOKEN.sub(_decode_json_escape, text)
+
+
+# Simple attribute-less block and inline tags that leak into index snippets and summaries.
+_HTML_TAG = re.compile(r"</?(?:p|br|h[1-6]|div|span|li|ul|ol|strong|em|b|i)\s*/?>", re.IGNORECASE)
+_TAG_TOKEN = re.compile(
+    r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
+    r"|(?P<span>(?P<ticks>`+)(?!`)(?:(?!\n[ \t]*\n).)+?(?<!`)(?P=ticks)(?!`))"
+    r"|(?P<tags>(?:[ \t]*" + _HTML_TAG.pattern + r"[ \t]*)+)",
+    re.DOTALL | re.MULTILINE | re.IGNORECASE,
+)
+
+
+def _strip_html_tags(text: str) -> str:
+    """Replace runs of simple HTML tags (``<p>``, ``<br>``, ``</h2>``...) with a single space.
+
+    Only attribute-less tags from a short list are touched, outside code, so text that merely
+    mentions angle brackets (``a < b``, ``<T>``) stays as it is.
+    """
+    if "<" not in text:
+        return text
+    stripped = _TAG_TOKEN.sub(lambda match: " " if match["tags"] else match[0], text)
+    return stripped.strip() if stripped != text else text
+
+
+def _clean_index_text(text: str) -> str:
+    """Decode JSON escapes in a search snippet or summary, then drop leftover simple HTML tags."""
+    return _strip_html_tags(_decode_json_escapes(text))
+
+
 def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
     if not lang:
         return query, False
@@ -548,7 +615,7 @@ def _result_entry(item: dict[str, Any]) -> dict[str, Any]:
         "rerank_score": item.get("rerank_score"),
         "site": item.get("site_name"),
     }
-    snippet = item.get("snippet") or ""
+    snippet = _clean_index_text(item.get("snippet") or "")
     if snippet:
         entry["snippet"] = snippet
     return entry
@@ -576,7 +643,8 @@ def _apply_char_budget(
 ) -> tuple[int, bool]:
     """Add the result's content (or summary) to ``entry``, cut to the per-result and total budgets.
 
-    Content is unescaped and, with ``strip_boilerplate``, rid of known site-UI lines before it
+    Content is unescaped (Markdown escapes, then any JSON escapes left by the search index) and,
+    with ``strip_boilerplate``, rid of known site-UI lines before it
     is capped at ``per_result``; a summary, used when there is no content, is capped at
     ``summary_cap`` and is left out entirely when that cap is 0. With content, ``chars`` is the
     length returned and the deprecated ``content_chars`` the cleaned length before the cap.
@@ -584,15 +652,16 @@ def _apply_char_budget(
     """
     body = item.get("content") if need_content else None
     if body:
-        cleaned = _unescape_markdown(body)
+        cleaned = _decode_json_escapes(_unescape_markdown(body))
         if strip_boilerplate:
             cleaned = remove_boilerplate(cleaned, item.get("url"))
         entry["content"], cut = _truncate(cleaned, max(0, min(per_result, remaining)))
         entry["chars"] = len(entry["content"])
         entry["content_chars"] = len(cleaned)  # deprecated alias, kept for one release
         return remaining - len(entry["content"]), cut
-    if item.get("summary") and summary_cap > 0:
-        entry["summary"], cut = _truncate(item["summary"], max(0, min(summary_cap, remaining)))
+    summary = _clean_index_text(item.get("summary") or "")
+    if summary and summary_cap > 0:
+        entry["summary"], cut = _truncate(summary, max(0, min(summary_cap, remaining)))
         return remaining - len(entry["summary"]), cut
     return remaining, False
 

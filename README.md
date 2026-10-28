@@ -202,6 +202,10 @@ Notes on the parameters:
   is set and falls back silently to the original query if the rewrite fails.
 - `clean=True` (fetch tools and search content) removes backslash escapes from every ASCII punctuation character
   (`\(`, `\-`, `\[`, `\/`, `\#`...). Fenced code blocks and inline code spans are left untouched.
+- Search results (content, `snippet`, `summary`, and so `deepseek_research` sources) also get JSON string
+  escapes decoded when the search index returns a page's text still JSON-escaped (`Kr\u00f3tkie` becomes
+  `Krótkie`, `<\/p>` becomes `</p>`), outside code. Simple attribute-less HTML tags left in snippets and
+  summaries (`<p>`, `<br>`, `</h2>`...) are replaced with a space.
 - `strip_boilerplate=True` (keyword-only, on every tool that returns page content) removes known site-interface
   lines. DeepSeek returns Reddit threads with the site UI localised to Chinese whatever the thread's language:
   the comment-sort menu (`排序方式：`, `最佳`, `新`...), the `# 评论区域` heading, the archived-post banner,
