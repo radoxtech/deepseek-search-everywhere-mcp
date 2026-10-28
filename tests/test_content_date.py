@@ -121,6 +121,11 @@ JOURNAL_TOC = (
         ("June 1989 and December 2028", None),
         ("June 2025-2026 season", None),
         ("June 20251", None),
+        ("Psychological Bulletin 2025 September\n\nThe resurgence", "2025-09-01"),
+        ("Pediatrics. 2024 październik; 12(3)", "2024-10-01"),
+        ("2025 Sep; 151(9) and 2025 Septembers", None),
+        ("in 1850 June and in 2025-06 June", None),
+        ("First June 2024, then 2025 May", "2024-06-01"),
     ],
 )
 def test_month_date_in(text: str, expected: str | None) -> None:

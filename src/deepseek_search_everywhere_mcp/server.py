@@ -659,20 +659,29 @@ _MONTH_DATE = re.compile(
     r"(?:\s+(?P<day_after>\d{1,2}),)?\s+(?P<year>\d{4})(?![\w-]|[.,/]\d)",
     re.IGNORECASE,
 )
+# The year-first order used in PubMed-style citations: "2025 September".
+_YEAR_MONTH_DATE = re.compile(
+    r"(?<![\w.,/-])(?P<year>\d{4})\s+"
+    r"(?P<month>" + "|".join(sorted(_MONTH_NAMES, key=len, reverse=True)) + r")(?![\w-])",
+    re.IGNORECASE,
+)
 
 
 def _month_date_in(text: str, today: date | None = None) -> str | None:
     """Return the first valid month-name date in ``text`` as ``YYYY-MM-DD``, or None.
 
-    A full English or Polish month name followed by a year (1990 to next year) gives the first of
-    that month; a day written next to it ("15 września 2025", "September 15, 2025") gives that day.
+    A full English or Polish month name next to a year (1990 to next year), as "September 2025" or
+    "2025 September", gives the first of that month; a day written with a month-first date
+    ("15 września 2025", "September 15, 2025") gives that day. The earliest match wins.
     """
     max_year = (today or datetime.now(UTC).date()).year + 1
-    for match in _MONTH_DATE.finditer(text):
+    matches = [*_MONTH_DATE.finditer(text), *_YEAR_MONTH_DATE.finditer(text)]
+    for match in sorted(matches, key=lambda found: found.start()):
         year = int(match["year"])
         if not MIN_CONTENT_YEAR <= year <= max_year:
             continue
-        day = match["day"] or match["day_after"]
+        groups = match.groupdict()
+        day = groups.get("day") or groups.get("day_after")
         try:
             return date(year, _MONTH_NAMES[match["month"].lower()], int(day) if day else 1).isoformat()
         except ValueError:
@@ -942,7 +951,7 @@ async def deepseek_web_search(
     results may be mixed-language; for named entities test with and without the operator.
     Each result carries date and authority (0-4, -1 unknown). date is the upstream RFC 3339 date
     or, when the upstream has none, a date found at the start of the result's text (YYYY-MM-DD, or a
-    full English or Polish month name with a year, read as the first of that month);
+    full English or Polish month name next to a year, read as the first of that month);
     date_source says which ('upstream', 'content' or null when there is no date).
 
     Responses are cached in memory for a few minutes and identical concurrent calls share one
