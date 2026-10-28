@@ -31,6 +31,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `clean=True` removes backslash escapes from all ASCII punctuation (`\(`, `\-`, `\[`, `\/`...), not just a few,
+  and leaves fenced code blocks and inline code spans untouched.
 - The query-rewrite prompt and user-facing notes are language-neutral.
 - Notes are human-readable text in every tool; content cut to a character budget is reported with the same
   sentence by search, `deepseek_fetch_many` and `deepseek_research` (no `truncated_to_budget` token).

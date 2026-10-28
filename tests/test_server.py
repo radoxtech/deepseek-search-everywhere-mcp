@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 
+import pytest
+
 from deepseek_search_everywhere_mcp import server
 
 
@@ -29,8 +31,52 @@ def test_unescape_markdown():
     assert server._unescape_markdown(raw) == "# Nagłówek\nOdkładasz zadania, choć wiesz."
 
 
-def test_unescape_keeps_double_backslash():
-    assert server._unescape_markdown("a\\\\b") == "a\\\\b"
+def test_unescape_reduces_escaped_backslash():
+    assert server._unescape_markdown("a\\\\b") == "a\\b"
+    assert server._unescape_markdown("C:\\\\Users") == "C:\\Users"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            "JSON \\(JavaScript Object Notation\\) is a format",
+            "JSON (JavaScript Object Notation) is a format",
+        ),
+        ("see ECMA\\-404 and RFC\\ 7159", "see ECMA-404 and RFC\\ 7159"),
+        ("as in \\[1\\] and \\[RFC 8259\\]", "as in [1] and [RFC 8259]"),
+        ("a\\/b, it\\'s, \\>quoted, 5 \\* 3, snake\\_case", "a/b, it's, >quoted, 5 * 3, snake_case"),
+        ("\\# of items", "# of items"),
+        ("issue \\#42", "issue #42"),
+        ('\\!\\"\\$\\%\\&\\+\\<\\=\\?\\@\\^\\`\\{\\|\\}\\~', '!"$%&+<=?@^`{|}~'),
+        ("trailing backslash\\", "trailing backslash\\"),
+        ("a \\b \\n \\é stay", "a \\b \\n \\é stay"),
+    ],
+)
+def test_unescape_all_commonmark_punctuation(raw, expected):
+    assert server._unescape_markdown(raw) == expected
+
+
+def test_unescape_skips_code():
+    fenced = "```python\nre.sub(r'\\(\\d+\\)', '', s)\n```"
+    tilde = "~~~\nC:\\-dir \\[x\\]\n~~~"
+    span = "`a\\-b`"
+    raw = f"Use \\(x\\) here\n{fenced}\nthen {span} and \\[1\\]\n{tilde}\nend\\."
+    expected = f"Use (x) here\n{fenced}\nthen {span} and [1]\n{tilde}\nend."
+    assert server._unescape_markdown(raw) == expected
+
+
+def test_unescape_unterminated_fence_runs_to_the_end():
+    raw = "a \\- b\n```\nc \\- d"
+    assert server._unescape_markdown(raw) == "a - b\n```\nc \\- d"
+
+
+def test_unescape_unmatched_backtick_is_text():
+    assert server._unescape_markdown("a ` b \\- c") == "a ` b - c"
+
+
+def test_unescaped_backtick_does_not_open_a_code_span():
+    assert server._unescape_markdown("\\`a\\-b\\`") == "`a-b`"
 
 
 def test_truncate():

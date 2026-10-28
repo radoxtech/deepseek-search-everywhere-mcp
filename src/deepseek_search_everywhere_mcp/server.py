@@ -340,9 +340,28 @@ def _title_or_host(item: dict) -> str | None:
     return _url_host(item.get("url")) or title
 
 
+# One alternation, scanned left to right, so a backslash escape is consumed before any backtick
+# it escapes can open an inline code span. Code (fenced blocks, then inline spans) is matched
+# only to be skipped; a fence without a closing line runs to the end of the text.
+_MARKDOWN_TOKEN = re.compile(
+    r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
+    r"|(?P<span>(?P<ticks>`+)(?!`)(?:(?!\n[ \t]*\n).)+?(?<!`)(?P=ticks)(?!`))"
+    r"|\\(?P<char>[!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])",
+    re.DOTALL | re.MULTILINE,
+)
+
+
 def _unescape_markdown(text: str) -> str:
-    text = re.sub(r"\\([,.;:!?])", r"\1", text)
-    return re.sub(r"(?m)^\\#(?=\s)", "#", text)
+    """Remove CommonMark backslash escapes from ``text``, leaving code untouched.
+
+    Any ASCII punctuation character may be backslash-escaped in CommonMark, and the fetch
+    backend escapes many of them (``\\(``, ``\\-``, ``\\[``, ``\\/``...), which only costs tokens
+    and hurts readability. Fenced code blocks and inline code spans are skipped because a
+    backslash there is literal. An escaped backslash (``\\\\``) is reduced to a single one.
+    A ``\\#`` at the start of a line is unescaped like any other, so an escaped heading marker
+    becomes a heading again.
+    """
+    return _MARKDOWN_TOKEN.sub(lambda match: match["char"] or match[0], text)
 
 
 def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
@@ -786,7 +805,8 @@ async def deepseek_fetch(
 
     Args:
         url: Absolute http(s) URL, max 8192 characters.
-        clean: Remove DeepSeek's spurious Markdown escaping (\\# at line start, \\, \\, etc.).
+        clean: Remove DeepSeek's spurious Markdown backslash escapes (any escaped ASCII punctuation,
+            such as \\( \\- \\[ \\/ \\#); fenced code blocks and inline code are left as they are.
         max_chars: Content cap, applied after cleaning.
         refresh: Bypass the response cache and fetch the page again (the envelope's cached
             flag says whether the page came from the cache).
@@ -1008,7 +1028,8 @@ async def deepseek_fetch_many(
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
         max_chars_per_url: Content cap per page, applied after cleaning.
         max_total_chars: Total content budget across all pages.
-        clean: Remove DeepSeek's spurious Markdown escaping (\\# at line start, \\, etc.).
+        clean: Remove DeepSeek's spurious Markdown backslash escapes (any escaped ASCII punctuation);
+            fenced code blocks and inline code are left as they are.
         refresh: Bypass the response cache and fetch every page again.
     """
     settings = get_settings()

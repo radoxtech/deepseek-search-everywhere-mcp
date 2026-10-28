@@ -196,6 +196,8 @@ Notes on the parameters:
   With `dedupe=False` exactly `count` are requested.
 - `rewrite=True` translates the query to English with `deepseek-flash` before searching. It is skipped when `lang`
   is set and falls back silently to the original query if the rewrite fails.
+- `clean=True` (fetch tools and search content) removes backslash escapes from every ASCII punctuation character
+  (`\(`, `\-`, `\[`, `\/`, `\#`...). Fenced code blocks and inline code spans are left untouched.
 - `deepseek_fetch_many` skips empty entries, fetches duplicate URLs (same canonical URL) once, keeps the input
   order, and reports a failing URL as an item with `ok: false` instead of failing the batch. All fetches share
   a 120 s deadline; URLs still pending then are reported as `deadline_exceeded`. Each page gets at most
