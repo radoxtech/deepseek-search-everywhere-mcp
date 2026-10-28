@@ -182,7 +182,7 @@ The server speaks plain HTTP; when binding beyond loopback, put TLS in front of 
 | `deepseek_search_and_read` | Search with page content in one request; the recommended retrieval path | `query`, `count=5` (1-50), `ori_question`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `refresh=False` |
 | `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `clean=True`, `max_chars=20000`, `refresh=False` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `refresh=False` |
-| `deepseek_research` | One search with content, then fetch the sources whose content is missing or shorter than 200 characters (at most 5 fetches) | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `refresh=False` |
+| `deepseek_research` | One search with content, then fetch the sources whose content is missing or shorter than 200 characters (at most 5 fetches) | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False` |
 | `deepseek_balance` | Account balance | none |
 
 Notes on the parameters:
@@ -194,7 +194,7 @@ Notes on the parameters:
 - With `dedupe=True`, searches ask the upstream for a few extra results (`max(2, ceil(count * 0.5))`, capped at 50)
   and trim to `count` after removing duplicates, so you still get `count` results when the index returns repeats.
   With `dedupe=False` exactly `count` are requested.
-- `rewrite=True` translates the query to English with `deepseek-flash` before searching. It is skipped when `lang`
+- `rewrite=True` (also in `deepseek_research`) translates the query to English with `deepseek-flash` before searching. It is skipped when `lang`
   is set and falls back silently to the original query if the rewrite fails.
 - `clean=True` (fetch tools and search content) removes backslash escapes from every ASCII punctuation character
   (`\(`, `\-`, `\[`, `\/`, `\#`...). Fenced code blocks and inline code spans are left untouched.
@@ -202,7 +202,8 @@ Notes on the parameters:
   order, and reports a failing URL as an item with `ok: false` instead of failing the batch. All fetches share
   a 120 s deadline; URLs still pending then are reported as `deadline_exceeded`. Each page gets at most
   `min(max_chars_per_url, max_total_chars // number of URLs)` characters.
-- `deepseek_research` does no summarising and makes no model call: it returns sources for the caller to synthesise.
+- `deepseek_research` takes the same `lang`, `rewrite` and `dedupe` options as search; the envelope's `query_used`
+  shows the query that was sent. It does no summarising and makes no model call unless `rewrite=True`: it returns sources for the caller to synthesise.
   Each source carries `title`, `url`, `date` and `site` (both null when the upstream gave none), `authority` and
   `rerank_score`, so stale or off-topic sources are visible without opening them.
 
@@ -213,6 +214,7 @@ deepseek_search_and_read(query="rust async runtime comparison", count=5)
 deepseek_web_search(query="gobierno de España presupuestos 2026", lang="es", need_content=False)
 deepseek_fetch_many(urls=["https://example.com/a", "https://example.com/b"], max_total_chars=12000)
 deepseek_research(question="how does HTTP/3 connection migration work", max_pages=4)
+deepseek_research(question="CBOS 2025 korzystanie z internetu Polacy", lang="pl")
 ```
 
 ### Response envelope

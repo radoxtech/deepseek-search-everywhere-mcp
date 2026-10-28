@@ -1159,18 +1159,17 @@ def _research_envelope(
     question: str, sources: list[dict[str, Any]], search: dict[str, Any], fill: _GapFill, trimmed: bool
 ) -> dict[str, Any]:
     """Build the ``deepseek_research`` envelope from the search, the gap fill and the budget pass."""
-    notes: list[str] = []
-    if search["deduped"]:
-        notes.append(f"deduped {search['deduped']} duplicate result(s)")
+    notes: list[str] = list(search["notes"])
     if fill.fetched:
         notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
     if fill.failed:
         notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
-    if trimmed:
+    if trimmed and TRUNCATED_NOTE not in notes:
         notes.append(TRUNCATED_NOTE)
-    return {
+    envelope: dict[str, Any] = {
         "ok": True,
         "question": question,
+        "query_used": search["query_used"],
         "sources": sources,
         "requests_used": (0 if search["cached"] else 1) + fill.requests_used,
         "cached_count": (1 if search["cached"] else 0) + fill.cached_count,
@@ -1178,6 +1177,9 @@ def _research_envelope(
         "failed_count": fill.failed,
         "partial": fill.failed > 0,
     }
+    if "query_original" in search:
+        envelope["query_original"] = search["query_original"]
+    return envelope
 
 
 async def deepseek_research(
@@ -1186,11 +1188,15 @@ async def deepseek_research(
     per_page_chars: int = RESEARCH_PAGE_CHARS,
     total_chars: int = RESEARCH_TOTAL_CHARS,
     *,
+    lang: str | None = None,
+    rewrite: bool = False,
+    dedupe: bool = True,
     refresh: bool = False,
 ) -> dict[str, Any]:
     """Gather source material for a question: one search with page content, then fetch the gaps.
 
-    Runs a single search with need_content=True (no query rewrite, no model call, no summary).
+    Runs a single search with need_content=True (no summary). By default it makes no model call;
+    rewrite=True translates the question to English first, as in deepseek_web_search.
     Results whose content is missing or shorter than 200 characters and whose URL passes
     validation are fetched directly with deepseek_fetch_many (at most 5 per call); a fetched page
     replaces the search content of that source. A URL that fails validation (for example an
@@ -1199,6 +1205,8 @@ async def deepseek_research(
 
     Each source has id, title, url, date, site, authority, rerank_score, content, chars, origin ('search' or
     'fetch'), error (null or {code, message}) and cached (whether its content came from the cache).
+    query_used is the query sent upstream (with any lang: operator); query_original is set only when
+    rewrite changed the question.
     Content is capped at per_page_chars per source and total_chars overall, in source order; a
     note says when any content was truncated.
     requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
@@ -1210,6 +1218,11 @@ async def deepseek_research(
         max_pages: Number of search results to use, 1-50 (default 5).
         per_page_chars: Content cap per source.
         total_chars: Total content budget across all sources.
+        lang: Explicit language operator such as 'pl', 'es' or 'pt-BR', added to the question as
+            lang:<code> unless it already has one. query_used shows the query that was sent.
+        rewrite: Translate the question to English with deepseek-flash before searching (default
+            False). Skipped when lang is set; query_original then holds the question as given.
+        dedupe: Remove duplicate results (default True).
         refresh: Bypass the response caches for the search and the fetches.
     """
     if per_page_chars < 1 or total_chars < 1:
@@ -1219,11 +1232,11 @@ async def deepseek_research(
         max_pages,
         None,
         True,
-        None,
+        lang,
         per_page_chars,
         per_page_chars * max_pages,
-        True,
-        False,
+        dedupe,
+        rewrite,
         refresh=refresh,
     )
     if search.get("ok") is False:

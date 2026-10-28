@@ -205,3 +205,58 @@ async def test_research_sources_carry_date_and_site(fake_upstream: Any) -> None:
     assert (first["date"], first["site"]) == ("2025-03-01", "Site 1")
     assert second["date"] is None
     assert second["site"] is None
+
+
+async def test_research_lang_prefixes_the_query(upstream: Upstream) -> None:
+    result = await server.deepseek_research("CBOS 2025 internet", lang="pl")
+    assert upstream.searches[0]["query"] == "lang:pl CBOS 2025 internet"
+    assert result["query_used"] == "lang:pl CBOS 2025 internet"
+    assert "Language operator lang:pl applied." in result["notes"]
+    assert "query_original" not in result
+
+
+async def test_research_query_used_without_lang(upstream: Upstream) -> None:
+    result = await server.deepseek_research("plain question")
+    assert result["query_used"] == "plain question"
+
+
+@pytest.mark.parametrize("lang", ["polish", "p", "pl_PL", "pl-"])
+async def test_research_bad_lang(upstream: Upstream, lang: str) -> None:
+    result = await server.deepseek_research("question", lang=lang)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "bad_lang"
+    assert upstream.searches == []
+
+
+async def test_research_rewrite_path(upstream: Upstream, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_rewrite(query: str) -> str:
+        return "rewritten question"
+
+    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    result = await server.deepseek_research("pytanie po polsku", rewrite=True)
+    assert upstream.searches[0]["query"] == "rewritten question"
+    assert result["query_used"] == "rewritten question"
+    assert result["query_original"] == "pytanie po polsku"
+    assert "query rewritten (flash): 'rewritten question'" in result["notes"]
+
+
+async def test_research_rewrite_is_skipped_with_lang(
+    upstream: Upstream, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def boom(query: str) -> str:
+        raise AssertionError("rewrite must not run when lang is set")
+
+    monkeypatch.setattr(server, "_rewrite_query", boom)
+    result = await server.deepseek_research("pytanie", lang="pl", rewrite=True)
+    assert result["query_used"] == "lang:pl pytanie"
+
+
+async def test_research_dedupe_flag(fake_upstream: Any) -> None:
+    twin = _result(2, LONG)
+    twin["url"] = _result(1, LONG)["url"]
+    fake_upstream(Upstream([_result(1, LONG), twin, _result(3, LONG)]))
+    deduped = await server.deepseek_research("dedupe question", max_pages=3)
+    assert len(deduped["sources"]) == 2
+    assert "deduped 1 duplicate result(s)" in deduped["notes"]
+    kept = await server.deepseek_research("dedupe off question", max_pages=3, dedupe=False)
+    assert len(kept["sources"]) == 3
