@@ -85,7 +85,7 @@ def test_search_strips_before_budgets_and_shares_the_cache(fake_upstream):
     assert raw["cached"] is True
     result = clean["results"][0]
     assert not CJK.search(result["content"])
-    assert result["content_chars"] == result["chars"] == len(result["content"])
+    assert result["chars"] == len(result["content"])
     assert raw["results"][0]["content"] == server._unescape_markdown(escaped)
 
     budget = len(remove_boilerplate(THREAD, REDDIT_URL))

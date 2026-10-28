@@ -273,9 +273,6 @@ and a bare year are ignored; `date_source` is `"upstream"`, `"content"` or `null
 sources alike. `deepseek_fetch` returns `title`, `content`, `chars`,
 `truncated`. `chars` is always the length of the `content` returned, in every tool.
 
-`content_chars` is deprecated and will be removed in the next release: on `deepseek_fetch` it equals `chars`;
-on search results it still reports the cleaned page length before the per-result cap.
-
 ### Error codes
 
 | Code | Meaning |
