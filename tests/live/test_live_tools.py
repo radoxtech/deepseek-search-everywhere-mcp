@@ -14,6 +14,7 @@ import pytest
 from live_judge import assert_quality, judge_answerable, judge_items
 
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.boilerplate import REDDIT, rules_for
 
 pytestmark = pytest.mark.live
 
@@ -68,6 +69,38 @@ async def test_search_and_read_returns_relevant_content() -> None:
     assert len(with_content) >= 2, "expected page content for at least two results"
     assert all(item["chars"] > 0 for item in with_content)
     assert_quality(await judge_items("search_and_read", query, with_content))
+
+
+def _ui_labels(content: str) -> list[str]:
+    """Return the lines of ``content`` that are known Reddit UI labels or menu headers."""
+    labels = []
+    for line in content.splitlines():
+        normalised = " ".join(line.split())
+        if REDDIT.is_ui_line(normalised) or REDDIT.menu_for(normalised) is not None:
+            labels.append(normalised)
+    return labels
+
+
+async def test_reddit_threads_come_back_without_site_ui() -> None:
+    query = "site:reddit.com ADHD social media"
+    envelope = await server.deepseek_search_and_read(
+        query, count=2, max_chars_per_result=50000, max_total_chars=100000
+    )
+    _assert_ok(envelope)
+    threads = [item for item in envelope["results"] if rules_for(item["url"]) and item.get("content")]
+    if not threads:
+        pytest.skip("upstream returned no Reddit thread with content")
+    for item in threads:
+        assert _ui_labels(item["content"]) == [], item["url"]
+    # The raw variant is served from the same cache entry, so it costs nothing.
+    raw = await server.deepseek_search_and_read(
+        query, count=2, max_chars_per_result=50000, max_total_chars=100000, strip_boilerplate=False
+    )
+    assert raw["cached"] is True
+    stripped = {item["url"]: item["content"] for item in threads}
+    for item in raw["results"]:
+        if item["url"] in stripped and _ui_labels(item["content"]):
+            assert len(stripped[item["url"]]) < len(item["content"])
 
 
 @pytest.mark.parametrize(
