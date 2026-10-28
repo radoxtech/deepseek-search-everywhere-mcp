@@ -178,8 +178,8 @@ The server speaks plain HTTP; when binding beyond loopback, put TLS in front of 
 
 | Tool | Purpose | Parameters (defaults) |
 |---|---|---|
-| `deepseek_web_search` | Search; titles, URLs, dates, authority, rerank scores, optional page content | `query`, `count=10` (1-50), `ori_question`, `need_content=False`, `lang`, `max_chars_per_result=4000`, `max_total_chars=40000`, `dedupe=True`, `rewrite=False`, `refresh=False` |
-| `deepseek_search_and_read` | Search with page content in one request; the recommended retrieval path | `query`, `count=5` (1-50), `ori_question`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `refresh=False` |
+| `deepseek_web_search` | Search; titles, URLs, dates, authority, rerank scores, optional page content | `query`, `count=10` (1-50), `ori_question`, `need_content=False`, `lang`, `max_chars_per_result=4000`, `max_total_chars=40000`, `dedupe=True`, `rewrite=False`, `refresh=False`, `summary_chars` |
+| `deepseek_search_and_read` | Search with page content in one request; the recommended retrieval path | `query`, `count=5` (1-50), `ori_question`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `refresh=False`, `summary_chars` |
 | `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `clean=True`, `max_chars=20000`, `refresh=False` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `refresh=False` |
 | `deepseek_research` | One search with content, then fetch the sources whose content is missing or shorter than 200 characters (at most 5 fetches) | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False` |
@@ -194,6 +194,10 @@ Notes on the parameters:
 - With `dedupe=True`, searches ask the upstream for a few extra results (`max(2, ceil(count * 0.5))`, capped at 50)
   and trim to `count` after removing duplicates, so you still get `count` results when the index returns repeats.
   With `dedupe=False` exactly `count` are requested.
+- Without `need_content`, each search result carries a short `summary` instead of page text. It is capped at
+  `summary_chars` (default 400) and never longer than `max_chars_per_result`; `summary_chars=0` leaves it out.
+  With content, a `summary` only stands in for a result that came back without content, and `summary_chars`
+  then defaults to `max_chars_per_result`. Summaries count towards `max_total_chars`.
 - `rewrite=True` (also in `deepseek_research`) translates the query to English with `deepseek-flash` before searching. It is skipped when `lang`
   is set and falls back silently to the original query if the rewrite fails.
 - `clean=True` (fetch tools and search content) removes backslash escapes from every ASCII punctuation character

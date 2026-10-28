@@ -60,6 +60,8 @@ MAX_COUNT = 50  # largest ``count`` accepted from callers and by the upstream se
 # extra results (capped at MAX_COUNT) so that removing duplicates still leaves ``count`` results.
 OVERFETCH_MIN = 2
 OVERFETCH_RATIO = 0.5
+# Default summary cap per result when the search returns no page content (need_content=False).
+SEARCH_SUMMARY_CHARS = 400
 # Note added by every tool whose content was cut to fit a character budget.
 TRUNCATED_NOTE = "Some page content was truncated to respect the character budget."
 
@@ -525,28 +527,49 @@ def _result_entry(item: dict[str, Any]) -> dict[str, Any]:
     return entry
 
 
+def _summary_cap(summary_chars: int | None, need_content: bool, per_result: int) -> int:
+    """Return the per-result summary cap: ``summary_chars`` (or its default) bounded by ``per_result``.
+
+    The default is ``SEARCH_SUMMARY_CHARS`` without page content, and ``per_result`` with it (the
+    summary is then only a fallback for results that came back without content). 0 omits summaries.
+    """
+    if summary_chars is None:
+        summary_chars = per_result if need_content else SEARCH_SUMMARY_CHARS
+    return min(summary_chars, per_result)
+
+
 def _apply_char_budget(
-    entry: dict[str, Any], item: dict[str, Any], need_content: bool, per_result: int, remaining: int
+    entry: dict[str, Any],
+    item: dict[str, Any],
+    need_content: bool,
+    per_result: int,
+    remaining: int,
+    summary_cap: int,
 ) -> tuple[int, bool]:
     """Add the result's content (or summary) to ``entry``, cut to the per-result and total budgets.
 
+    Content is capped at ``per_result``; a summary, used when there is no content, at
+    ``summary_cap`` and is left out entirely when that cap is 0.
     Returns ``(remaining, truncated)``: the budget left afterwards and whether any text was cut.
     """
-    allowed = max(0, min(per_result, remaining))
     body = item.get("content") if need_content else None
     if body:
         cleaned = _unescape_markdown(body)
-        entry["content"], cut = _truncate(cleaned, allowed)
+        entry["content"], cut = _truncate(cleaned, max(0, min(per_result, remaining)))
         entry["content_chars"] = len(cleaned)
         return remaining - len(entry["content"]), cut
-    if item.get("summary"):
-        entry["summary"], cut = _truncate(item["summary"], allowed)
+    if item.get("summary") and summary_cap > 0:
+        entry["summary"], cut = _truncate(item["summary"], max(0, min(summary_cap, remaining)))
         return remaining - len(entry["summary"]), cut
     return remaining, False
 
 
 def _shape_results(
-    raw: list[dict[str, Any]], need_content: bool, per_result: int, total: int
+    raw: list[dict[str, Any]],
+    need_content: bool,
+    per_result: int,
+    total: int,
+    summary_cap: int,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Shape upstream results under the character budgets; return ``(results, truncated)``.
 
@@ -557,7 +580,7 @@ def _shape_results(
     truncated = False
     for item in raw:
         entry = _result_entry(item)
-        remaining, cut = _apply_char_budget(entry, item, need_content, per_result, remaining)
+        remaining, cut = _apply_char_budget(entry, item, need_content, per_result, remaining, summary_cap)
         truncated = truncated or cut
         shaped.append(entry)
         if need_content and remaining <= 0:
@@ -603,12 +626,18 @@ async def _search(
     rewrite: bool = False,
     *,
     refresh: bool = False,
+    summary_chars: int | None = None,
 ) -> dict[str, Any]:
-    """Run one validated, cached search and shape the envelope shared by the search tools."""
+    """Run one validated, cached search and shape the envelope shared by the search tools.
+
+    ``summary_chars`` caps the summary of results without content (see ``_summary_cap``).
+    """
     query = (query or "").strip()
     rejection = _check_search_args(query, count, lang)
     if rejection is not None:
         return rejection
+    if summary_chars is not None and summary_chars < 0:
+        return _fail("bad_request", "summary_chars must be at least 0.")
 
     query, ori_question, query_original, rewrite_failed = await _maybe_rewrite(
         query, ori_question, rewrite, lang
@@ -631,7 +660,8 @@ async def _search(
     if dedupe:
         raw, removed = _dedupe_results(raw)
         raw = raw[:count]
-    shaped, truncated = _shape_results(raw, need_content, max_chars_per_result, max_total_chars)
+    summary_cap = _summary_cap(summary_chars, need_content, max_chars_per_result)
+    shaped, truncated = _shape_results(raw, need_content, max_chars_per_result, max_total_chars, summary_cap)
 
     envelope: dict[str, Any] = {
         "ok": True,
@@ -675,12 +705,17 @@ async def deepseek_web_search(
     rewrite: bool = False,
     *,
     refresh: bool = False,
+    summary_chars: int | None = None,
 ) -> dict[str, Any]:
     """Search the web with DeepSeek's index. Returns titles, URLs, dates, authority and rerank scores.
 
     Use this for discovery and ranking. Set need_content=True to get full page text inline in the
     same call (billed as one request, no per-page charge) — this is usually cheaper and more
     reliable than calling deepseek_fetch afterwards.
+
+    Without need_content each result carries a short summary instead, capped at summary_chars
+    (default 400) and never longer than max_chars_per_result; summary_chars=0 leaves it out, which
+    keeps a 10-result response small.
 
     For non-English queries set lang to the appropriate code (e.g. 'es', 'de', 'ja'). Without it
     results may be mixed-language; for named entities test with and without the operator.
@@ -700,13 +735,17 @@ async def deepseek_web_search(
         lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
             appropriate code; without it results may be mixed-language. For named entities test
             with and without the operator.
-        max_chars_per_result: Content cap per result when need_content is set.
-        max_total_chars: Total content budget across all results.
+        max_chars_per_result: Cap per result on the content (when need_content is set) and on
+            the summary.
+        max_total_chars: Total budget across all results, for content and summaries alike.
         dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
         rewrite: Rewrite the query via deepseek-flash before searching, default off. Skipped when
             lang is set; falls back silently to the original query on failure.
         refresh: Bypass the response cache and query upstream again (the envelope's cached
             flag says whether the results came from the cache).
+        summary_chars: Summary cap per result, at most max_chars_per_result. Defaults to 400
+            without need_content; with it, a summary only stands in for missing content and
+            defaults to max_chars_per_result. 0 omits summaries.
     """
     return await _search(
         query,
@@ -719,6 +758,7 @@ async def deepseek_web_search(
         dedupe,
         rewrite,
         refresh=refresh,
+        summary_chars=summary_chars,
     )
 
 
@@ -733,6 +773,7 @@ async def deepseek_search_and_read(
     rewrite: bool = False,
     *,
     refresh: bool = False,
+    summary_chars: int | None = None,
 ) -> dict[str, Any]:
     """Search and return full page content in one request — the recommended retrieval path.
 
@@ -752,13 +793,15 @@ async def deepseek_search_and_read(
         lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
             appropriate code; without it results may be mixed-language. For named entities test
             with and without the operator.
-        max_chars_per_result: Content cap per result.
+        max_chars_per_result: Cap per result on the content (and on a fallback summary).
         max_total_chars: Total content budget across all results.
         dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
         rewrite: Rewrite the query via deepseek-flash before searching, default off. Skipped when
             lang is set; falls back silently to the original query on failure.
         refresh: Bypass the response cache and query upstream again (the envelope's cached
             flag says whether the results came from the cache).
+        summary_chars: Cap on the summary given to a result that came back without content, at
+            most max_chars_per_result (the default). 0 omits such summaries.
     """
     return await _search(
         query,
@@ -771,6 +814,7 @@ async def deepseek_search_and_read(
         dedupe,
         rewrite,
         refresh=refresh,
+        summary_chars=summary_chars,
     )
 
 
