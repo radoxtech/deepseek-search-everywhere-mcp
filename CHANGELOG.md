@@ -26,6 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `summary_chars` on `deepseek_web_search` and `deepseek_search_and_read` caps the summary of a result without
   page content (default 400 characters without `need_content`, always bounded by `max_chars_per_result`);
   `summary_chars=0` omits it. A 3-result search without content drops from about 13 KB to under 4 KB.
+- `strip_boilerplate` (keyword-only, default on) on every tool that returns page content removes known site-UI
+  lines, such as the Chinese-localised comment-sort menu, `# 评论区域` heading and sign-up footer of Reddit
+  threads. Rules are per site and only drop whole lines that match a known label; it runs before the character
+  caps and does not affect caching.
 - Every tool envelope, success or error, carries `elapsed_ms`: the call's wall time on a monotonic clock.
 - Search over-fetches upstream so `dedupe` still yields the requested number of results.
 - Blank result titles fall back to the URL host; a fetched page title replaces the fallback in research results.

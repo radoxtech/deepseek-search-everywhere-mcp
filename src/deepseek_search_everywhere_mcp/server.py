@@ -26,6 +26,7 @@ from typing import Any, ParamSpec
 from mcp.server.fastmcp import FastMCP
 
 from ._version import __version__
+from .boilerplate import remove_boilerplate
 from .cache import SingleFlight, TTLCache
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
@@ -571,10 +572,12 @@ def _apply_char_budget(
     per_result: int,
     remaining: int,
     summary_cap: int,
+    strip_boilerplate: bool = True,
 ) -> tuple[int, bool]:
     """Add the result's content (or summary) to ``entry``, cut to the per-result and total budgets.
 
-    Content is capped at ``per_result``; a summary, used when there is no content, at
+    Content is unescaped and, with ``strip_boilerplate``, rid of known site-UI lines before it
+    is capped at ``per_result``; a summary, used when there is no content, is capped at
     ``summary_cap`` and is left out entirely when that cap is 0. With content, ``chars`` is the
     length returned and the deprecated ``content_chars`` the cleaned length before the cap.
     Returns ``(remaining, truncated)``: the budget left afterwards and whether any text was cut.
@@ -582,6 +585,8 @@ def _apply_char_budget(
     body = item.get("content") if need_content else None
     if body:
         cleaned = _unescape_markdown(body)
+        if strip_boilerplate:
+            cleaned = remove_boilerplate(cleaned, item.get("url"))
         entry["content"], cut = _truncate(cleaned, max(0, min(per_result, remaining)))
         entry["chars"] = len(entry["content"])
         entry["content_chars"] = len(cleaned)  # deprecated alias, kept for one release
@@ -598,6 +603,7 @@ def _shape_results(
     per_result: int,
     total: int,
     summary_cap: int,
+    strip_boilerplate: bool = True,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Shape upstream results under the character budgets; return ``(results, truncated)``.
 
@@ -608,7 +614,9 @@ def _shape_results(
     truncated = False
     for item in raw:
         entry = _result_entry(item)
-        remaining, cut = _apply_char_budget(entry, item, need_content, per_result, remaining, summary_cap)
+        remaining, cut = _apply_char_budget(
+            entry, item, need_content, per_result, remaining, summary_cap, strip_boilerplate
+        )
         truncated = truncated or cut
         shaped.append(entry)
         if need_content and remaining <= 0:
@@ -655,10 +663,13 @@ async def _search(
     *,
     refresh: bool = False,
     summary_chars: int | None = None,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Run one validated, cached search and shape the envelope shared by the search tools.
 
     ``summary_chars`` caps the summary of results without content (see ``_summary_cap``).
+    ``strip_boilerplate`` removes known site-UI lines from page content; it only shapes the
+    response, so the cache key and the cached upstream data are the same either way.
     """
     query = (query or "").strip()
     rejection = _check_search_args(query, count, lang)
@@ -689,7 +700,9 @@ async def _search(
         raw, removed = _dedupe_results(raw)
         raw = raw[:count]
     summary_cap = _summary_cap(summary_chars, need_content, max_chars_per_result)
-    shaped, truncated = _shape_results(raw, need_content, max_chars_per_result, max_total_chars, summary_cap)
+    shaped, truncated = _shape_results(
+        raw, need_content, max_chars_per_result, max_total_chars, summary_cap, strip_boilerplate
+    )
 
     envelope: dict[str, Any] = {
         "ok": True,
@@ -735,6 +748,7 @@ async def deepseek_web_search(
     *,
     refresh: bool = False,
     summary_chars: int | None = None,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Search the web with DeepSeek's index. Returns titles, URLs, dates, authority and rerank scores.
 
@@ -778,6 +792,10 @@ async def deepseek_web_search(
         summary_chars: Summary cap per result, at most max_chars_per_result. Defaults to 400
             without need_content; with it, a summary only stands in for missing content and
             defaults to max_chars_per_result. 0 omits summaries.
+        strip_boilerplate: Remove known site-interface lines from page content (default on),
+            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
+            for Reddit threads. Only whole lines matching a known label of that site are removed;
+            False returns the content as fetched.
     """
     return await _search(
         query,
@@ -791,6 +809,7 @@ async def deepseek_web_search(
         rewrite,
         refresh=refresh,
         summary_chars=summary_chars,
+        strip_boilerplate=strip_boilerplate,
     )
 
 
@@ -807,6 +826,7 @@ async def deepseek_search_and_read(
     *,
     refresh: bool = False,
     summary_chars: int | None = None,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Search and return full page content in one request — the recommended retrieval path.
 
@@ -836,6 +856,10 @@ async def deepseek_search_and_read(
             flag says whether the results came from the cache).
         summary_chars: Cap on the summary given to a result that came back without content, at
             most max_chars_per_result (the default). 0 omits such summaries.
+        strip_boilerplate: Remove known site-interface lines from page content (default on),
+            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
+            for Reddit threads. Only whole lines matching a known label of that site are removed;
+            False returns the content as fetched.
     """
     return await _search(
         query,
@@ -849,6 +873,7 @@ async def deepseek_search_and_read(
         rewrite,
         refresh=refresh,
         summary_chars=summary_chars,
+        strip_boilerplate=strip_boilerplate,
     )
 
 
@@ -884,6 +909,7 @@ async def deepseek_fetch(
     max_chars: int = 20000,
     *,
     refresh: bool = False,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
@@ -911,16 +937,24 @@ async def deepseek_fetch(
         max_chars: Content cap, applied after cleaning.
         refresh: Bypass the response cache and fetch the page again (the envelope's cached
             flag says whether the page came from the cache).
+        strip_boilerplate: Remove known site-interface lines from page content (default on),
+            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
+            for Reddit threads. Only whole lines matching a known label of that site are removed;
+            False returns the content as fetched.
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
     if rejection is not None:
         return rejection
-    return await _fetch(url, clean, max_chars, refresh=refresh)
+    return await _fetch(url, clean, max_chars, refresh=refresh, strip_boilerplate=strip_boilerplate)
 
 
-async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dict[str, Any]:
+async def _fetch(
+    url: str, clean: bool, max_chars: int, *, refresh: bool, strip_boilerplate: bool = True
+) -> dict[str, Any]:
     """Fetch an already validated ``url`` through the cache, single-flight and limiter.
+
+    Cleaning and ``strip_boilerplate`` shape the cached page and never change the cache key.
 
     Returns the ``deepseek_fetch`` envelope, or an error envelope from upstream or the limiter.
     """
@@ -939,6 +973,8 @@ async def _fetch(url: str, clean: bool, max_chars: int, *, refresh: bool) -> dic
     content = data.get("content") or ""
     if clean:
         content = _unescape_markdown(content)
+    if strip_boilerplate:
+        content = remove_boilerplate(content, url)
     content, truncated = _truncate(content, max_chars)
 
     return {
@@ -982,12 +1018,17 @@ def _batch_item(url: str, envelope: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _fetch_isolated(
-    url: str, clean: bool, max_chars: int, refresh: bool, semaphore: asyncio.Semaphore
+    url: str,
+    clean: bool,
+    max_chars: int,
+    refresh: bool,
+    semaphore: asyncio.Semaphore,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Run one batch fetch under ``semaphore``; unexpected exceptions become error envelopes."""
     async with semaphore:
         try:
-            return await _fetch(url, clean, max_chars, refresh=refresh)
+            return await _fetch(url, clean, max_chars, refresh=refresh, strip_boilerplate=strip_boilerplate)
         except Exception as exc:  # broad on purpose: one failing URL must not fail the whole batch
             message = redact(f"{type(exc).__name__}: {exc}")
             logger.debug("Batch fetch of a URL failed: %s", message)
@@ -1022,7 +1063,7 @@ def _dedupe_urls(urls: list[str]) -> tuple[list[_BatchItem], int]:
 
 
 async def _run_batch(
-    items: list[_BatchItem], clean: bool, per_url: int, refresh: bool
+    items: list[_BatchItem], clean: bool, per_url: int, refresh: bool, strip_boilerplate: bool = True
 ) -> dict[int, asyncio.Task[dict[str, Any]]]:
     """Fetch every non-rejected item concurrently under the batch concurrency and deadline.
 
@@ -1031,7 +1072,9 @@ async def _run_batch(
     settings = get_settings()
     semaphore = asyncio.Semaphore(settings.batch_concurrency)
     tasks = {
-        index: asyncio.create_task(_fetch_isolated(url, clean, per_url, refresh, semaphore))
+        index: asyncio.create_task(
+            _fetch_isolated(url, clean, per_url, refresh, semaphore, strip_boilerplate)
+        )
         for index, (url, rejection) in enumerate(items)
         if rejection is None
     }
@@ -1118,6 +1161,7 @@ async def deepseek_fetch_many(
     clean: bool = True,
     *,
     refresh: bool = False,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
@@ -1143,6 +1187,10 @@ async def deepseek_fetch_many(
         clean: Remove DeepSeek's spurious Markdown backslash escapes (any escaped ASCII punctuation);
             fenced code blocks and inline code are left as they are.
         refresh: Bypass the response cache and fetch every page again.
+        strip_boilerplate: Remove known site-interface lines from page content (default on),
+            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
+            for Reddit threads. Only whole lines matching a known label of that site are removed;
+            False returns the content as fetched.
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -1154,7 +1202,7 @@ async def deepseek_fetch_many(
     if not items:
         return _fail("bad_request", "urls must contain at least one non-empty URL.")
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
-    tasks = await _run_batch(items, clean, per_url, refresh)
+    tasks = await _run_batch(items, clean, per_url, refresh, strip_boilerplate)
     return _assemble_batch(items, tasks, duplicates, max_total_chars)
 
 
@@ -1223,7 +1271,11 @@ def _select_gaps(sources: list[dict[str, Any]], fill: _GapFill) -> dict[str, dic
 
 
 async def _fill_gaps(
-    sources: list[dict[str, Any]], per_page_chars: int, total_chars: int, refresh: bool
+    sources: list[dict[str, Any]],
+    per_page_chars: int,
+    total_chars: int,
+    refresh: bool,
+    strip_boilerplate: bool = True,
 ) -> _GapFill:
     """Fetch sources with missing or short content and merge the fetched pages in place."""
     fill = _GapFill()
@@ -1235,6 +1287,7 @@ async def _fill_gaps(
         max_chars_per_url=per_page_chars,
         max_total_chars=total_chars,
         refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
     )
     fill.requests_used = batch["requests_used"]
     fill.cached_count = batch["cached_count"]
@@ -1308,6 +1361,7 @@ async def deepseek_research(
     rewrite: bool = False,
     dedupe: bool = True,
     refresh: bool = False,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Single-pass source gathering: one search with page content, then direct fetches for the gaps.
 
@@ -1345,6 +1399,10 @@ async def deepseek_research(
             False). Skipped when lang is set; query_original then holds the question as given.
         dedupe: Remove duplicate results (default True).
         refresh: Bypass the response caches for the search and the fetches.
+        strip_boilerplate: Remove known site-interface lines from page content (default on),
+            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
+            for Reddit threads. Only whole lines matching a known label of that site are removed;
+            False returns the content as fetched.
     """
     if per_page_chars < 1 or total_chars < 1:
         return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
@@ -1359,6 +1417,7 @@ async def deepseek_research(
         dedupe,
         rewrite,
         refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
     )
     if search.get("ok") is False:
         return search
@@ -1366,7 +1425,7 @@ async def deepseek_research(
     sources = [
         _research_source(index, item, search["cached"]) for index, item in enumerate(search["results"], 1)
     ]
-    gaps = await _fill_gaps(sources, per_page_chars, total_chars, refresh)
+    gaps = await _fill_gaps(sources, per_page_chars, total_chars, refresh, strip_boilerplate)
     trimmed = _budget_sources(sources, per_page_chars, total_chars) or gaps.trimmed
     return _research_envelope(question, sources, search, gaps, trimmed)
 
