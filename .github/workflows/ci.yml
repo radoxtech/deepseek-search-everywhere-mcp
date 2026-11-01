@@ -55,3 +55,13 @@ jobs:
           "$RUNNER_TEMP/smoke/bin/pip" install dist/*.whl
           "$RUNNER_TEMP/smoke/bin/deepseek-search-everywhere-mcp" --version
           "$RUNNER_TEMP/smoke/bin/deepseek-search-everywhere-mcp" --help
+
+  docker:
+    name: Docker smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run Docker smoke tests
+        run: bash scripts/smoke_docker.sh

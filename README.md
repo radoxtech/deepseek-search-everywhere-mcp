@@ -174,6 +174,43 @@ from the environment only, never from the command line. The server runs stateles
 Claude Code: `claude mcp add --transport http deepseek-search-everywhere http://127.0.0.1:8000/mcp --header "Authorization: Bearer $MCP_BEARER_TOKEN"`.
 The server speaks plain HTTP; when binding beyond loopback, put TLS in front of it (see [SECURITY.md](SECURITY.md)).
 
+### Docker
+
+An official container image is available on GitHub Container Registry (`ghcr.io`):
+
+```bash
+docker pull ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest
+```
+
+**Stdio mode (Claude Desktop, Cursor, local IDEs):**
+
+```json
+{
+  "mcpServers": {
+    "deepseek-search-everywhere": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "DEEPSEEK_API_KEY=sk-...",
+        "ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+**Remote HTTP hosting (Docker Compose, VPS, n8n, Dify, cloud agents):**
+
+```bash
+docker run -d --name deepseek-mcp -p 8000:8000 \
+  -e DEEPSEEK_API_KEY="sk-..." \
+  -e MCP_BEARER_TOKEN="your-secret-token" \
+  ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest \
+  --transport streamable-http --host 0.0.0.0 --port 8000
+```
+
+The container runs as an unprivileged non-root user (`UID 10001`) with dependencies isolated from the host.
+
 ## Tools
 
 | Tool | Purpose | Parameters (defaults) |
