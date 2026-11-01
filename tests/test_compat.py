@@ -8,7 +8,15 @@ import pytest
 
 from deepseek_search_everywhere_mcp import server
 
-TOOL_NAMES = {"deepseek_web_search", "deepseek_search_and_read", "deepseek_fetch", "deepseek_balance"}
+TOOL_NAMES = {
+    "deepseek_search",
+    "deepseek_fetch",
+    "deepseek_fetch_many",
+    "deepseek_research",
+    "deepseek_deep_research",
+    "deepseek_extract",
+    "deepseek_check_balance",
+}
 
 
 def _install_fake_request(fake_upstream: Any, results: list[dict[str, Any]]) -> list[dict]:
@@ -31,6 +39,7 @@ def test_tool_names_are_stable():
     "name",
     [
         "_search",
+        "deepseek_search",
         "deepseek_web_search",
         "deepseek_search_and_read",
         "deepseek_fetch",
@@ -115,12 +124,17 @@ def test_truncation_note_is_shared(fake_upstream):
 def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
 
-    retrieval_tools = ["deepseek_web_search", "deepseek_search_and_read", "deepseek_research"]
-    first_lines = [tools[name].description.splitlines()[0] for name in retrieval_tools]
-    assert len(set(first_lines)) == len(retrieval_tools)
+    first_lines = [tool.description.splitlines()[0] for tool in tools.values()]
+    assert len(set(first_lines)) == len(tools)
 
-    search_desc = tools["deepseek_web_search"].description
-    assert "deprecated for direct agent use" in search_desc.lower()
+    search_desc = tools["deepseek_search"].description
+    assert "primary search and retrieval tool" in search_desc.lower()
 
     total_chars = sum(len(tool.description) for tool in tools.values())
     assert total_chars < 6500
+
+
+def test_legacy_v1_tool_aliases_callable():
+    assert callable(server.deepseek_web_search)
+    assert callable(server.deepseek_search_and_read)
+    assert server.deepseek_balance == server.deepseek_check_balance

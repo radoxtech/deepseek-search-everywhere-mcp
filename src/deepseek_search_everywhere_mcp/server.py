@@ -1012,17 +1012,17 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
 
 
 @_timed
-async def deepseek_web_search(
+async def deepseek_search(
     query: str,
-    count: int = 10,
+    count: int = 5,
     ori_question: str | None = None,
-    need_content: bool = False,
+    *,
+    need_content: bool = True,
     lang: str | None = None,
     max_chars_per_result: int = 4000,
-    max_total_chars: int = 40000,
+    max_total_chars: int = 30000,
     dedupe: bool = True,
     rewrite: bool = False,
-    *,
     after: str | None = None,
     before: str | None = None,
     include_domains: list[str] | None = None,
@@ -1031,27 +1031,27 @@ async def deepseek_web_search(
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
-    """Search the web for links, metadata, and short summaries (discovery only).
+    """Search the web with DeepSeek index and return page text, snippets, and metadata.
 
-    Returns titles, URLs, publication dates, snippets and summaries for discovery and ranking.
-    For reading full page text to answer questions, prefer deepseek_search_and_read instead.
+    Primary search and retrieval tool for AI agents. Returns full page text inline
+    (default) or snippets and summaries (need_content=False) with ranking and filters.
 
     Args:
-        query: Search query, max 128 characters. Supports operators.
-        count: Results to return, 1-50 (default 10).
-        ori_question: Natural question, max 128 chars.
-        need_content: [Deprecated for direct agent use: prefer deepseek_search_and_read].
-        lang: Language filter, e.g. 'es', 'de' or 'ja'.
-        max_chars_per_result: Cap per result (default 4000).
-        max_total_chars: Budget across results (default 40000).
+        query: Search query, max 128 chars. Supports site:, -site:, "phrase", after:, before:.
+        count: Results to return, 1-50 (default 5).
+        ori_question: Natural question, max 128 chars; improves ranking.
+        need_content: Return full page text inline (default True; False for discovery).
+        lang: Language filter (e.g. 'es', 'de', 'ja').
+        max_chars_per_result: Content cap per result (default 4000).
+        max_total_chars: Content budget across results (default 30000).
         dedupe: Collapse duplicate results (default True).
-        rewrite: Rewrite query via deepseek-flash (default False).
+        rewrite: Rewrite query via deepseek-flash before search (default False).
         after: Filter date on or after (YYYY-MM-DD/YYYY).
         before: Filter date on or before (YYYY-MM-DD/YYYY).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
         refresh: Bypass response cache (default False).
-        summary_chars: Summary cap (default 400, 0 to omit).
+        summary_chars: Summary cap per result when content is omitted.
         strip_boilerplate: Strip site UI text (default True).
     """
     return await _search(
@@ -1074,7 +1074,46 @@ async def deepseek_web_search(
     )
 
 
-@_timed
+async def deepseek_web_search(
+    query: str,
+    count: int = 10,
+    ori_question: str | None = None,
+    need_content: bool = False,
+    lang: str | None = None,
+    max_chars_per_result: int = 4000,
+    max_total_chars: int = 40000,
+    dedupe: bool = True,
+    rewrite: bool = False,
+    *,
+    after: str | None = None,
+    before: str | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
+    refresh: bool = False,
+    summary_chars: int | None = None,
+    strip_boilerplate: bool = True,
+) -> dict[str, Any]:
+    """Deprecated alias for deepseek_search(..., need_content=False)."""
+    return await deepseek_search(
+        query,
+        count=count,
+        ori_question=ori_question,
+        need_content=need_content,
+        lang=lang,
+        max_chars_per_result=max_chars_per_result,
+        max_total_chars=max_total_chars,
+        dedupe=dedupe,
+        rewrite=rewrite,
+        after=after,
+        before=before,
+        include_domains=include_domains,
+        exclude_domains=exclude_domains,
+        refresh=refresh,
+        summary_chars=summary_chars,
+        strip_boilerplate=strip_boilerplate,
+    )
+
+
 async def deepseek_search_and_read(
     query: str,
     count: int = 5,
@@ -1093,38 +1132,17 @@ async def deepseek_search_and_read(
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
-    """Search the web and retrieve full page text in one single-turn request.
-
-    Primary retrieval tool for question answering. Returns full page text directly
-    from DeepSeek's search index (including PDFs and Reddit) in ~0.7s.
-
-    Args:
-        query: Search query, max 128 characters. Supports operators.
-        count: Results to return, 1-50 (default 5).
-        ori_question: Natural question, max 128 chars.
-        lang: Language filter, e.g. 'es', 'de' or 'ja'.
-        max_chars_per_result: Content cap per result (default 4000).
-        max_total_chars: Content budget across results (default 30000).
-        dedupe: Collapse duplicate results (default True).
-        rewrite: Rewrite query via deepseek-flash (default False).
-        after: Filter date on or after (YYYY-MM-DD/YYYY).
-        before: Filter date on or before (YYYY-MM-DD/YYYY).
-        include_domains: Restrict domains (e.g. ['arxiv.org']).
-        exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
-        refresh: Bypass response cache (default False).
-        summary_chars: Fallback summary cap if no content.
-        strip_boilerplate: Strip site UI text (default True).
-    """
-    return await _search(
+    """Deprecated alias for deepseek_search(..., need_content=True)."""
+    return await deepseek_search(
         query,
-        count,
-        ori_question,
-        True,
-        lang,
-        max_chars_per_result,
-        max_total_chars,
-        dedupe,
-        rewrite,
+        count=count,
+        ori_question=ori_question,
+        need_content=True,
+        lang=lang,
+        max_chars_per_result=max_chars_per_result,
+        max_total_chars=max_total_chars,
+        dedupe=dedupe,
+        rewrite=rewrite,
         after=after,
         before=before,
         include_domains=include_domains,
@@ -2077,10 +2095,11 @@ async def deepseek_extract(
 
 
 @_timed
-async def deepseek_balance() -> dict[str, Any]:
-    """Check the DeepSeek account balance (granted and topped-up, in CNY and USD) and session telemetry.
+async def deepseek_check_balance() -> dict[str, Any]:
+    """Check DeepSeek account balance (CNY/USD) and in-memory session telemetry.
 
-    The envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
+    Call before starting heavy research tasks. Requires DEEPSEEK_API_KEY environment
+    variable; fails with missing_api_key if unset. Takes no arguments.
     """
     result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
@@ -2109,15 +2128,18 @@ async def deepseek_balance() -> dict[str, Any]:
     }
 
 
+# Backward compatibility alias for v1.x
+deepseek_balance = deepseek_check_balance
+
+
 TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
-    deepseek_web_search,
-    deepseek_search_and_read,
+    deepseek_search,
     deepseek_fetch,
     deepseek_fetch_many,
     deepseek_research,
     deepseek_deep_research,
     deepseek_extract,
-    deepseek_balance,
+    deepseek_check_balance,
 )
 
 

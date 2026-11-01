@@ -90,7 +90,7 @@ async def _check() -> int:
     if not key:
         print("Set DEEPSEEK_API_KEY or point DEEPSEEK_AUTH_JSON at a JSON file.")
         return 1
-    result = await server.deepseek_balance()
+    result = await server.deepseek_check_balance()
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("ok") else 1
 

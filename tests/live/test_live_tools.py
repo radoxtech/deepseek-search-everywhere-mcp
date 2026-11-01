@@ -202,8 +202,15 @@ async def test_fetch_of_loopback_is_blocked_without_network(upstream_calls: list
     assert upstream_calls == []
 
 
+async def test_search_live_v2() -> None:
+    query = "Rust async channel bounded vs unbounded"
+    envelope = await server.deepseek_search(query, count=3, need_content=True)
+    results = _assert_results(envelope, 2)
+    assert any(item.get("content") for item in results)
+
+
 async def test_balance_is_available() -> None:
-    envelope = await server.deepseek_balance()
+    envelope = await server.deepseek_check_balance()
     _assert_ok(envelope)
     assert envelope["is_available"] is True
     assert envelope["balances"], "no balance entries"

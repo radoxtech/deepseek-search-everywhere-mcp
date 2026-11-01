@@ -42,6 +42,7 @@ def test_check_reports_balance_without_key_details(
     async def balance() -> dict[str, Any]:
         return {"ok": True, "balance": "1.00"}
 
+    monkeypatch.setattr(server, "deepseek_check_balance", balance)
     monkeypatch.setattr(server, "deepseek_balance", balance)
     with pytest.raises(SystemExit) as exc:
         cli.main(["--check"])

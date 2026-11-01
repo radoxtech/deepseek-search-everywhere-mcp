@@ -165,7 +165,7 @@ def test_tools_list_returns_every_tool(client: TestClient) -> None:
     assert response.status_code == 200
     names = [tool["name"] for tool in response.json()["result"]["tools"]]
     assert names == [tool.__name__ for tool in server.TOOLS]
-    assert len(names) == len(server.TOOLS) == 8
+    assert len(names) == len(server.TOOLS) == 7
 
 
 def test_tools_call_uses_stubbed_upstream(client: TestClient, fake_upstream: Any) -> None:
@@ -173,7 +173,7 @@ def test_tools_call_uses_stubbed_upstream(client: TestClient, fake_upstream: Any
     upstream = fake_upstream(default=balance)
     response = client.post(
         "/mcp",
-        json=_rpc("tools/call", {"name": "deepseek_balance", "arguments": {}}),
+        json=_rpc("tools/call", {"name": "deepseek_check_balance", "arguments": {}}),
         headers={**MCP_HEADERS, **AUTH},
     )
     assert response.status_code == 200
