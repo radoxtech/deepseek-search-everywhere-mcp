@@ -1038,21 +1038,21 @@ async def deepseek_web_search(
 
     Args:
         query: Search query, max 128 characters. Supports operators.
-        count: Number of results to return, 1-50 (default 10).
-        ori_question: Original question, max 128 chars; improves ranking.
+        count: Results to return, 1-50 (default 10).
+        ori_question: Natural question, max 128 chars.
         need_content: [Deprecated for direct agent use: prefer deepseek_search_and_read].
-        lang: Language operator filter, e.g. 'es', 'de' or 'ja'.
-        max_chars_per_result: Cap per result on content or summary (default 4000).
-        max_total_chars: Total character budget across results (default 40000).
-        dedupe: Collapse duplicate results, default True.
-        rewrite: Rewrite query via deepseek-flash before search (default False).
-        after: Filter published on or after date (YYYY-MM-DD or YYYY).
-        before: Filter published on or before date (YYYY-MM-DD or YYYY).
-        include_domains: Restrict to domains (e.g. ['arxiv.org', 'nature.com']).
+        lang: Language filter, e.g. 'es', 'de' or 'ja'.
+        max_chars_per_result: Cap per result (default 4000).
+        max_total_chars: Budget across results (default 40000).
+        dedupe: Collapse duplicate results (default True).
+        rewrite: Rewrite query via deepseek-flash (default False).
+        after: Filter date on or after (YYYY-MM-DD/YYYY).
+        before: Filter date on or before (YYYY-MM-DD/YYYY).
+        include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
-        refresh: Bypass cache and query upstream again (default False).
-        summary_chars: Summary cap per result (default 400, 0 to omit).
-        strip_boilerplate: Remove site UI lines from text (default True).
+        refresh: Bypass response cache (default False).
+        summary_chars: Summary cap (default 400, 0 to omit).
+        strip_boilerplate: Strip site UI text (default True).
     """
     return await _search(
         query,
@@ -1100,20 +1100,20 @@ async def deepseek_search_and_read(
 
     Args:
         query: Search query, max 128 characters. Supports operators.
-        count: Number of results to return, 1-50 (default 5).
-        ori_question: Original question, max 128 chars; improves ranking.
-        lang: Language operator filter, e.g. 'es', 'de' or 'ja'.
+        count: Results to return, 1-50 (default 5).
+        ori_question: Natural question, max 128 chars.
+        lang: Language filter, e.g. 'es', 'de' or 'ja'.
         max_chars_per_result: Content cap per result (default 4000).
-        max_total_chars: Total content budget across results (default 30000).
-        dedupe: Collapse duplicate results, default True.
-        rewrite: Rewrite query via deepseek-flash before searching (default False).
-        after: Filter published on or after date (YYYY-MM-DD or YYYY).
-        before: Filter published on or before date (YYYY-MM-DD or YYYY).
-        include_domains: Restrict to domains (e.g. ['arxiv.org', 'nature.com']).
+        max_total_chars: Content budget across results (default 30000).
+        dedupe: Collapse duplicate results (default True).
+        rewrite: Rewrite query via deepseek-flash (default False).
+        after: Filter date on or after (YYYY-MM-DD/YYYY).
+        before: Filter date on or before (YYYY-MM-DD/YYYY).
+        include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
-        refresh: Bypass response cache and query upstream again (default False).
-        summary_chars: Fallback summary cap if no content (default max_chars_per_result).
-        strip_boilerplate: Remove site UI lines from text (default True).
+        refresh: Bypass response cache (default False).
+        summary_chars: Fallback summary cap if no content.
+        strip_boilerplate: Strip site UI text (default True).
     """
     return await _search(
         query,
@@ -1725,18 +1725,18 @@ async def deepseek_research(
 
     Args:
         question: Search query, max 128 characters.
-        max_pages: Number of search results to use, 1-50 (default 5).
-        per_page_chars: Content cap per source (default 6000).
-        total_chars: Total content budget across sources (default 30000).
-        after: Filter sources published on or after date (YYYY-MM-DD or YYYY).
-        before: Filter sources published on or before date (YYYY-MM-DD or YYYY).
-        include_domains: Restrict sources to domains (e.g. ['arxiv.org']).
-        exclude_domains: Exclude domains from search (e.g. ['wikipedia.org']).
-        lang: Explicit language code filter (e.g. 'pl', 'es', 'ja').
-        rewrite: Translate question to English via deepseek-flash before search (default False).
-        dedupe: Collapse duplicate results, default True.
-        refresh: Bypass response caches (default False).
-        strip_boilerplate: Remove site UI lines from text (default True).
+        max_pages: Results to use, 1-50 (default 5).
+        per_page_chars: Cap per source (default 6000).
+        total_chars: Budget across sources (default 30000).
+        after: Filter date on or after (YYYY-MM-DD/YYYY).
+        before: Filter date on or before (YYYY-MM-DD/YYYY).
+        include_domains: Restrict domains (e.g. ['arxiv.org']).
+        exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
+        lang: Language filter (e.g. 'pl', 'es', 'ja').
+        rewrite: Translate query via deepseek-flash (default False).
+        dedupe: Collapse duplicate results (default True).
+        refresh: Bypass response cache (default False).
+        strip_boilerplate: Strip site UI text (default True).
     """
     if per_page_chars < 1 or total_chars < 1:
         return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
