@@ -31,9 +31,11 @@ from .boilerplate import remove_boilerplate
 from .cache import SingleFlight, TTLCache
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
+from .filters import compile_filters
 from .ratelimit import FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
 from .settings import DEFAULT_LOG_LEVEL, get_settings
+from .snippets import extract_snippets, split_sections
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
 from .urls import CODE_INVALID, UrlError, validate_url
@@ -81,6 +83,18 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 SERVER_NAME = "deepseek-search-everywhere-mcp"
 
+
+@dataclass
+class SessionMetrics:
+    """In-memory telemetry for requests, cache hits, and estimated costs in the current session."""
+
+    start_time: float
+    requests_upstream: int = 0
+    cache_hits: int = 0
+    searches_upstream: int = 0
+    fetches_upstream: int = 0
+
+
 # Runtime state, built lazily from the active settings on first use so nothing is bound
 # to an event loop at import time. ``reset_state()`` drops it all.
 _search_cache: TTLCache | None = None
@@ -90,14 +104,23 @@ _fetch_flight: SingleFlight | None = None
 _rewrite_cache: TTLCache | None = None
 _rewrite_flight: SingleFlight | None = None
 _rate_limiter: RateLimiter | None = None
+_session_metrics: SessionMetrics | None = None
 
 
 def reset_state() -> None:
-    """Forget the response and rewrite caches, in-flight calls and the rate limiter."""
+    """Forget the response and rewrite caches, in-flight calls, session metrics and the rate limiter."""
     global _search_cache, _search_flight, _fetch_cache, _fetch_flight
-    global _rewrite_cache, _rewrite_flight, _rate_limiter
+    global _rewrite_cache, _rewrite_flight, _rate_limiter, _session_metrics
     _search_cache = _search_flight = _fetch_cache = _fetch_flight = None
-    _rewrite_cache = _rewrite_flight = _rate_limiter = None
+    _rewrite_cache = _rewrite_flight = _rate_limiter = _session_metrics = None
+
+
+def _get_session_metrics() -> SessionMetrics:
+    """Return the active session metrics tracker, creating it lazily."""
+    global _session_metrics
+    if _session_metrics is None:
+        _session_metrics = SessionMetrics(start_time=_clock())
+    return _session_metrics
 
 
 def _get_search_cache() -> TTLCache | None:
@@ -210,6 +233,12 @@ async def _limited_request(
     except RateLimitExceeded as exc:
         return exc.to_envelope()
     try:
+        metrics = _get_session_metrics()
+        metrics.requests_upstream += 1
+        if endpoint == SEARCH:
+            metrics.searches_upstream += 1
+        elif endpoint == FETCH:
+            metrics.fetches_upstream += 1
         return await _request("POST", path, payload=payload, timeout=timeout)
     except asyncio.CancelledError:
         ticket.refund()
@@ -230,6 +259,7 @@ async def _cached_call(
     """
     record = None if refresh or cache is None else cache.get(key)
     if record is not None:
+        _get_session_metrics().cache_hits += 1
         return record, True
     result = await flight.run(key, leader, refresh=refresh)
     return result.value, False
@@ -561,11 +591,20 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None, 
     return record
 
 
-def _check_search_args(query: str, count: int, lang: str | None) -> dict[str, Any] | None:
-    """Validate a stripped query, ``count`` and ``lang``; return an error envelope or ``None``."""
+def _check_search_args(
+    query: str, count: int, lang: str | None, filter_ops: str | None = None
+) -> dict[str, Any] | None:
+    """Validate query, count, lang and filter budget; return an error envelope or None."""
     if not query:
         return _fail("empty_query", "query must not be empty.")
-    if len(query) > MAX_QUERY:
+    ops_len = len(filter_ops) if filter_ops else 0
+    budget = MAX_QUERY - (ops_len + 1 if ops_len else 0)
+    if len(query) > budget:
+        if ops_len:
+            return _fail(
+                "query_too_long",
+                f"query must be at most {budget} characters when filters ({ops_len} chars) are applied.",
+            )
         return _fail("query_too_long", f"query must be at most {MAX_QUERY} characters.")
     if not 1 <= count <= MAX_COUNT:
         return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
@@ -818,6 +857,7 @@ def _search_notes(
     trimmed: bool,
     lang: str | None,
     truncated: bool,
+    filter_ops: str | None = None,
 ) -> list[str]:
     """Assemble the (redacted) notes of a search envelope, in their fixed order."""
     notes: list[str] = []
@@ -831,6 +871,8 @@ def _search_notes(
         notes.append(f"Query trimmed to fit the {MAX_QUERY}-character limit.")
     if lang:
         notes.append(f"Language operator lang:{lang} applied.")
+    if filter_ops:
+        notes.append(f"Filters applied: {filter_ops}")
     if truncated:
         notes.append(TRUNCATED_NOTE)
     return [redact(note) for note in notes]
@@ -847,6 +889,10 @@ async def _search(
     dedupe: bool = True,
     rewrite: bool = False,
     *,
+    after: str | None = None,
+    before: str | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
     refresh: bool = False,
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
@@ -858,7 +904,16 @@ async def _search(
     response, so the cache key and the cached upstream data are the same either way.
     """
     query = (query or "").strip()
-    rejection = _check_search_args(query, count, lang)
+    ops_string, filter_code, filter_err = compile_filters(
+        include_domains=include_domains,
+        exclude_domains=exclude_domains,
+        after=after,
+        before=before,
+    )
+    if filter_code:
+        return _fail(filter_code, filter_err or "Invalid search filters.")
+
+    rejection = _check_search_args(query, count, lang, filter_ops=ops_string)
     if rejection is not None:
         return rejection
     if summary_chars is not None and summary_chars < 0:
@@ -867,7 +922,24 @@ async def _search(
     query, ori_question, query_original, rewrite_failed = await _maybe_rewrite(
         query, ori_question, rewrite, lang
     )
+    ops_len = len(ops_string) if ops_string else 0
+    budget = MAX_QUERY - (ops_len + 1 if ops_len else 0)
+    if len(query) > budget:
+        query = query[:budget]
+
     used, trimmed = _with_lang(query, lang)
+    if ops_string:
+        if used:
+            combined = f"{used} {ops_string}"
+            if len(combined) > MAX_QUERY:
+                room = MAX_QUERY - len(ops_string) - 1
+                used = f"{used[:room]} {ops_string}"
+                trimmed = True
+            else:
+                used = combined
+        else:
+            used = ops_string
+
     payload = _build_search_payload(used, count, dedupe, need_content, ori_question)
     key = _search_cache_key(payload)
     record, cached = await _cached_call(
@@ -898,7 +970,9 @@ async def _search(
         "deduped": removed,
         "cached": cached,
         "results": shaped,
-        "notes": _search_notes(used, query_original, rewrite_failed, removed, trimmed, lang, truncated),
+        "notes": _search_notes(
+            used, query_original, rewrite_failed, removed, trimmed, lang, truncated, filter_ops=ops_string
+        ),
     }
     if query_original is not None:
         envelope["query_original"] = query_original
@@ -932,31 +1006,36 @@ async def deepseek_web_search(
     dedupe: bool = True,
     rewrite: bool = False,
     *,
+    after: str | None = None,
+    before: str | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
     refresh: bool = False,
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Search the web for links, metadata, and short summaries (discovery only).
 
-    Returns titles, URLs, publication dates, authority, rerank scores, snippets, and short
-    summaries. Use this tool for discovery, link finding, and ranking. Does not return full
-    page bodies by default. For reading full page text to answer questions, prefer
-    deepseek_search_and_read instead. Responses are cached in memory and rate-limited.
+    Returns titles, URLs, publication dates, snippets and summaries for discovery and ranking.
+    For reading full page text to answer questions, prefer deepseek_search_and_read instead.
 
     Args:
-        query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
+        query: Search query, max 128 characters. Supports operators.
         count: Number of results to return, 1-50 (default 10).
-        ori_question: Original natural-language question, max 128 characters; improves ranking.
+        ori_question: Original question, max 128 chars; improves ranking.
         need_content: [Deprecated for direct agent use: prefer deepseek_search_and_read].
-            Return full page text per result.
         lang: Language operator filter, e.g. 'es', 'de' or 'ja'.
-        max_chars_per_result: Cap per result on content (if need_content) or summary (default 4000).
-        max_total_chars: Total character budget across all results (default 40000).
-        dedupe: Collapse duplicate results (same canonical URL or title+site), default True.
+        max_chars_per_result: Cap per result on content or summary (default 4000).
+        max_total_chars: Total character budget across results (default 40000).
+        dedupe: Collapse duplicate results, default True.
         rewrite: Rewrite query via deepseek-flash before search (default False).
+        after: Filter published on or after date (YYYY-MM-DD or YYYY).
+        before: Filter published on or before date (YYYY-MM-DD or YYYY).
+        include_domains: Restrict to domains (e.g. ['arxiv.org', 'nature.com']).
+        exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
         refresh: Bypass cache and query upstream again (default False).
-        summary_chars: Summary cap per result, at most max_chars_per_result (default 400, 0 to omit).
-        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
+        summary_chars: Summary cap per result (default 400, 0 to omit).
+        strip_boilerplate: Remove site UI lines from text (default True).
     """
     return await _search(
         query,
@@ -968,6 +1047,10 @@ async def deepseek_web_search(
         max_total_chars,
         dedupe,
         rewrite,
+        after=after,
+        before=before,
+        include_domains=include_domains,
+        exclude_domains=exclude_domains,
         refresh=refresh,
         summary_chars=summary_chars,
         strip_boilerplate=strip_boilerplate,
@@ -985,28 +1068,35 @@ async def deepseek_search_and_read(
     dedupe: bool = True,
     rewrite: bool = False,
     *,
+    after: str | None = None,
+    before: str | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
     refresh: bool = False,
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Search the web and retrieve full page text in one single-turn request.
 
-    The primary retrieval tool for question answering. Returns full page text directly
-    from DeepSeek's search index (including PDFs and Reddit) in ~0.7s without requiring
-    separate fetch calls. Responses are cached in memory and rate-limited.
+    Primary retrieval tool for question answering. Returns full page text directly
+    from DeepSeek's search index (including PDFs and Reddit) in ~0.7s.
 
     Args:
-        query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
+        query: Search query, max 128 characters. Supports operators.
         count: Number of results to return, 1-50 (default 5).
-        ori_question: Original natural-language question, max 128 characters; improves ranking.
+        ori_question: Original question, max 128 chars; improves ranking.
         lang: Language operator filter, e.g. 'es', 'de' or 'ja'.
         max_chars_per_result: Content cap per result (default 4000).
-        max_total_chars: Total content budget across all results (default 30000).
-        dedupe: Collapse duplicate results (same canonical URL or title+site), default True.
+        max_total_chars: Total content budget across results (default 30000).
+        dedupe: Collapse duplicate results, default True.
         rewrite: Rewrite query via deepseek-flash before searching (default False).
+        after: Filter published on or after date (YYYY-MM-DD or YYYY).
+        before: Filter published on or before date (YYYY-MM-DD or YYYY).
+        include_domains: Restrict to domains (e.g. ['arxiv.org', 'nature.com']).
+        exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
         refresh: Bypass response cache and query upstream again (default False).
-        summary_chars: Fallback summary cap if a result has no content (default max_chars_per_result).
-        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
+        summary_chars: Fallback summary cap if no content (default max_chars_per_result).
+        strip_boilerplate: Remove site UI lines from text (default True).
     """
     return await _search(
         query,
@@ -1018,6 +1108,10 @@ async def deepseek_search_and_read(
         max_total_chars,
         dedupe,
         rewrite,
+        after=after,
+        before=before,
+        include_domains=include_domains,
+        exclude_domains=exclude_domains,
         refresh=refresh,
         summary_chars=summary_chars,
         strip_boilerplate=strip_boilerplate,
@@ -1055,27 +1149,40 @@ async def deepseek_fetch(
     clean: bool = True,
     max_chars: int = 20000,
     *,
+    query: str | None = None,
+    section: int | None = None,
+    max_snippets: int = 3,
     refresh: bool = False,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
-    Caveat: this endpoint returns HTTP 404 for PDFs and Reddit, and times out on some sites.
-    When the URL is a document or blocked site, call deepseek_search_and_read with the page title
-    or a site:-scoped query instead. Pages are cached in memory and rate-limited.
+    Caveat: returns HTTP 404 for PDFs and Reddit; prefer deepseek_search_and_read for them.
 
     Args:
         url: Absolute http(s) URL, max 8192 characters.
-        clean: Remove spurious Markdown backslash escapes outside code blocks (default True).
+        clean: Remove spurious Markdown backslash escapes (default True).
         max_chars: Content cap, applied after cleaning (default 20000).
+        query: Optional search query to extract ranked relevant snippets.
+        section: Optional 1-based index to read a specific document section.
+        max_snippets: Max relevant snippets to return when query is set (default 3, 1-5).
         refresh: Bypass cache and fetch page again (default False).
-        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
+        strip_boilerplate: Remove site UI lines from text (default True).
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
     if rejection is not None:
         return rejection
-    return await _fetch(url, clean, max_chars, refresh=refresh, strip_boilerplate=strip_boilerplate)
+    return await _fetch(
+        url,
+        clean,
+        max_chars,
+        query=query,
+        section=section,
+        max_snippets=max_snippets,
+        refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
+    )
 
 
 _SEARCH_ADVICE = (
@@ -1113,11 +1220,20 @@ def _with_search_advice(error: dict[str, Any], url: str) -> dict[str, Any]:
 
 
 async def _fetch(
-    url: str, clean: bool, max_chars: int, *, refresh: bool, strip_boilerplate: bool = True
+    url: str,
+    clean: bool,
+    max_chars: int,
+    *,
+    query: str | None = None,
+    section: int | None = None,
+    max_snippets: int = 3,
+    refresh: bool,
+    strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
     """Fetch an already validated ``url`` through the cache, single-flight and limiter.
 
-    Cleaning and ``strip_boilerplate`` shape the cached page and never change the cache key.
+    Cleaning, snippets, sectional reading and ``strip_boilerplate`` shape the cached page and
+    never change the cache key.
 
     Returns the ``deepseek_fetch`` envelope, or an error envelope from upstream or the limiter.
     """
@@ -1141,9 +1257,33 @@ async def _fetch(
         stripped = remove_boilerplate(content, url)
         only_boilerplate = bool(content.strip()) and not stripped
         content = stripped
+
+    total_sections: int | None = None
+    has_more: bool | None = None
+    section_index: int | None = None
+    snippets_count: int | None = None
+
+    if section is not None:
+        if section < 1:
+            return _fail("bad_request", "section must be at least 1.")
+        sections = split_sections(content)
+        total_sections = len(sections)
+        if total_sections == 0:
+            content = ""
+        elif section > total_sections:
+            return _fail(
+                "bad_request", f"section {section} out of bounds; document has {total_sections} section(s)."
+            )
+        else:
+            section_index = section
+            content = sections[section - 1]["content"]
+            has_more = section < total_sections
+    elif query:
+        content, snippets_count = extract_snippets(content, query, max_snippets=max_snippets)
+
     content, truncated = _truncate(content, max_chars)
 
-    return {
+    envelope: dict[str, Any] = {
         "ok": True,
         "url": url,
         "title": _collapse_repeated_title(data.get("title")),
@@ -1153,6 +1293,14 @@ async def _fetch(
         "cached": cached,
         "notes": _fetch_notes(content, only_boilerplate),
     }
+    if section is not None:
+        envelope["section"] = section_index
+        envelope["total_sections"] = total_sections
+        envelope["has_more"] = has_more
+    if query:
+        envelope["query"] = query
+        envelope["snippets_count"] = snippets_count
+    return envelope
 
 
 def _fetch_notes(content: str, only_boilerplate: bool) -> list[str]:
@@ -1197,11 +1345,19 @@ async def _fetch_isolated(
     refresh: bool,
     semaphore: asyncio.Semaphore,
     strip_boilerplate: bool = True,
+    query: str | None = None,
 ) -> dict[str, Any]:
     """Run one batch fetch under ``semaphore``; unexpected exceptions become error envelopes."""
     async with semaphore:
         try:
-            return await _fetch(url, clean, max_chars, refresh=refresh, strip_boilerplate=strip_boilerplate)
+            return await _fetch(
+                url,
+                clean,
+                max_chars,
+                query=query,
+                refresh=refresh,
+                strip_boilerplate=strip_boilerplate,
+            )
         except Exception as exc:  # broad on purpose: one failing URL must not fail the whole batch
             message = redact(f"{type(exc).__name__}: {exc}")
             logger.debug("Batch fetch of a URL failed: %s", message)
@@ -1241,6 +1397,7 @@ async def _run_batch(
     per_url: int,
     refresh: bool,
     strip_boilerplate: bool = True,
+    query: str | None = None,
     deadline: float | None = None,
 ) -> dict[int, asyncio.Task[dict[str, Any]]]:
     """Fetch every non-rejected item concurrently under the batch concurrency and deadline.
@@ -1252,7 +1409,7 @@ async def _run_batch(
     semaphore = asyncio.Semaphore(settings.batch_concurrency)
     tasks = {
         index: asyncio.create_task(
-            _fetch_isolated(url, clean, per_url, refresh, semaphore, strip_boilerplate)
+            _fetch_isolated(url, clean, per_url, refresh, semaphore, strip_boilerplate, query=query)
         )
         for index, (url, rejection) in enumerate(items)
         if rejection is None
@@ -1344,25 +1501,24 @@ async def deepseek_fetch_many(
     max_total_chars: int = 20000,
     clean: bool = True,
     *,
+    query: str | None = None,
     refresh: bool = False,
     strip_boilerplate: bool = True,
     deadline: float | None = None,
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
-    Empty entries are skipped, duplicates are fetched once, and results keep the input order.
-    A failing URL yields an item with ok=false and an error envelope rather than failing the batch.
-    All fetches share one deadline (120 s by default); URLs still pending then are cancelled.
-    Pages are cached in memory and rate-limited.
+    Empty entries are skipped, duplicates fetched once, and results keep input order.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
-        max_chars_per_url: Content cap per page, applied after cleaning (default 4000).
+        max_chars_per_url: Content cap per page (default 4000).
         max_total_chars: Total content budget across all pages (default 20000).
-        clean: Remove spurious Markdown backslash escapes outside code blocks (default True).
-        refresh: Bypass cache and fetch every page again (default False).
-        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
-        deadline: Maximum seconds to wait before cancelling pending fetches (default 120s).
+        clean: Remove spurious Markdown backslash escapes (default True).
+        query: Optional search query to extract ranked snippets across fetched pages.
+        refresh: Bypass cache and fetch pages again (default False).
+        strip_boilerplate: Remove site UI lines from text (default True).
+        deadline: Max seconds to wait before cancelling pending fetches (default 120s).
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -1374,7 +1530,9 @@ async def deepseek_fetch_many(
     if not items:
         return _fail("bad_request", "urls must contain at least one non-empty URL.")
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
-    tasks = await _run_batch(items, clean, per_url, refresh, strip_boilerplate, deadline=deadline)
+    tasks = await _run_batch(
+        items, clean, per_url, refresh, strip_boilerplate, query=query, deadline=deadline
+    )
     return _assemble_batch(items, tasks, duplicates, max_total_chars, deadline=deadline)
 
 
@@ -1533,6 +1691,10 @@ async def deepseek_research(
     per_page_chars: int = RESEARCH_PAGE_CHARS,
     total_chars: int = RESEARCH_TOTAL_CHARS,
     *,
+    after: str | None = None,
+    before: str | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
     lang: str | None = None,
     rewrite: bool = False,
     dedupe: bool = True,
@@ -1542,25 +1704,22 @@ async def deepseek_research(
     """Single-pass source gathering: search with page content and auto-fetch stub pages.
 
     Gathers candidate sources for research. It does not iterate, refine the query or summarise:
-    there is exactly one search, no follow-up searches, and the sources come back as raw
-    content for the caller to read and synthesise. For standard single-shot question answering,
-    prefer deepseek_search_and_read.
-
-    Executes one search with need_content=True. Results with missing or short content (< 200 chars)
-    are automatically fetched directly with deepseek_fetch_many (at most 5 per call). Returned
-    sources carry id, title, url, date, date_source, site, authority, rerank_score, content, chars,
-    origin ('search' or 'fetch'), error, and cached status.
+    there is exactly one search and sources return raw content for the caller to synthesise.
 
     Args:
-        question: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:.
+        question: Search query, max 128 characters.
         max_pages: Number of search results to use, 1-50 (default 5).
         per_page_chars: Content cap per source (default 6000).
-        total_chars: Total content budget across all sources (default 30000).
+        total_chars: Total content budget across sources (default 30000).
+        after: Filter sources published on or after date (YYYY-MM-DD or YYYY).
+        before: Filter sources published on or before date (YYYY-MM-DD or YYYY).
+        include_domains: Restrict sources to domains (e.g. ['arxiv.org']).
+        exclude_domains: Exclude domains from search (e.g. ['wikipedia.org']).
         lang: Explicit language code filter (e.g. 'pl', 'es', 'ja').
-        rewrite: Translate question to English via deepseek-flash before searching (default False).
+        rewrite: Translate question to English via deepseek-flash before search (default False).
         dedupe: Collapse duplicate results, default True.
-        refresh: Bypass response caches for search and direct fetches (default False).
-        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
+        refresh: Bypass response caches (default False).
+        strip_boilerplate: Remove site UI lines from text (default True).
     """
     if per_page_chars < 1 or total_chars < 1:
         return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
@@ -1574,6 +1733,10 @@ async def deepseek_research(
         per_page_chars * max_pages,
         dedupe,
         rewrite,
+        after=after,
+        before=before,
+        include_domains=include_domains,
+        exclude_domains=exclude_domains,
         refresh=refresh,
         strip_boilerplate=strip_boilerplate,
     )
@@ -1590,7 +1753,7 @@ async def deepseek_research(
 
 @_timed
 async def deepseek_balance() -> dict[str, Any]:
-    """Check the DeepSeek account balance (granted and topped-up, in CNY and USD).
+    """Check the DeepSeek account balance (granted and topped-up, in CNY and USD) and session telemetry.
 
     The envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
     """
@@ -1598,10 +1761,26 @@ async def deepseek_balance() -> dict[str, Any]:
     if not result.get("ok"):
         return result
     data = result["data"]
+    metrics = _get_session_metrics()
+    uptime = round(_clock() - metrics.start_time, 1)
+    total_handled = metrics.requests_upstream + metrics.cache_hits
+    hit_rate = round(metrics.cache_hits / total_handled, 3) if total_handled > 0 else 0.0
+    cost_usd = round(metrics.requests_upstream * 0.00075, 5)
+    savings_usd = round(metrics.cache_hits * 0.00075, 5)
+
     return {
         "ok": True,
         "is_available": data.get("is_available"),
         "balances": data.get("balance_infos") or data.get("balances") or data,
+        "session": {
+            "uptime_seconds": uptime,
+            "requests_upstream": metrics.requests_upstream,
+            "cache_hits": metrics.cache_hits,
+            "total_queries_handled": total_handled,
+            "cache_hit_rate": hit_rate,
+            "estimated_upstream_cost_usd": cost_usd,
+            "estimated_cache_savings_usd": savings_usd,
+        },
     }
 
 

@@ -178,17 +178,26 @@ The server speaks plain HTTP; when binding beyond loopback, put TLS in front of 
 
 | Tool | Purpose | Parameters (defaults) |
 |---|---|---|
-| `deepseek_web_search` | Search for links, metadata, and short summaries (discovery only) | `query`, `count=10` (1-50), `ori_question`, `need_content=False`, `lang`, `max_chars_per_result=4000`, `max_total_chars=40000`, `dedupe=True`, `rewrite=False`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
-| `deepseek_search_and_read` | Search with page content in one request; the primary retrieval path for question answering | `query`, `count=5` (1-50), `ori_question`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
-| `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `clean=True`, `max_chars=20000`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_research` | Single-pass source gathering: search with content and auto-fetch stub pages (< 200 chars). No iteration, no summary | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_balance` | Account balance | none |
+| `deepseek_web_search` | Search for links, metadata, and short summaries (discovery only) | `query`, `count=10` (1-50), `ori_question`, `need_content=False`, `lang`, `max_chars_per_result=4000`, `max_total_chars=40000`, `dedupe=True`, `rewrite=False`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
+| `deepseek_search_and_read` | Search with page content in one request; the primary retrieval path for question answering | `query`, `count=5` (1-50), `ori_question`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
+| `deepseek_fetch` | Fetch one known URL as Markdown (supports lexical snippet extraction and sectional reading) | `url`, `clean=True`, `max_chars=20000`, `query`, `section`, `max_snippets=3`, `refresh=False`, `strip_boilerplate=True` |
+| `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `query`, `refresh=False`, `strip_boilerplate=True` |
+| `deepseek_research` | Single-pass source gathering: search with content and auto-fetch stub pages (< 200 chars). No iteration, no summary | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `after`, `before`, `include_domains`, `exclude_domains`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
+| `deepseek_balance` | Account balance and session metrics (upstream queries, cache hits, estimated cost) | none |
 
 Notes on the parameters:
 
 - `query` and `question` are limited to 128 characters and support `site:`, `-site:`, `"phrase"`, `lang:`,
   `after:` and `before:`. `ori_question` (max 128 characters) is the natural-language question and improves ranking.
+- `after`, `before`, `include_domains` and `exclude_domains` are explicit filter parameters for search tools.
+  `include_domains` compiles to space-separated `site:` operators, `exclude_domains` to `-site:`, and dates to
+  `after:YYYY-MM-DD` / `before:YYYY-MM-DD`. Filters and query are budget-guarded together to stay within DeepSeek's
+  128-character limit.
+- `query` in `deepseek_fetch` and `deepseek_fetch_many` extracts ranked relevant excerpts using a BM25-lite
+  scoring engine without invoking an LLM. `section` (1-based index) enables sectional reading of long documents
+  with `has_more` and `total_sections` pagination metadata. Both operate in-memory on cached pages.
+- `deepseek_balance` includes a `session` block with uptime, total queries handled, cache hit rate, and estimated
+  cost and savings (at $0.00075 per request).
 - `lang` is an explicit language operator such as `es`, `de`, `ja` or `pt-BR`. Without it, results for
   non-English queries may be mixed-language; for named entities, compare with and without it.
 - With `dedupe=True`, searches ask the upstream for a few extra results (`max(2, ceil(count * 0.5))`, capped at 50)
