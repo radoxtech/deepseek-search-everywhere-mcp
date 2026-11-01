@@ -1,6 +1,6 @@
 # Roadmap & Technical Specification: v1.2.0 & v1.3.0
 
-## Status: Milestone 1 Committed / Milestone 2 Planned with Hardening Safeguards
+## Status: Milestone 1 Released (v1.2.0) / Milestone 2 Implemented, Verified & Pushed (v1.3.0 Ready)
 ## Scope: Feature additions for DeepSeek Search Everywhere MCP
 
 ---
