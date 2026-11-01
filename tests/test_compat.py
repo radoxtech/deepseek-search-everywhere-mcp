@@ -28,7 +28,15 @@ def test_tool_names_are_stable():
 
 
 @pytest.mark.parametrize(
-    "name", ["_search", "deepseek_web_search", "deepseek_search_and_read", "deepseek_fetch"]
+    "name",
+    [
+        "_search",
+        "deepseek_web_search",
+        "deepseek_search_and_read",
+        "deepseek_fetch",
+        "deepseek_deep_research",
+        "deepseek_extract",
+    ],
 )
 def test_new_parameters_are_keyword_only(name):
     signature = inspect.signature(getattr(server, name))

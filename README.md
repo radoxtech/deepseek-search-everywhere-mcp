@@ -183,6 +183,8 @@ The server speaks plain HTTP; when binding beyond loopback, put TLS in front of 
 | `deepseek_fetch` | Fetch one known URL as Markdown (supports lexical snippet extraction and sectional reading) | `url`, `clean=True`, `max_chars=20000`, `query`, `section`, `max_snippets=3`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `query`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_research` | Single-pass source gathering: search with content and auto-fetch stub pages (< 200 chars). No iteration, no summary | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `after`, `before`, `include_domains`, `exclude_domains`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
+| `deepseek_deep_research` | Multi-angle research on a topic; decomposes subqueries, gathers sources, and synthesizes a cited report | `topic`, `max_queries=3` (2-4), `max_pages_per_query=3` (1-5), `lang`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
+| `deepseek_extract` | Extract structured JSON from a web page conforming to target fields or a schema | `url`, `fields=None`, `schema=None`, `instruction=None`, `clean=True`, `max_chars=40000`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_balance` | Account balance and session metrics (upstream queries, cache hits, estimated cost) | none |
 
 Notes on the parameters:
@@ -196,6 +198,13 @@ Notes on the parameters:
 - `query` in `deepseek_fetch` and `deepseek_fetch_many` extracts ranked relevant excerpts using a BM25-lite
   scoring engine without invoking an LLM. `section` (1-based index) enables sectional reading of long documents
   with `has_more` and `total_sections` pagination metadata. Both operate in-memory on cached pages.
+- `deepseek_deep_research` decomposes topics into 2-4 subqueries via `deepseek-flash`, searches concurrently,
+  merges and dedupes candidate sources, and synthesizes a cited report with numbered bracket citations `[1]`, `[2]`
+  capped at 6 sources / 24,000 characters. If the synthesis deadline is approached, it gracefully falls back
+  to returning the gathered sources.
+- `deepseek_extract` uses `deepseek-flash` to extract structured JSON matching either `fields: list[str]` or
+  a `schema: dict` without ingesting the full page text into client context. Missing requested fields are populated
+  with `null`, and pages with no readable text fast-fail with zero LLM token consumption.
 - `deepseek_balance` includes a `session` block with uptime, total queries handled, cache hit rate, and estimated
   cost and savings (at $0.00075 per request).
 - `lang` is an explicit language operator such as `es`, `de`, `ja` or `pt-BR`. Without it, results for

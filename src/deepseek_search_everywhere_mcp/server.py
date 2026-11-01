@@ -29,8 +29,21 @@ from mcp.server.fastmcp import FastMCP
 from ._version import __version__
 from .boilerplate import remove_boilerplate
 from .cache import SingleFlight, TTLCache
+from .deep_research import (
+    build_decomposition_messages,
+    build_synthesis_messages,
+    parse_subqueries,
+    sanitize_citations,
+    select_synthesis_context,
+)
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
+from .extract import (
+    build_extract_prompt,
+    sanitize_json,
+    validate_fields,
+    validate_schema,
+)
 from .filters import compile_filters
 from .ratelimit import FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
@@ -42,10 +55,14 @@ from .urls import CODE_INVALID, UrlError, validate_url
 
 MAX_QUERY = 128
 MAX_URL = 8192
+MAX_TOPIC = 500
 SEARCH_TIMEOUT = 60.0
 FETCH_TIMEOUT = 120.0
 BALANCE_TIMEOUT = 20.0
 CHAT_TIMEOUT = 8.0
+SYNTHESIS_TIMEOUT = 25.0
+EXTRACT_TIMEOUT = 20.0
+RESEARCH_DEADLINE = 35.0
 
 SEARCH_PATH = "/v1/tools/search"
 FETCH_PATH = "/v1/tools/fetch"
@@ -1752,6 +1769,314 @@ async def deepseek_research(
 
 
 @_timed
+async def deepseek_deep_research(
+    topic: str,
+    *,
+    max_queries: int = 3,
+    max_pages_per_query: int = 3,
+    lang: str | None = None,
+    dedupe: bool = True,
+    refresh: bool = False,
+    strip_boilerplate: bool = True,
+) -> dict[str, Any]:
+    """Execute multi-angle research on a topic and generate a cited briefing report.
+
+    Decomposes topic into subqueries, retrieves sources concurrently, and synthesizes
+    a summary with numbered citations [1], [2]. Use for deep topic synthesis.
+
+    Args:
+        topic: Research subject, max 500 chars.
+        max_queries: Subqueries to run (2-4, default 3).
+        max_pages_per_query: Sources per subquery (1-5, default 3).
+        lang: Language filter (e.g. 'en', 'pl').
+    """
+    clean_topic = topic.strip() if isinstance(topic, str) else ""
+    if not clean_topic:
+        return _fail("empty_query", "topic must not be empty.")
+    if len(clean_topic) > MAX_TOPIC:
+        return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.")
+
+    clamped_queries = max(2, min(4, max_queries))
+    clamped_pages = max(1, min(5, max_pages_per_query))
+    t0 = _clock()
+
+    # Step 1: Decompose topic into subqueries
+    dec_messages = build_decomposition_messages(clean_topic, max_queries=clamped_queries)
+    dec_res = await _request(
+        "POST",
+        "/v1/chat/completions",
+        payload={
+            "model": REWRITE_MODEL,
+            "messages": dec_messages,
+            "temperature": 0,
+            "max_tokens": 256,
+            "stream": False,
+            "thinking": {"type": "disabled"},
+        },
+        timeout=CHAT_TIMEOUT,
+        attempts=1,
+    )
+    if dec_res.get("ok") and dec_res.get("data", {}).get("choices"):
+        raw_dec = dec_res["data"]["choices"][0]["message"]["content"]
+        subqueries = parse_subqueries(raw_dec, clean_topic, max_queries=clamped_queries)
+    else:
+        subqueries = [clean_topic[:MAX_QUERY].strip()]
+
+    # Step 2: Concurrently execute search across subqueries
+    search_coros = [
+        _search(
+            subq,
+            clamped_pages,
+            None,
+            True,
+            lang,
+            RESEARCH_PAGE_CHARS,
+            RESEARCH_PAGE_CHARS * clamped_pages,
+            dedupe,
+            False,
+            refresh=refresh,
+            strip_boilerplate=strip_boilerplate,
+        )
+        for subq in subqueries
+    ]
+    search_results = await asyncio.gather(*search_coros)
+
+    successful_searches = [r for r in search_results if r.get("ok")]
+    if not successful_searches:
+        return search_results[0]
+
+    # Step 3: Merge, deduplicate, and convert to research sources
+    seen_urls: set[str] = set()
+    merged_items: list[dict[str, Any]] = []
+    cached_count = sum(s.get("cached_count", 0) for s in successful_searches)
+    requests_used = sum(s.get("requests_used", 0) for s in successful_searches)
+
+    for s in successful_searches:
+        for item in s.get("results", []):
+            url = item.get("url") or ""
+            canon = _canonical_url(url) or url
+            if canon not in seen_urls:
+                seen_urls.add(canon)
+                merged_items.append(item)
+
+    sources = [
+        _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(merged_items, 1)
+    ]
+
+    # Step 4: Gap-fill stub pages
+    fill = await _fill_gaps(sources, RESEARCH_PAGE_CHARS, 30000, refresh, strip_boilerplate)
+    requests_used += fill.requests_used
+    cached_count += fill.cached_count
+
+    notes: list[str] = []
+    if fill.fetched:
+        notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
+    if fill.failed:
+        notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
+
+    # Step 5: Select synthesis context (capped at 6 sources, 24k chars)
+    synthesis_context = select_synthesis_context(sources)
+    if not synthesis_context:
+        return {
+            "ok": True,
+            "topic": clean_topic,
+            "subqueries": subqueries,
+            "report": None,
+            "synthesized": False,
+            "sources": sources,
+            "requests_used": requests_used,
+            "cached": _all_cached(requests_used, cached_count),
+            "cached_count": cached_count,
+            "notes": notes + ["No readable source content available for synthesis."],
+        }
+
+    # Soft deadline check before synthesis
+    elapsed = _clock() - t0
+    if elapsed > RESEARCH_DEADLINE - 5.0:
+        return {
+            "ok": True,
+            "topic": clean_topic,
+            "subqueries": subqueries,
+            "report": None,
+            "synthesized": False,
+            "sources": sources,
+            "requests_used": requests_used,
+            "cached": _all_cached(requests_used, cached_count),
+            "cached_count": cached_count,
+            "notes": notes + ["Synthesis deadline reached; returning gathered sources."],
+        }
+
+    # Step 6: Synthesize cited briefing report
+    synthesis_messages = build_synthesis_messages(clean_topic, synthesis_context)
+    synth_res = await _request(
+        "POST",
+        "/v1/chat/completions",
+        payload={
+            "model": REWRITE_MODEL,
+            "messages": synthesis_messages,
+            "temperature": 0.2,
+            "max_tokens": 2048,
+            "stream": False,
+            "thinking": {"type": "disabled"},
+        },
+        timeout=SYNTHESIS_TIMEOUT,
+        attempts=1,
+    )
+
+    if not synth_res.get("ok"):
+        return {
+            "ok": True,
+            "topic": clean_topic,
+            "subqueries": subqueries,
+            "report": None,
+            "synthesized": False,
+            "sources": sources,
+            "requests_used": requests_used + 1,
+            "cached": _all_cached(requests_used + 1, cached_count),
+            "cached_count": cached_count,
+            "notes": notes
+            + [
+                f"Synthesis model call failed: {synth_res.get('error', {}).get('message', 'unknown')}; "
+                "returning gathered sources."
+            ],
+        }
+
+    report_text = synth_res["data"]["choices"][0]["message"]["content"]
+    clean_report = sanitize_citations(report_text, max_id=len(synthesis_context))
+
+    return {
+        "ok": True,
+        "topic": clean_topic,
+        "subqueries": subqueries,
+        "report": clean_report,
+        "synthesized": True,
+        "sources": [
+            {
+                "id": s["id"],
+                "title": s["title"],
+                "url": s["url"],
+            }
+            for s in synthesis_context
+        ],
+        "raw_sources": sources,
+        "requests_used": requests_used + 1,
+        "cached": _all_cached(requests_used + 1, cached_count),
+        "cached_count": cached_count,
+        "notes": notes,
+    }
+
+
+@_timed
+async def deepseek_extract(
+    url: str,
+    *,
+    fields: list[str] | None = None,
+    schema: dict[str, Any] | None = None,
+    instruction: str | None = None,
+    clean: bool = True,
+    max_chars: int = 40000,
+    refresh: bool = False,
+    strip_boilerplate: bool = True,
+) -> dict[str, Any]:
+    """Extract structured JSON from a web page conforming to target fields or a schema.
+
+    Extracts specific entities or key-value data without returning full page text.
+    Do not use for general reading; use deepseek_fetch instead.
+
+    Args:
+        url: Absolute web page URL to extract from.
+        fields: Target attribute names (e.g. ['price', 'specs']).
+        schema: JSON Schema dictionary defining target structure.
+        instruction: Optional extraction guidance.
+    """
+    if not fields and not schema:
+        return _fail("bad_request", "Either 'fields' or 'schema' must be provided.")
+    if fields is not None and schema is not None:
+        return _fail("bad_request", "Provide either 'fields' or 'schema', not both.")
+    if fields is not None:
+        valid_fields = (
+            isinstance(fields, list)
+            and bool(fields)
+            and all(isinstance(f, str) and f.strip() for f in fields)
+        )
+        if not valid_fields:
+            return _fail("bad_request", "'fields' must be a non-empty list of non-empty strings.")
+    if schema is not None and not isinstance(schema, dict):
+        return _fail("bad_request", "'schema' must be a dictionary.")
+
+    clean_url = url.strip() if isinstance(url, str) else ""
+    rejection = _check_fetch_url(clean_url)
+    if rejection is not None:
+        return rejection
+
+    fetch_res = await _fetch(
+        clean_url,
+        clean=clean,
+        max_chars=max_chars,
+        refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
+    )
+    if fetch_res.get("ok") is False:
+        return fetch_res
+
+    content = fetch_res.get("content") or ""
+    if not content.strip():
+        notes = fetch_res.get("notes") or []
+        msg = notes[0] if notes else "The fetched page has no readable content to extract from."
+        return _fail("empty_page", msg)
+
+    system_prompt = build_extract_prompt(fields, schema, instruction)
+    page_title = fetch_res.get("title") or "Untitled"
+    user_content = f"URL: {clean_url}\nTitle: {page_title}\n\nPage Content:\n{content}"
+
+    payload: dict[str, Any] = {
+        "model": REWRITE_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0,
+        "max_tokens": 2048,
+        "stream": False,
+        "thinking": {"type": "disabled"},
+    }
+
+    result = await _request(
+        "POST", "/v1/chat/completions", payload=payload, timeout=EXTRACT_TIMEOUT, attempts=1
+    )
+    if not result.get("ok"):
+        return result
+
+    raw_text = result["data"]["choices"][0]["message"]["content"]
+    if not isinstance(raw_text, str):
+        return _fail("extraction_failed", "Invalid response payload from extraction model.")
+
+    parsed, err = sanitize_json(raw_text)
+    if err or parsed is None:
+        return _fail("extraction_failed", err or "Failed to parse extraction response as JSON.")
+
+    notes: list[str] = []
+    if fetch_res.get("cached"):
+        notes.append("Page fetched from local cache.")
+
+    if fields is not None:
+        parsed = validate_fields(parsed, fields)
+    elif schema is not None:
+        schema_errors = validate_schema(parsed, schema)
+        if schema_errors:
+            notes.extend(schema_errors)
+
+    return {
+        "ok": True,
+        "url": clean_url,
+        "title": fetch_res.get("title"),
+        "data": parsed,
+        "cached": fetch_res.get("cached", False),
+        "notes": notes,
+    }
+
+
+@_timed
 async def deepseek_balance() -> dict[str, Any]:
     """Check the DeepSeek account balance (granted and topped-up, in CNY and USD) and session telemetry.
 
@@ -1790,6 +2115,8 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_fetch,
     deepseek_fetch_many,
     deepseek_research,
+    deepseek_deep_research,
+    deepseek_extract,
     deepseek_balance,
 )
 

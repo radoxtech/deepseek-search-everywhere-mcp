@@ -207,3 +207,34 @@ async def test_balance_is_available() -> None:
     _assert_ok(envelope)
     assert envelope["is_available"] is True
     assert envelope["balances"], "no balance entries"
+
+
+async def test_extract_live() -> None:
+    url = "https://docs.python.org/3/library/asyncio.html"
+    envelope = await server.deepseek_extract(
+        url,
+        fields=["module_name", "primary_purpose"],
+        instruction="Focus on python library details",
+    )
+    _assert_ok(envelope)
+    data = envelope["data"]
+    assert isinstance(data, dict)
+    assert "module_name" in data
+    assert "primary_purpose" in data
+    assert data["module_name"] is not None
+    assert "asyncio" in str(data["module_name"]).lower()
+
+
+async def test_deep_research_live() -> None:
+    topic = "What are HTTP/3 0-RTT connection resumption security implications?"
+    envelope = await server.deepseek_deep_research(
+        topic,
+        max_queries=2,
+        max_pages_per_query=2,
+    )
+    _assert_ok(envelope)
+    assert len(envelope["subqueries"]) >= 1
+    assert envelope["synthesized"] is True
+    assert isinstance(envelope["report"], str) and len(envelope["report"]) > 100
+    assert len(envelope["sources"]) >= 1
+    assert "[" in envelope["report"] and "]" in envelope["report"]
