@@ -1040,21 +1040,21 @@ async def deepseek_search(
     Unlike deepseek_research (auto-fetches stub pages), this tool only returns indexed content.
 
     Args:
-        query: Search query, max 128 chars. Supports site:, -site:, "phrase", after:, before:.
+        query: Search query, max 128 chars (supports site:, -site:, "phrase", after:, before:).
         count: Results to return, 1-50 (default 5).
         ori_question: Natural question, max 128 chars; improves ranking.
-        need_content: Return full page text inline (default True; False for discovery).
+        need_content: Full text inline (default True; False for snippets).
         lang: Language filter (e.g. 'es', 'de', 'ja').
-        max_chars_per_result: Content cap per result (default 4000).
-        max_total_chars: Content budget across results (default 30000).
+        max_chars_per_result: Cap per result (default 4000).
+        max_total_chars: Budget across results (default 30000).
         dedupe: Collapse duplicate results (default True).
-        rewrite: Rewrite query via deepseek-flash before search (default False).
-        after: Filter date on or after (YYYY-MM-DD/YYYY).
-        before: Filter date on or before (YYYY-MM-DD/YYYY).
+        rewrite: Rewrite query via deepseek-flash (default False).
+        after: Date on or after (YYYY-MM-DD/YYYY).
+        before: Date on or before (YYYY-MM-DD/YYYY).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
         refresh: Bypass response cache (default False).
-        summary_chars: Summary cap per result when content is omitted.
+        summary_chars: Summary cap per result without content.
         strip_boilerplate: Strip site UI text (default True).
     """
     return await _search(
@@ -1201,11 +1201,11 @@ async def deepseek_fetch(
 
     Args:
         url: Absolute http(s) URL, max 8192 characters.
-        clean: Remove spurious Markdown backslash escapes (default True).
-        max_chars: Content cap, applied after cleaning (default 20000).
-        query: Optional search query to extract ranked relevant snippets.
-        section: Optional 1-based index to read a specific document section.
-        max_snippets: Max relevant snippets to return when query is set (default 3, 1-5).
+        clean: Remove Markdown backslash escapes (default True).
+        max_chars: Content cap after cleaning (default 20000).
+        query: Query to extract ranked relevant snippets.
+        section: 1-based index to read a specific document section.
+        max_snippets: Max ranked snippets when query is set (default 3, 1-5).
         refresh: Bypass cache and fetch page again (default False).
         strip_boilerplate: Remove site UI lines from text (default True).
     """
@@ -1550,17 +1550,17 @@ async def deepseek_fetch_many(
 
     Fetch multiple known URLs in parallel. Use when target URLs are known. Do not use
     for a single URL (use deepseek_fetch), nor for search/discovery (use deepseek_search).
-    Skips blanks, deduplicates, and preserves order. Returns results list and request counts.
+    Skips blanks, deduplicates, and preserves order.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
         max_chars_per_url: Content cap per page (default 4000).
         max_total_chars: Total content budget across all pages (default 20000).
-        clean: Remove spurious Markdown backslash escapes (default True).
-        query: Optional search query to extract ranked snippets across fetched pages.
+        clean: Remove Markdown backslash escapes (default True).
+        query: Query to extract ranked snippets across fetched pages.
         refresh: Bypass cache and fetch pages again (default False).
         strip_boilerplate: Remove site UI lines from text (default True).
-        deadline: Max seconds to wait before cancelling pending fetches (default 120s).
+        deadline: Max seconds before cancelling pending fetches (default 120s).
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -1756,8 +1756,8 @@ async def deepseek_research(
         max_pages: Results to use, 1-50 (default 5).
         per_page_chars: Cap per source (default 6000).
         total_chars: Budget across sources (default 30000).
-        after: Filter date on or after (YYYY-MM-DD/YYYY).
-        before: Filter date on or before (YYYY-MM-DD/YYYY).
+        after: Date on or after (YYYY-MM-DD/YYYY).
+        before: Date on or before (YYYY-MM-DD/YYYY).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
         lang: Language filter (e.g. 'pl', 'es', 'ja').
@@ -1810,16 +1810,15 @@ async def deepseek_deep_research(
     """Execute multi-angle research on a topic and generate a cited briefing report.
 
     Decomposes topic into subqueries, retrieves sources concurrently, and synthesizes
-    a summary with numbered citations [1], [2]. Use for deep topic synthesis. Do not use
-    for simple lookups (use deepseek_search or deepseek_research), nor for reading known
-    URLs (use deepseek_fetch or deepseek_fetch_many).
+    a cited report [1], [2]. Use for deep topic synthesis. Do not use for simple lookups
+    (use deepseek_search/deepseek_research) or reading known URLs (use deepseek_fetch).
 
     Args:
         topic: Research subject, max 500 chars.
         max_queries: Subqueries to run (2-4, default 3).
         max_pages_per_query: Sources per subquery (1-5, default 3).
         lang: Language filter (e.g. 'en', 'pl').
-        dedupe: Collapse duplicate results across subqueries (default True).
+        dedupe: Collapse duplicates across subqueries (default True).
         refresh: Bypass response cache (default False).
         strip_boilerplate: Strip site UI text (default True).
     """
@@ -2019,11 +2018,11 @@ async def deepseek_extract(
 
     Args:
         url: Absolute web page URL to extract from.
-        fields: Target attribute names (e.g. ['price', 'specs']), mutually exclusive with schema.
-        schema: JSON Schema dictionary defining target structure, mutually exclusive with fields.
+        fields: Target attribute names (e.g. ['price', 'specs']), exclusive with schema.
+        schema: JSON Schema defining target structure, exclusive with fields.
         instruction: Optional extraction guidance.
-        clean: Remove spurious Markdown backslash escapes (default True).
-        max_chars: Input page content cap before extraction (default 40000).
+        clean: Remove Markdown backslash escapes (default True).
+        max_chars: Content cap before extraction (default 40000).
         refresh: Bypass cache and fetch page again (default False).
         strip_boilerplate: Remove site UI lines from text (default True).
     """
@@ -2118,9 +2117,9 @@ async def deepseek_extract(
 async def deepseek_check_balance() -> dict[str, Any]:
     """Check DeepSeek account balance (CNY/USD) and in-memory session telemetry.
 
-    Call before heavy research tasks to verify funds and inspect session metrics (requests,
-    cache hits, estimated cost/savings). Do not use for search or retrieval (use deepseek_search
-    or deepseek_fetch). Requires DEEPSEEK_API_KEY. Takes no arguments.
+    Verify account funds and monitor session usage (requests, cache hits, estimated cost).
+    Do not use for search or retrieval (use deepseek_search or deepseek_fetch). Requires
+    DEEPSEEK_API_KEY. Takes no arguments.
     """
     result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
