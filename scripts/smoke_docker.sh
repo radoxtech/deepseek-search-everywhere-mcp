@@ -30,7 +30,14 @@ docker run -d --name "${CONTAINER_NAME}" -p 8000:8000 \
 
 trap 'docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true' EXIT
 
-sleep 2
+echo "==> Waiting for HTTP server to become responsive..."
+for i in $(seq 1 15); do
+    if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/mcp | grep -q "[234]"; then
+        break
+    fi
+    sleep 1
+done
+
 docker logs "${CONTAINER_NAME}"
 
 echo "==> Querying tools/list over HTTP..."

@@ -19,7 +19,8 @@ WORKDIR /app
 
 # Install the built package with [http] dependencies
 COPY --from=builder /build/dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl[http] && \
+RUN WHEEL_FILE=$(ls /tmp/*.whl) && \
+    pip install --no-cache-dir "${WHEEL_FILE}[http]" && \
     rm -rf /tmp/*.whl
 
 USER 10001:10001
