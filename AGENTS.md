@@ -23,6 +23,7 @@ ruff check . && ruff format --check .       # lint and format check
 python -m build && twine check dist/*       # build and validate distributions
 python scripts/validate_server_json.py      # validate server.json
 scripts/smoke_package.sh                    # install the built wheel in a clean venv and run the CLI
+scripts/smoke_docker.sh                     # build, verify non-root UID and test HTTP tools in Docker
 ```
 
 ## Code layout (`src/deepseek_search_everywhere_mcp/`)
