@@ -252,5 +252,5 @@ async def test_404_suggests_search_only_for_pdf_and_reddit(
     assert result["ok"] is False
     assert result["error"]["code"] == "http_404"
     assert result["error"]["status"] == 404
-    assert ("deepseek_search_and_read" in result["error"]["message"]) is advice
+    assert ("deepseek_search" in result["error"]["message"]) is advice
     assert result["error"]["message"].startswith("failed to fetch URL")

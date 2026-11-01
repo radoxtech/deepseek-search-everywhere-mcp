@@ -25,6 +25,7 @@ from datetime import UTC, date, datetime
 from typing import Any, ParamSpec
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from ._version import __version__
 from .boilerplate import remove_boilerplate
@@ -1033,8 +1034,10 @@ async def deepseek_search(
 ) -> dict[str, Any]:
     """Search the web with DeepSeek index and return page text, snippets, and metadata.
 
-    Primary search and retrieval tool for AI agents. Returns full page text inline
-    (default) or snippets and summaries (need_content=False) with ranking and filters.
+    Primary search and retrieval tool for AI agents. Queries DeepSeek's search index directly
+    to return ranked results with snippets (need_content=False) or indexed full page text
+    (default need_content=True). Use for standard search, targeted queries, and discovery.
+    Unlike deepseek_research (auto-fetches stub pages), this tool only returns indexed content.
 
     Args:
         query: Search query, max 128 chars. Supports site:, -site:, "phrase", after:, before:.
@@ -1192,7 +1195,9 @@ async def deepseek_fetch(
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
-    Caveat: returns HTTP 404 for PDFs and Reddit; prefer deepseek_search_and_read for them.
+    Retrieves full Markdown content for a known URL. Use when target URL is known.
+    For multiple URLs use deepseek_fetch_many; for structured data use deepseek_extract;
+    for search use deepseek_search. Returns 404 for PDFs/Reddit (use deepseek_search instead).
 
     Args:
         url: Absolute http(s) URL, max 8192 characters.
@@ -1221,7 +1226,7 @@ async def deepseek_fetch(
 
 
 _SEARCH_ADVICE = (
-    "PDFs and Reddit are not extractable by fetch: use deepseek_search_and_read instead, "
+    "PDFs and Reddit are not extractable by fetch: use deepseek_search instead, "
     "which returns their content via the search index."
 )
 
@@ -1345,9 +1350,9 @@ def _fetch_notes(content: str, only_boilerplate: bool) -> list[str]:
     if only_boilerplate:
         return [
             "Empty content: the page rendered only a cookie-consent banner or site interface, which was "
-            "removed. Try deepseek_search_and_read instead, or strip_boilerplate=False to see it."
+            "removed. Try deepseek_search instead, or strip_boilerplate=False to see it."
         ]
-    return ["Empty content: the page may be a PDF, JS-only or blocked. Try deepseek_search_and_read instead."]
+    return ["Empty content: the page may be a PDF, JS-only or blocked. Try deepseek_search instead."]
 
 
 def _all_cached(requests_used: int, cached_count: int) -> bool:
@@ -1543,7 +1548,9 @@ async def deepseek_fetch_many(
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
-    Empty entries are skipped, duplicates fetched once, and results keep input order.
+    Fetch multiple known URLs in parallel. Use when target URLs are known. Do not use
+    for a single URL (use deepseek_fetch), nor for search/discovery (use deepseek_search).
+    Skips blanks, deduplicates, and preserves order. Returns results list and request counts.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
@@ -1741,6 +1748,9 @@ async def deepseek_research(
     Gathers candidate sources for research. It does not iterate, refine the query or summarise:
     there is exactly one search and sources return raw content for the caller to synthesise.
 
+    Unlike deepseek_search (index-only), deepseek_research auto-fetches stub results in parallel
+    for deep source gathering. Use when research requires complete documents rather than snippets.
+
     Args:
         question: Search query, max 128 characters.
         max_pages: Results to use, 1-50 (default 5).
@@ -1800,13 +1810,18 @@ async def deepseek_deep_research(
     """Execute multi-angle research on a topic and generate a cited briefing report.
 
     Decomposes topic into subqueries, retrieves sources concurrently, and synthesizes
-    a summary with numbered citations [1], [2]. Use for deep topic synthesis.
+    a summary with numbered citations [1], [2]. Use for deep topic synthesis. Do not use
+    for simple lookups (use deepseek_search or deepseek_research), nor for reading known
+    URLs (use deepseek_fetch or deepseek_fetch_many).
 
     Args:
         topic: Research subject, max 500 chars.
         max_queries: Subqueries to run (2-4, default 3).
         max_pages_per_query: Sources per subquery (1-5, default 3).
         lang: Language filter (e.g. 'en', 'pl').
+        dedupe: Collapse duplicate results across subqueries (default True).
+        refresh: Bypass response cache (default False).
+        strip_boilerplate: Strip site UI text (default True).
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:
@@ -1999,13 +2014,18 @@ async def deepseek_extract(
     """Extract structured JSON from a web page conforming to target fields or a schema.
 
     Extracts specific entities or key-value data without returning full page text.
-    Do not use for general reading; use deepseek_fetch instead.
+    Returns extracted JSON under 'data'. Do not use for general reading (use deepseek_fetch),
+    nor for search or discovery (use deepseek_search).
 
     Args:
         url: Absolute web page URL to extract from.
-        fields: Target attribute names (e.g. ['price', 'specs']).
-        schema: JSON Schema dictionary defining target structure.
+        fields: Target attribute names (e.g. ['price', 'specs']), mutually exclusive with schema.
+        schema: JSON Schema dictionary defining target structure, mutually exclusive with fields.
         instruction: Optional extraction guidance.
+        clean: Remove spurious Markdown backslash escapes (default True).
+        max_chars: Input page content cap before extraction (default 40000).
+        refresh: Bypass cache and fetch page again (default False).
+        strip_boilerplate: Remove site UI lines from text (default True).
     """
     if not fields and not schema:
         return _fail("bad_request", "Either 'fields' or 'schema' must be provided.")
@@ -2098,8 +2118,9 @@ async def deepseek_extract(
 async def deepseek_check_balance() -> dict[str, Any]:
     """Check DeepSeek account balance (CNY/USD) and in-memory session telemetry.
 
-    Call before starting heavy research tasks. Requires DEEPSEEK_API_KEY environment
-    variable; fails with missing_api_key if unset. Takes no arguments.
+    Call before heavy research tasks to verify funds and inspect session metrics (requests,
+    cache hits, estimated cost/savings). Do not use for search or retrieval (use deepseek_search
+    or deepseek_fetch). Requires DEEPSEEK_API_KEY. Takes no arguments.
     """
     result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
@@ -2142,6 +2163,30 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_check_balance,
 )
 
+TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
+    "deepseek_search": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_fetch": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_fetch_many": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_research": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_deep_research": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_extract": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_check_balance": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
+}
+
 
 def create_server(**options: Any) -> FastMCP:
     """Build a new FastMCP instance with every tool registered.
@@ -2158,7 +2203,7 @@ def create_server(**options: Any) -> FastMCP:
     # The low-level server's ``version`` is what ``initialize`` returns as ``serverInfo.version``.
     server._mcp_server.version = __version__
     for tool in TOOLS:
-        server.add_tool(tool)
+        server.add_tool(tool, annotations=TOOL_ANNOTATIONS.get(tool.__name__))
     return server
 
 

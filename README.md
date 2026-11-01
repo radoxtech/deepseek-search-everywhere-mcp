@@ -11,7 +11,7 @@ multi-source research through the official DeepSeek Search & Fetch API.
 
 It is a thin, careful layer over that API: results are deduplicated, content is capped to a budget you set,
 repeated calls are served from an in-memory cache, and outgoing calls are paced by a local rate limiter.
-Six tools, stdio by default, optional bearer-protected streamable HTTP.
+Seven tools, stdio by default, optional bearer-protected streamable HTTP.
 
 It is a standard MCP server, so it works with **any MCP-compatible AI client or agent**: Claude Code,
 Claude Desktop, Google Antigravity, Cursor, Windsurf, VS Code (GitHub Copilot), Gemini CLI, Codex CLI, Zed,
@@ -28,6 +28,8 @@ opencode and others. Local clients launch it over stdio; remote or shared setups
 - **Batch fetch and research**: `deepseek_fetch_many` fetches up to 10 URLs concurrently;
   `deepseek_research` gathers sources in a single pass: one search, then direct fetches for pages whose search
   content is missing. It does not iterate or summarise.
+- **Deep research and structured extraction**: `deepseek_deep_research` decomposes topics into subqueries and
+  synthesizes cited briefing reports; `deepseek_extract` extracts validated structured JSON matching schemas or fields.
 - **Result hygiene**: canonical-URL and title/site deduplication, per-result and total character budgets,
   Markdown unescaping.
 - **Optional query rewrite** to English through `deepseek-flash` (thinking disabled), plus an explicit `lang`
@@ -294,11 +296,14 @@ Notes on the parameters:
 Example calls:
 
 ```text
-deepseek_search_and_read(query="rust async runtime comparison", count=5)
-deepseek_web_search(query="gobierno de España presupuestos 2026", lang="es", need_content=False)
+deepseek_search(query="rust async runtime comparison", count=5)
+deepseek_search(query="gobierno de España presupuestos 2026", lang="es", need_content=False)
+deepseek_fetch(url="https://docs.rs/tokio/latest/tokio/", max_chars=15000)
 deepseek_fetch_many(urls=["https://example.com/a", "https://example.com/b"], max_total_chars=12000)
 deepseek_research(question="how does HTTP/3 connection migration work", max_pages=4)
-deepseek_research(question="CBOS 2025 korzystanie z internetu Polacy", lang="pl")
+deepseek_deep_research(topic="comparing Raft vs Paxos consensus mechanisms in distributed systems")
+deepseek_extract(url="https://news.ycombinator.com", fields=["top_story", "points", "author"])
+deepseek_check_balance()
 ```
 
 ### Response envelope
@@ -324,8 +329,10 @@ used instead. Without one, a full English or Polish month name next to a year (`
 `wrzesień 2025`, PubMed-style `2025 September`) gives the first of that month, and a day written with it (`15 września 2025`,
 `September 15, 2025`) gives that day; Polish names are matched in the nominative and genitive, abbreviations
 and a bare year are ignored; `date_source` is `"upstream"`, `"content"` or `null` (no date), on search results and research
-sources alike. `deepseek_fetch` returns `title`, `content`, `chars`,
-`truncated`. `chars` is always the length of the `content` returned, in every tool.
+sources alike. `deepseek_fetch` returns `url`, `title`, `content`, `chars`,
+`truncated`. `deepseek_deep_research` returns `topic`, `subqueries`, `report` (with bracketed citations `[1]`, `[2]`),
+`synthesized`, and `sources`. `deepseek_extract` returns `url`, `title`, and `data` (the extracted JSON matching the
+requested fields or schema). `chars` is always the length of the `content` returned, in every tool.
 
 ### Error codes
 
@@ -349,10 +356,9 @@ parameters of each tool (compact JSON, UTF-8 bytes):
 
 | Call | Size |
 |---|---|
-| `deepseek_web_search`, `count=3`, `need_content=false` (default `summary_chars`) | 3.7 KB |
-| `deepseek_web_search`, `count=3`, `need_content=false`, `summary_chars=0` | 2.3 KB |
-| `deepseek_web_search`, `count=3`, `need_content=true` | 15.1 KB |
-| `deepseek_search_and_read`, `count=3` | 15.1 KB |
+| `deepseek_search`, `count=3`, `need_content=false` (default `summary_chars`) | 3.7 KB |
+| `deepseek_search`, `count=3`, `need_content=false`, `summary_chars=0` | 2.3 KB |
+| `deepseek_search`, `count=3`, `need_content=true` (default) | 15.1 KB |
 | `deepseek_fetch`, one documentation page (default `max_chars`) | 20.9 KB |
 | `deepseek_fetch_many`, 3 documentation pages | 13.3 KB |
 | `deepseek_research`, `max_pages=3` | 20.1 KB |
@@ -422,7 +428,7 @@ Full policy and reporting instructions: [SECURITY.md](SECURITY.md).
 ## Limitations
 
 - `deepseek_fetch` returns HTTP 404 for PDFs and Reddit and times out on some sites. Use
-  `deepseek_search_and_read` with the page title or a `site:`-scoped query instead.
+  `deepseek_search` with the page title or a `site:`-scoped query instead.
 - Fetch returns only title and content: no final URL, status code or publication date.
 - Fetch latency is DeepSeek's page render, not this server: an already rendered page returns in about 0.5 s,
   others take 3-10 s, and a missing page (HTTP 404) still takes 3-5 s before DeepSeek reports it. A 404 is
@@ -475,8 +481,9 @@ Versions follow [Semantic Versioning](https://semver.org/) and are automated wit
 
 1. Every push to `main` runs release-please. It opens (or updates) a release PR that bumps the version in
    `pyproject.toml`, `server.json` and `.release-please-manifest.json` and prepends a section to `CHANGELOG.md`.
-   While the version is below 1.0.0, `feat` bumps the patch version and breaking changes bump the minor one;
-   `feat`, `fix`, `perf`, `refactor`, `docs` and `deps` commits appear in the changelog.
+   Standard Semantic Versioning applies: `fix` bumps the patch version, `feat` bumps the minor, and
+   breaking changes (`feat!:`) bump the major version; `feat`, `fix`, `perf`, `refactor`, `docs` and `deps`
+   appear in the changelog.
 2. Merging the release PR makes release-please tag `vX.Y.Z` and create the GitHub Release.
 3. The same workflow run then builds the tagged commit, checks that the tag equals the versions in
    `pyproject.toml` and `server.json`, runs `twine check` and a clean-wheel smoke test, publishes to PyPI through
@@ -491,7 +498,7 @@ Manual fallback: bump the version in `pyproject.toml`, `server.json` and `.relea
 workflow then publishes and creates the GitHub Release itself.
 
 ```bash
-git tag -a v0.2.1 -m "v0.2.1" && git push origin v0.2.1
+git tag -a v2.0.0 -m "v2.0.0" && git push origin v2.0.0
 bash scripts/smoke_package.sh   # optional local check: build, install into a clean venv, run the CLI
 ```
 

@@ -89,7 +89,9 @@ def test_fallback_summary_with_content_keeps_max_chars_per_result(fake_upstream)
     assert "summary" not in capped["results"][0]
 
 
-@pytest.mark.parametrize("name", ["deepseek_web_search", "deepseek_search_and_read", "_search"])
+@pytest.mark.parametrize(
+    "name", ["deepseek_search", "deepseek_web_search", "deepseek_search_and_read", "_search"]
+)
 def test_summary_chars_is_keyword_only(name):
     parameter = inspect.signature(getattr(server, name)).parameters["summary_chars"]
     assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
