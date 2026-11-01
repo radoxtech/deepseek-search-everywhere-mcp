@@ -938,55 +938,25 @@ async def deepseek_web_search(
 ) -> dict[str, Any]:
     """Search the web for links, metadata, and short summaries (discovery only).
 
-    Returns titles, URLs, publication dates, authority, rerank scores, and snippets.
-    Use this tool for discovery, link finding, and ranking. Does not return full page
-    bodies by default. For reading full page text to answer questions, prefer
-    deepseek_search_and_read instead.
-
-    With content, each result's chars is the length of the content returned.
-    Without need_content each result carries a short summary instead, capped at summary_chars
-    (default 400) and never longer than max_chars_per_result; summary_chars=0 leaves it out, which
-    keeps a 10-result response small.
-
-    For non-English queries set lang to the appropriate code (e.g. 'es', 'de', 'ja'). Without it
-    results may be mixed-language; for named entities test with and without the operator.
-    Each result carries date and authority (0-4, -1 unknown). date is the upstream RFC 3339 date
-    or, when the upstream has none, a date found at the start of the result's text (YYYY-MM-DD, or a
-    full English or Polish month name next to a year, read as the first of that month);
-    date_source says which ('upstream', 'content' or null when there is no date).
-
-    Responses are cached in memory for a few minutes and identical concurrent calls share one
-    upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
-    locally per endpoint: if no slot frees up within a short wait the error code is
-    rate_limited_local. A response larger than 8 MiB fails with response_too_large.
-    Every envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
+    Returns titles, URLs, publication dates, authority, rerank scores, snippets, and short
+    summaries. Use this tool for discovery, link finding, and ranking. Does not return full
+    page bodies by default. For reading full page text to answer questions, prefer
+    deepseek_search_and_read instead. Responses are cached in memory and rate-limited.
 
     Args:
         query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
-        count: Number of results to return, 1-50 (default 10). With dedupe on, extras are
-            requested upstream so duplicates do not leave you short.
+        count: Number of results to return, 1-50 (default 10).
         ori_question: Original natural-language question, max 128 characters; improves ranking.
         need_content: [Deprecated for direct agent use: prefer deepseek_search_and_read].
             Return full page text per result.
-        lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
-            appropriate code; without it results may be mixed-language. For named entities test
-            with and without the operator.
-        max_chars_per_result: Cap per result on the content (when need_content is set) and on
-            the summary.
-        max_total_chars: Total budget across all results, for content and summaries alike.
-        dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
-        rewrite: Rewrite the query via deepseek-flash before searching, default off. Skipped when
-            lang is set; falls back silently to the original query on failure.
-        refresh: Bypass the response cache and query upstream again (the envelope's cached
-            flag says whether the results came from the cache).
-        summary_chars: Summary cap per result, at most max_chars_per_result. Defaults to 400
-            without need_content; with it, a summary only stands in for missing content and
-            defaults to max_chars_per_result. 0 omits summaries.
-        strip_boilerplate: Remove known site-interface lines from page content (default on),
-            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
-            whole lines matching a known label of that site, or a leading run of consent-dialog
-            lines, are removed; False returns the content as fetched.
+        lang: Language operator filter, e.g. 'es', 'de' or 'ja'.
+        max_chars_per_result: Cap per result on content (if need_content) or summary (default 4000).
+        max_total_chars: Total character budget across all results (default 40000).
+        dedupe: Collapse duplicate results (same canonical URL or title+site), default True.
+        rewrite: Rewrite query via deepseek-flash before search (default False).
+        refresh: Bypass cache and query upstream again (default False).
+        summary_chars: Summary cap per result, at most max_chars_per_result (default 400, 0 to omit).
+        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
     """
     return await _search(
         query,
@@ -1023,36 +993,20 @@ async def deepseek_search_and_read(
 
     The primary retrieval tool for question answering. Returns full page text directly
     from DeepSeek's search index (including PDFs and Reddit) in ~0.7s without requiring
-    separate fetch calls.
-
-    Responses are cached in memory for a few minutes and identical concurrent calls share one
-    upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
-    locally per endpoint: if no slot frees up within a short wait the error code is
-    rate_limited_local. A response larger than 8 MiB fails with response_too_large.
-    Every envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
+    separate fetch calls. Responses are cached in memory and rate-limited.
 
     Args:
-        query: Search query, max 128 characters.
-        count: Number of results to return, 1-50 (default 5). With dedupe on, extras are
-            requested upstream so duplicates do not leave you short.
-        ori_question: Original natural-language question, max 128 characters.
-        lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
-            appropriate code; without it results may be mixed-language. For named entities test
-            with and without the operator.
-        max_chars_per_result: Cap per result on the content (and on a fallback summary).
-        max_total_chars: Total content budget across all results.
-        dedupe: Collapse near-duplicate results (same canonical URL or same title+site), default on.
-        rewrite: Rewrite the query via deepseek-flash before searching, default off. Skipped when
-            lang is set; falls back silently to the original query on failure.
-        refresh: Bypass the response cache and query upstream again (the envelope's cached
-            flag says whether the results came from the cache).
-        summary_chars: Cap on the summary given to a result that came back without content, at
-            most max_chars_per_result (the default). 0 omits such summaries.
-        strip_boilerplate: Remove known site-interface lines from page content (default on),
-            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
-            whole lines matching a known label of that site, or a leading run of consent-dialog
-            lines, are removed; False returns the content as fetched.
+        query: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:, after:, before:.
+        count: Number of results to return, 1-50 (default 5).
+        ori_question: Original natural-language question, max 128 characters; improves ranking.
+        lang: Language operator filter, e.g. 'es', 'de' or 'ja'.
+        max_chars_per_result: Content cap per result (default 4000).
+        max_total_chars: Total content budget across all results (default 30000).
+        dedupe: Collapse duplicate results (same canonical URL or title+site), default True.
+        rewrite: Rewrite query via deepseek-flash before searching (default False).
+        refresh: Bypass response cache and query upstream again (default False).
+        summary_chars: Fallback summary cap if a result has no content (default max_chars_per_result).
+        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
     """
     return await _search(
         query,
@@ -1106,34 +1060,16 @@ async def deepseek_fetch(
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
-    Caveat measured on 2026-10-20: this endpoint returns HTTP 404 for PDFs and for Reddit, and
-    times out on some sites. When the URL is a document or a blocked site, call
-    deepseek_search_and_read with the page title or a site:-scoped query instead.
-
-    The response contains only title and content (with chars, its length) — no final URL, status
-    code or publication date, so keep the provenance on your side.
-
-    Pages are cached in memory for about half an hour and identical concurrent calls share one
-    upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
-    locally per endpoint: if no slot frees up within a short wait the error code is
-    rate_limited_local. A response larger than 32 MiB fails with response_too_large.
-    Every envelope, success or error, carries elapsed_ms: the call's wall time in milliseconds.
-
-    URLs that point at internal hosts or literal private addresses, or that embed credentials
-    (user:pass@host), are rejected locally with ssrf_blocked before any request is made.
+    Caveat: this endpoint returns HTTP 404 for PDFs and Reddit, and times out on some sites.
+    When the URL is a document or blocked site, call deepseek_search_and_read with the page title
+    or a site:-scoped query instead. Pages are cached in memory and rate-limited.
 
     Args:
         url: Absolute http(s) URL, max 8192 characters.
-        clean: Remove DeepSeek's spurious Markdown backslash escapes (any escaped ASCII punctuation,
-            such as \\( \\- \\[ \\/ \\#); fenced code blocks and inline code are left as they are.
-        max_chars: Content cap, applied after cleaning.
-        refresh: Bypass the response cache and fetch the page again (the envelope's cached
-            flag says whether the page came from the cache).
-        strip_boilerplate: Remove known site-interface lines from page content (default on),
-            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
-            whole lines matching a known label of that site, or a leading run of consent-dialog
-            lines, are removed; False returns the content as fetched.
+        clean: Remove spurious Markdown backslash escapes outside code blocks (default True).
+        max_chars: Content cap, applied after cleaning (default 20000).
+        refresh: Bypass cache and fetch page again (default False).
+        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
@@ -1414,33 +1350,19 @@ async def deepseek_fetch_many(
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
-    Each URL goes through the same validation, cache, rate limiter and SSRF checks as
-    deepseek_fetch. Empty entries are skipped and duplicates (same canonical URL) are fetched
-    once. Results keep the input order; a failing URL yields an item with ok=false and an
-    error instead of failing the batch. All fetches share one deadline (120 s by default);
-    URLs still pending then are cancelled and reported with error code deadline_exceeded.
-
-    Each page gets min(max_chars_per_url, max_total_chars // count) characters and the total
-    content never exceeds max_total_chars; a note says when any content was truncated.
-    The envelope reports count (unique URLs), requests_used (upstream fetches attempted),
-    cached (true when no upstream request was made and at least one page came from the cache),
-    cached_count (items served from the cache), failed_count (items with ok=false), partial
-    (true when any item failed), results, notes and elapsed_ms (the call's wall time in
-    milliseconds, also on error envelopes). The top-level ok only says the batch ran; check
-    partial or each item's ok for per-URL failures. Each result carries its own cached flag.
+    Empty entries are skipped, duplicates are fetched once, and results keep the input order.
+    A failing URL yields an item with ok=false and an error envelope rather than failing the batch.
+    All fetches share one deadline (120 s by default); URLs still pending then are cancelled.
+    Pages are cached in memory and rate-limited.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
-        max_chars_per_url: Content cap per page, applied after cleaning.
-        max_total_chars: Total content budget across all pages.
-        clean: Remove DeepSeek's spurious Markdown backslash escapes (any escaped ASCII punctuation);
-            fenced code blocks and inline code are left as they are.
-        refresh: Bypass the response cache and fetch every page again.
-        strip_boilerplate: Remove known site-interface lines from page content (default on),
-            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
-            whole lines matching a known label of that site, or a leading run of consent-dialog
-            lines, are removed; False returns the content as fetched.
+        max_chars_per_url: Content cap per page, applied after cleaning (default 4000).
+        max_total_chars: Total content budget across all pages (default 20000).
+        clean: Remove spurious Markdown backslash escapes outside code blocks (default True).
+        refresh: Bypass cache and fetch every page again (default False).
+        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
+        deadline: Maximum seconds to wait before cancelling pending fetches (default 120s).
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -1624,49 +1546,21 @@ async def deepseek_research(
     content for the caller to read and synthesise. For standard single-shot question answering,
     prefer deepseek_search_and_read.
 
-    Use it for reconnaissance: finding candidate sources. There is no quality filter, so results can
-    include low-quality or secondary pages (student papers, aggregators, clickbait); verify facts in
-    the primary source before citing them. For primary sources, ask in English for the primary study
-    and/or use site: for local sources. authority is an upstream field, not a credibility score.
-
-    The search runs with need_content=True. By default it makes no model call;
-    rewrite=True translates the question to English first, as in deepseek_web_search.
-    Results whose content is missing or shorter than 200 characters and whose URL passes
-    validation are fetched directly with deepseek_fetch_many (at most 5 per call); a fetched page
-    replaces the search content of that source. A URL that fails validation (for example an
-    internal address) is not fetched. Failed or rejected sources keep the search content and set the
-    source's error; the call still succeeds with partial=true.
-
-    Each source has id, title, url, date, date_source, site, authority, rerank_score, content, chars,
-    origin ('search' or 'fetch'), error (null or {code, message}) and cached (whether its content came
-    from the cache). date_source is 'upstream', 'content' (a YYYY-MM-DD or "Month YYYY" date found at the
-    start of the title or content because the upstream gave none) or null.
-    query_used is the query sent upstream (with any lang: operator); query_original is set only when
-    rewrite changed the question.
-    Content is capped at per_page_chars per source and total_chars overall, in source order; a
-    note says when any content was truncated.
-    requests_used counts upstream requests made (the search plus each fetch; cache hits are free)
-    and cached_count counts responses served from the cache; cached is true when no upstream request
-    was made because everything came from the cache. failed_count counts sources whose
-    error is set and partial is true when it is non-zero. elapsed_ms is the call's wall time in
-    milliseconds, on error envelopes too. Synthesis is left to the caller.
+    Executes one search with need_content=True. Results with missing or short content (< 200 chars)
+    are automatically fetched directly with deepseek_fetch_many (at most 5 per call). Returned
+    sources carry id, title, url, date, date_source, site, authority, rerank_score, content, chars,
+    origin ('search' or 'fetch'), error, and cached status.
 
     Args:
         question: Search query, max 128 characters. Supports site:, -site:, "phrase", lang:.
         max_pages: Number of search results to use, 1-50 (default 5).
-        per_page_chars: Content cap per source.
-        total_chars: Total content budget across all sources.
-        lang: Explicit language operator such as 'pl', 'es' or 'pt-BR', added to the question as
-            lang:<code> unless it already has one. query_used shows the query that was sent.
-        rewrite: Translate the question to English with deepseek-flash before searching (default
-            False). Skipped when lang is set; query_original then holds the question as given.
-        dedupe: Remove duplicate results (default True).
-        refresh: Bypass the response caches for the search and the fetches.
-        strip_boilerplate: Remove known site-interface lines from page content (default on),
-            such as the Chinese-localised comment-sort menu and sign-up footer DeepSeek returns
-            for Reddit threads, and a cookie-consent banner at the very start of the page. Only
-            whole lines matching a known label of that site, or a leading run of consent-dialog
-            lines, are removed; False returns the content as fetched.
+        per_page_chars: Content cap per source (default 6000).
+        total_chars: Total content budget across all sources (default 30000).
+        lang: Explicit language code filter (e.g. 'pl', 'es', 'ja').
+        rewrite: Translate question to English via deepseek-flash before searching (default False).
+        dedupe: Collapse duplicate results, default True.
+        refresh: Bypass response caches for search and direct fetches (default False).
+        strip_boilerplate: Remove site UI lines (cookie banners, menus) from text (default True).
     """
     if per_page_chars < 1 or total_chars < 1:
         return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
