@@ -936,11 +936,12 @@ async def deepseek_web_search(
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
-    """Search the web with DeepSeek's index. Returns titles, URLs, dates, authority and rerank scores.
+    """Search the web for links, metadata, and short summaries (discovery only).
 
-    Use this for discovery and ranking. Set need_content=True to get full page text inline in the
-    same call (billed as one request, no per-page charge) — this is usually cheaper and more
-    reliable than calling deepseek_fetch afterwards.
+    Returns titles, URLs, publication dates, authority, rerank scores, and snippets.
+    Use this tool for discovery, link finding, and ranking. Does not return full page
+    bodies by default. For reading full page text to answer questions, prefer
+    deepseek_search_and_read instead.
 
     With content, each result's chars is the length of the content returned.
     Without need_content each result carries a short summary instead, capped at summary_chars
@@ -965,7 +966,8 @@ async def deepseek_web_search(
         count: Number of results to return, 1-50 (default 10). With dedupe on, extras are
             requested upstream so duplicates do not leave you short.
         ori_question: Original natural-language question, max 128 characters; improves ranking.
-        need_content: Return full page text per result (recommended for reading).
+        need_content: [Deprecated for direct agent use: prefer deepseek_search_and_read].
+            Return full page text per result.
         lang: Language operator, e.g. 'es', 'de' or 'ja'. For non-English queries set it to the
             appropriate code; without it results may be mixed-language. For named entities test
             with and without the operator.
@@ -1017,10 +1019,11 @@ async def deepseek_search_and_read(
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
-    """Search and return full page content in one request — the recommended retrieval path.
+    """Search the web and retrieve full page text in one single-turn request.
 
-    This is search with need_content=True. Measured on 14 benchmark questions it returned content
-    for PDFs and Reddit threads where deepseek_fetch returned HTTP 404, in about 0.7s per call.
+    The primary retrieval tool for question answering. Returns full page text directly
+    from DeepSeek's search index (including PDFs and Reddit) in ~0.7s without requiring
+    separate fetch calls.
 
     Responses are cached in memory for a few minutes and identical concurrent calls share one
     upstream request; the envelope's cached flag tells which happened. Calls are rate-limited
@@ -1297,13 +1300,19 @@ def _dedupe_urls(urls: list[str]) -> tuple[list[_BatchItem], int]:
 
 
 async def _run_batch(
-    items: list[_BatchItem], clean: bool, per_url: int, refresh: bool, strip_boilerplate: bool = True
+    items: list[_BatchItem],
+    clean: bool,
+    per_url: int,
+    refresh: bool,
+    strip_boilerplate: bool = True,
+    deadline: float | None = None,
 ) -> dict[int, asyncio.Task[dict[str, Any]]]:
     """Fetch every non-rejected item concurrently under the batch concurrency and deadline.
 
     Returns the tasks by item index; those still pending at the deadline are cancelled.
     """
     settings = get_settings()
+    timeout = deadline if deadline is not None else settings.batch_deadline
     semaphore = asyncio.Semaphore(settings.batch_concurrency)
     tasks = {
         index: asyncio.create_task(
@@ -1314,7 +1323,7 @@ async def _run_batch(
     }
     try:
         if tasks:
-            await asyncio.wait(tasks.values(), timeout=settings.batch_deadline)
+            await asyncio.wait(tasks.values(), timeout=timeout)
     finally:
         pending = [task for task in tasks.values() if not task.done()]
         for task in pending:
@@ -1324,14 +1333,18 @@ async def _run_batch(
 
 
 def _batch_results(
-    items: list[_BatchItem], tasks: dict[int, asyncio.Task[dict[str, Any]]], max_total_chars: int
+    items: list[_BatchItem],
+    tasks: dict[int, asyncio.Task[dict[str, Any]]],
+    max_total_chars: int,
+    deadline: float | None = None,
 ) -> tuple[list[dict[str, Any]], bool, int]:
     """Collect batch results in input order, trimming content to ``max_total_chars`` overall.
 
     Returns ``(results, trimmed, requests_used)``.
     """
+    actual_deadline = deadline if deadline is not None else get_settings().batch_deadline
     deadline_error = _fail(
-        "deadline_exceeded", f"Not fetched within the {get_settings().batch_deadline:g} s batch deadline."
+        "deadline_exceeded", f"Not fetched within the {actual_deadline:g} s batch deadline."
     )
     results: list[dict[str, Any]] = []
     remaining = max_total_chars
@@ -1364,9 +1377,10 @@ def _assemble_batch(
     tasks: dict[int, asyncio.Task[dict[str, Any]]],
     duplicates: int,
     max_total_chars: int,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Build the ``deepseek_fetch_many`` envelope from the finished batch."""
-    results, trimmed, requests_used = _batch_results(items, tasks, max_total_chars)
+    results, trimmed, requests_used = _batch_results(items, tasks, max_total_chars, deadline=deadline)
     notes: list[str] = []
     if duplicates:
         notes.append(f"deduped {duplicates} duplicate URL(s)")
@@ -1396,6 +1410,7 @@ async def deepseek_fetch_many(
     *,
     refresh: bool = False,
     strip_boilerplate: bool = True,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
@@ -1437,8 +1452,8 @@ async def deepseek_fetch_many(
     if not items:
         return _fail("bad_request", "urls must contain at least one non-empty URL.")
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
-    tasks = await _run_batch(items, clean, per_url, refresh, strip_boilerplate)
-    return _assemble_batch(items, tasks, duplicates, max_total_chars)
+    tasks = await _run_batch(items, clean, per_url, refresh, strip_boilerplate, deadline=deadline)
+    return _assemble_batch(items, tasks, duplicates, max_total_chars, deadline=deadline)
 
 
 # Search results whose content is shorter than this are treated as gaps and fetched directly.
@@ -1524,6 +1539,7 @@ async def _fill_gaps(
         max_total_chars=total_chars,
         refresh=refresh,
         strip_boilerplate=strip_boilerplate,
+        deadline=get_settings().research_gap_deadline,
     )
     fill.requests_used = batch["requests_used"]
     fill.cached_count = batch["cached_count"]
@@ -1601,10 +1617,12 @@ async def deepseek_research(
     refresh: bool = False,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
-    """Single-pass source gathering: one search with page content, then direct fetches for the gaps.
+    """Single-pass source gathering: search with page content and auto-fetch stub pages.
 
-    It does not iterate, refine the query or summarise: there is exactly one search, no follow-up
-    searches, and the sources come back as raw content for the caller to read and synthesise.
+    Gathers candidate sources for research. It does not iterate, refine the query or summarise:
+    there is exactly one search, no follow-up searches, and the sources come back as raw
+    content for the caller to read and synthesise. For standard single-shot question answering,
+    prefer deepseek_search_and_read.
 
     Use it for reconnaissance: finding candidate sources. There is no quality filter, so results can
     include low-quality or secondary pages (student papers, aggregators, clickbait); verify facts in

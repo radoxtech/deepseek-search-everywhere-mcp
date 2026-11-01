@@ -60,6 +60,7 @@ class Settings:
 
     # Research tool budget.
     research_max_pages: int = 5
+    research_gap_deadline: float = 15.0
 
     # HTTP transport defaults (the CLI may override them).
     http_host: str = "127.0.0.1"
@@ -78,7 +79,7 @@ class Settings:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
             if name.startswith("response_cap_") and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
-            if name in {"limiter_max_wait", "batch_deadline"} and not value > 0:
+            if name in {"limiter_max_wait", "batch_deadline", "research_gap_deadline"} and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
         if not 1 <= self.batch_concurrency <= MAX_BATCH_CONCURRENCY:
             raise ValueError(

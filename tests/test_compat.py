@@ -102,3 +102,17 @@ def test_truncation_note_is_shared(fake_upstream):
     expected = "Some page content was truncated to respect the character budget."
     assert server.TRUNCATED_NOTE == expected
     assert expected in result["notes"]
+
+
+def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
+    tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+
+    retrieval_tools = ["deepseek_web_search", "deepseek_search_and_read", "deepseek_research"]
+    first_lines = [tools[name].description.splitlines()[0] for name in retrieval_tools]
+    assert len(set(first_lines)) == len(retrieval_tools)
+
+    search_desc = tools["deepseek_web_search"].description
+    assert "deprecated for direct agent use" in search_desc.lower()
+
+    total_chars = sum(len(tool.description) for tool in tools.values())
+    assert total_chars < 15000

@@ -17,7 +17,7 @@ def test_defaults_match_the_documented_constants() -> None:
     assert (s.cache_search_ttl, s.cache_search_entries, s.cache_search_bytes) == (300, 128, 16 * 1024**2)
     assert (s.cache_rewrite_ttl, s.cache_rewrite_entries, s.cache_rewrite_bytes) == (86400, 1024, 1024**2)
     assert (s.batch_max_urls, s.batch_concurrency, s.batch_deadline) == (10, 5, 120)
-    assert s.research_max_pages == 5
+    assert (s.research_max_pages, s.research_gap_deadline) == (5, 15.0)
     assert (s.http_host, s.http_port, s.http_path) == ("127.0.0.1", 8000, "/mcp")
     assert s.cache_enabled is True
     assert s.log_level == "WARNING"
@@ -41,6 +41,7 @@ def test_constructor_overrides_and_frozen() -> None:
         ("batch_concurrency", 0),
         ("batch_concurrency", 6),
         ("limiter_max_wait", 0),
+        ("research_gap_deadline", 0),
         ("http_port", 70000),
         ("http_path", "mcp"),
         ("log_level", "LOUD"),

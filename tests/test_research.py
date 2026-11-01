@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from typing import Any
 
 import pytest
 
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 LONG = "Long search content. " * 30
 
@@ -281,3 +283,22 @@ async def test_tool_description_says_single_pass_up_front() -> None:
     description = tools["deepseek_research"].description
     assert description.startswith("Single-pass source gathering:")
     assert "does not iterate, refine the query or summarise" in description
+
+
+async def test_research_respects_gap_deadline(fake_upstream: Any) -> None:
+    set_settings(Settings(research_gap_deadline=0.1, batch_concurrency=1))
+
+    class SlowFetchUpstream:
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == server.SEARCH_PATH:
+                return {"ok": True, "data": {"results": [_result(1, "")]}}
+            if path == server.FETCH_PATH:
+                await asyncio.sleep(0.3)
+                return {"ok": True, "data": {"content": "Late content"}}
+            return {"ok": False, "error": {"code": "unexpected"}}
+
+    fake_upstream(SlowFetchUpstream())
+    result = await server.deepseek_research("gap deadline test")
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["sources"][0]["error"]["code"] == "deadline_exceeded"
