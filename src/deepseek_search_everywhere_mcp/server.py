@@ -636,6 +636,22 @@ def _title_or_host(item: dict) -> str | None:
     return _url_host(item.get("url")) or title
 
 
+MAX_PRE_PROCESSING_CHARS = 2 * 1024 * 1024  # 2 MB ceiling
+
+
+def _cap_raw_content(text: str, max_chars: int) -> str:
+    """Cap untrusted text before expensive regex unescaping and boilerplate passes.
+
+    Protects against ReDoS and memory exhaustion on huge pages while
+    preserving enough buffer for boilerplate removal and Markdown unescaping
+    to produce the requested ``max_chars``.
+    """
+    if not text:
+        return ""
+    pre_cap = min(len(text), max(4 * max_chars, MAX_PRE_PROCESSING_CHARS))
+    return text[:pre_cap]
+
+
 # One alternation, scanned left to right, so a backslash escape is consumed before any backtick
 # it escapes can open an inline code span. Code (fenced blocks, then inline spans) is matched
 # only to be skipped; a fence without a closing line runs to the end of the text.
@@ -1118,10 +1134,12 @@ def _apply_char_budget(
     """
     body = item.get("content") if need_content else None
     if body:
-        cleaned = _strip_html_tags(_decode_json_escapes(_unescape_markdown(body)))
+        budget_target = max(0, min(per_result, remaining))
+        capped_body = _cap_raw_content(body, budget_target)
+        cleaned = _strip_html_tags(_decode_json_escapes(_unescape_markdown(capped_body)))
         if strip_boilerplate:
             cleaned = remove_boilerplate(cleaned, item.get("url"))
-        entry["content"], cut = _truncate(cleaned, max(0, min(per_result, remaining)))
+        entry["content"], cut = _truncate(cleaned, budget_target)
         entry["chars"] = len(entry["content"])
         return remaining - len(entry["content"]), cut
     summary = _clean_index_text(item.get("summary") or "")
@@ -1914,7 +1932,8 @@ async def _fetch(
             return _with_search_advice(record, url)
 
     data = record["data"]
-    content = data.get("content") or ""
+    raw_content = data.get("content") or ""
+    content = _cap_raw_content(raw_content, max_chars)
     if clean:
         content = _unescape_markdown(content)
     only_boilerplate = False
