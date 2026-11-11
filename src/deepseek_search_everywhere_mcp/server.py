@@ -710,15 +710,91 @@ def _clean_index_text(text: str) -> str:
     return _strip_html_tags(_decode_json_escapes(text))
 
 
+def fit_query(
+    query: str,
+    *,
+    lang: str | None = None,
+    filter_ops: str | None = None,
+    max_query: int = MAX_QUERY,
+) -> tuple[str, bool]:
+    """Fit query, language operator and filter operators into ``max_query`` characters.
+
+    Operators and language are prioritized. If they alone exceed ``max_query``, raises
+    ValueError("operators_exceed_limit").
+    When the query must be trimmed:
+    - Cuts at the last word boundary (space).
+    - Drops any half-cut operator or token.
+    - Drops unbalanced double quotes.
+    - Preserves Unicode characters intact.
+
+    Returns ``(fitted_query, trimmed)``.
+    """
+    clean_q = re.sub(r"\s+", " ", query).strip()
+
+    lang_prefix = ""
+    if lang:
+        if not re.search(r"(?:^|\s)lang:\S+", clean_q):
+            lang_prefix = f"lang:{lang} "
+
+    filter_suffix = ""
+    if filter_ops and filter_ops.strip():
+        filter_suffix = f" {filter_ops.strip()}"
+
+    fixed_len = len(lang_prefix) + len(filter_suffix)
+    if fixed_len > max_query:
+        raise ValueError("Operators and language filter exceed maximum query length.")
+
+    available = max_query - fixed_len
+
+    if not clean_q:
+        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
+        return fitted, False
+
+    if len(clean_q) <= available:
+        fitted = f"{lang_prefix}{clean_q}{filter_suffix}".strip()
+        return re.sub(r"\s+", " ", fitted), False
+
+    if available <= 0:
+        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
+        return fitted, True
+
+    cut = clean_q[:available]
+
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        cut = cut[:last_space].rstrip()
+
+    tokens = cut.split()
+    if tokens:
+        last_tok = tokens[-1]
+        tok_pos = clean_q.find(last_tok, max(0, len(cut) - len(last_tok) - 5))
+        if tok_pos >= 0:
+            tok_end = tok_pos + len(last_tok)
+            if tok_end < len(clean_q) and not clean_q[tok_end].isspace():
+                if len(tokens) > 1 or ":" in last_tok or last_tok.startswith(("-", "+")):
+                    tokens.pop()
+                    cut = " ".join(tokens).rstrip()
+
+    tokens = cut.split()
+    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
+        tokens.pop()
+    cut = " ".join(tokens).rstrip()
+
+    if cut.count('"') % 2 != 0:
+        last_q = cut.rfind('"')
+        cut = cut[:last_q].rstrip()
+
+    tokens = cut.split()
+    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
+        tokens.pop()
+    cut = " ".join(tokens).rstrip()
+
+    fitted = f"{lang_prefix}{cut}{filter_suffix}".strip()
+    return re.sub(r"\s+", " ", fitted), True
+
+
 def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
-    if not lang:
-        return query, False
-    if re.search(r"(?:^|\s)lang:\S+", query):
-        return query, False
-    prefix = f"lang:{lang} "
-    room = MAX_QUERY - len(prefix)
-    trimmed = query[:room]
-    return prefix + trimmed, len(trimmed) < len(query)
+    return fit_query(query, lang=lang)
 
 
 async def _rewrite_query(query: str) -> str | None:
@@ -743,7 +819,7 @@ async def _rewrite_query(query: str) -> str | None:
         first = next((line.strip() for line in content.splitlines() if line.strip()), "")
         if len(first) >= 2 and first[0] in "\"'" and first[-1] in "\"'":
             first = first[1:-1]
-        cleaned = re.sub(r"\s+", " ", first).strip()[:MAX_QUERY].strip()
+        cleaned, _ = fit_query(first)
         if not cleaned:
             return None
         return cleaned
@@ -1149,23 +1225,10 @@ async def _search(
     query, ori_question, query_original, rewrite_failed = await _maybe_rewrite(
         query, ori_question, rewrite, lang
     )
-    ops_len = len(ops_string) if ops_string else 0
-    budget = MAX_QUERY - (ops_len + 1 if ops_len else 0)
-    if len(query) > budget:
-        query = query[:budget]
-
-    used, trimmed = _with_lang(query, lang)
-    if ops_string:
-        if used:
-            combined = f"{used} {ops_string}"
-            if len(combined) > MAX_QUERY:
-                room = MAX_QUERY - len(ops_string) - 1
-                used = f"{used[:room]} {ops_string}"
-                trimmed = True
-            else:
-                used = combined
-        else:
-            used = ops_string
+    try:
+        used, trimmed = fit_query(query, lang=lang, filter_ops=ops_string)
+    except ValueError:
+        return _fail("query_too_long", f"Filters and language exceed the {MAX_QUERY}-character limit.")
 
     payload = _build_search_payload(
         used, count, dedupe, need_content, ori_question, localization=localization
@@ -1746,7 +1809,7 @@ async def _search_fallback_fetch(
     host_for_site = target_host[4:] if target_host.startswith("www.") else target_host
     path_segments = [s for s in parts.path.split("/") if s and s not in ("pdf", "comments", "r")]
     query_terms = " ".join(path_segments[-3:]) if path_segments else ""
-    search_query = f"site:{host_for_site} {query_terms}".strip()[:MAX_QUERY]
+    search_query, _ = fit_query(query_terms, filter_ops=f"site:{host_for_site}")
 
     search_res = await _search(
         search_query,
@@ -2460,7 +2523,8 @@ async def deepseek_deep_research(
         raw_dec = dec_res["content"]
         subqueries = parse_subqueries(raw_dec, clean_topic, max_queries=clamped_queries)
     else:
-        subqueries = [clean_topic[:MAX_QUERY].strip()]
+        fallback_subq, _ = fit_query(clean_topic)
+        subqueries = [fallback_subq]
 
     # Step 2: Concurrently execute search across subqueries
     search_coros = [
