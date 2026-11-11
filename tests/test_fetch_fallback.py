@@ -204,5 +204,8 @@ async def test_extract_pdf_uses_fallback(fake_upstream: Any) -> None:
     res = await server.deepseek_extract(pdf_url, fields=["title", "year"])
     assert res["ok"] is True
     assert res["data"] == {"title": "Attention Is All You Need", "year": 2017}
-    # 1 fetch (404) + 1 search + 1 chat completion = 3 requests
-    assert res["cost_usd"] == round(3 * server.COST_PER_REQUEST, 5)
+    # 1 fetch (404) + 1 search = 2 requests for fetch stage, plus LLM extraction cost
+    assert "cost_breakdown" in res
+    assert res["cost_breakdown"]["fetch"] == round(2 * server.COST_PER_REQUEST, 6)
+    assert res["cost_breakdown"]["llm"] > 0.0
+    assert res["cost_usd"] == round(res["cost_breakdown"]["fetch"] + res["cost_breakdown"]["llm"], 6)

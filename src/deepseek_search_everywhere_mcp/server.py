@@ -722,24 +722,22 @@ def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
 
 
 async def _rewrite_query(query: str) -> str | None:
-    payload: dict[str, Any] = {
-        "model": REWRITE_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": query},
-        ],
-        "temperature": 0,
-        "max_tokens": 64,
-        "stream": False,
-        "thinking": {"type": "disabled"},
-    }
     try:
-        result = await _request(
-            "POST", "/v1/chat/completions", payload=payload, timeout=CHAT_TIMEOUT, attempts=1
+        result = await _chat_request(
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": query},
+            ],
+            thinking={"type": "disabled"},
+            model=REWRITE_MODEL,
+            max_tokens=64,
+            temperature=0,
+            timeout=CHAT_TIMEOUT,
+            attempts=1,
         )
         if not result.get("ok"):
             return None
-        content = result["data"]["choices"][0]["message"]["content"]
+        content = result.get("content")
         if not isinstance(content, str):
             return None
         first = next((line.strip() for line in content.splitlines() if line.strip()), "")
@@ -2426,22 +2424,18 @@ async def deepseek_deep_research(
 
     # Step 1: Decompose topic into subqueries
     dec_messages = build_decomposition_messages(clean_topic, max_queries=clamped_queries)
-    dec_res = await _request(
-        "POST",
-        "/v1/chat/completions",
-        payload={
-            "model": REWRITE_MODEL,
-            "messages": dec_messages,
-            "temperature": 0,
-            "max_tokens": 256,
-            "stream": False,
-            "thinking": {"type": "disabled"},
-        },
+    dec_res = await _chat_request(
+        messages=dec_messages,
+        thinking={"type": "disabled"},
+        model=REWRITE_MODEL,
+        temperature=0,
+        max_tokens=256,
         timeout=CHAT_TIMEOUT,
-        attempts=1,
+        attempts=2,
     )
-    if dec_res.get("ok") and dec_res.get("data", {}).get("choices"):
-        raw_dec = dec_res["data"]["choices"][0]["message"]["content"]
+    dec_cost = dec_res.get("cost_usd", 0.0) if dec_res.get("ok") else 0.0
+    if dec_res.get("ok") and dec_res.get("content"):
+        raw_dec = dec_res["content"]
         subqueries = parse_subqueries(raw_dec, clean_topic, max_queries=clamped_queries)
     else:
         subqueries = [clean_topic[:MAX_QUERY].strip()]
@@ -2500,8 +2494,11 @@ async def deepseek_deep_research(
 
     # Step 5: Select synthesis context (capped at 6 sources, 24k chars)
     synthesis_context = select_synthesis_context(sources)
+    search_cost = sum(s.get("cost_usd", 0.0) for s in successful_searches)
+    fetch_cost = fill.requests_used * COST_PER_REQUEST
     if not synthesis_context:
-        cost = round(requests_used * COST_PER_REQUEST, 5)
+        total_llm_cost = round(dec_cost, 6)
+        total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
         return {
             "ok": True,
             "topic": clean_topic,
@@ -2512,16 +2509,22 @@ async def deepseek_deep_research(
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
             "cached_count": cached_count,
-            "cost_usd": cost,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(search_cost, 6),
+                "fetch": round(fetch_cost, 6),
+                "llm": total_llm_cost,
+            },
             "untrusted_content": True,
             "notes": notes + ["No readable source content available for synthesis."],
-            "_meta": _envelope_meta(cost, untrusted_content=True),
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
         }
 
     # Soft deadline check before synthesis
     elapsed = _clock() - t0
     if elapsed > RESEARCH_DEADLINE - 5.0:
-        cost = round(requests_used * COST_PER_REQUEST, 5)
+        total_llm_cost = round(dec_cost, 6)
+        total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
         return {
             "ok": True,
             "topic": clean_topic,
@@ -2532,31 +2535,33 @@ async def deepseek_deep_research(
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
             "cached_count": cached_count,
-            "cost_usd": cost,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(search_cost, 6),
+                "fetch": round(fetch_cost, 6),
+                "llm": total_llm_cost,
+            },
             "untrusted_content": True,
             "notes": notes + ["Synthesis deadline reached; returning gathered sources."],
-            "_meta": _envelope_meta(cost, untrusted_content=True),
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
         }
 
     # Step 6: Synthesize cited briefing report
     synthesis_messages = build_synthesis_messages(clean_topic, synthesis_context)
-    synth_res = await _request(
-        "POST",
-        "/v1/chat/completions",
-        payload={
-            "model": REWRITE_MODEL,
-            "messages": synthesis_messages,
-            "temperature": 0.2,
-            "max_tokens": 2048,
-            "stream": False,
-            "thinking": {"type": "disabled"},
-        },
+    synth_res = await _chat_request(
+        messages=synthesis_messages,
+        thinking={"type": "disabled"},
+        model=REWRITE_MODEL,
+        temperature=0.2,
+        max_tokens=2048,
         timeout=SYNTHESIS_TIMEOUT,
-        attempts=1,
+        attempts=2,
     )
+    synth_cost = synth_res.get("cost_usd", 0.0) if synth_res.get("ok") else 0.0
+    total_llm_cost = round(dec_cost + synth_cost, 6)
+    total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
 
     if not synth_res.get("ok"):
-        cost = round((requests_used + 1) * COST_PER_REQUEST, 5)
         return {
             "ok": True,
             "topic": clean_topic,
@@ -2567,19 +2572,23 @@ async def deepseek_deep_research(
             "requests_used": requests_used + 1,
             "cached": _all_cached(requests_used + 1, cached_count),
             "cached_count": cached_count,
-            "cost_usd": cost,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(search_cost, 6),
+                "fetch": round(fetch_cost, 6),
+                "llm": total_llm_cost,
+            },
             "untrusted_content": True,
             "notes": notes
             + [
                 f"Synthesis model call failed: {synth_res.get('error', {}).get('message', 'unknown')}; "
                 "returning gathered sources."
             ],
-            "_meta": _envelope_meta(cost, untrusted_content=True),
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
         }
 
-    report_text = synth_res["data"]["choices"][0]["message"]["content"]
+    report_text = synth_res.get("content", "")
     clean_report = sanitize_citations(report_text, max_id=len(synthesis_context))
-    cost = round((requests_used + 1) * COST_PER_REQUEST, 5)
 
     return {
         "ok": True,
@@ -2599,10 +2608,15 @@ async def deepseek_deep_research(
         "requests_used": requests_used + 1,
         "cached": _all_cached(requests_used + 1, cached_count),
         "cached_count": cached_count,
-        "cost_usd": cost,
+        "cost_usd": total_cost,
+        "cost_breakdown": {
+            "search": round(search_cost, 6),
+            "fetch": round(fetch_cost, 6),
+            "llm": total_llm_cost,
+        },
         "untrusted_content": True,
         "notes": notes,
-        "_meta": _envelope_meta(cost, untrusted_content=True),
+        "_meta": _envelope_meta(total_cost, untrusted_content=True),
     }
 
 
@@ -2649,32 +2663,30 @@ async def _extract_page(
     page_title = fetch_res.get("title") or "Untitled"
     user_content = f"URL: {clean_url}\nTitle: {page_title}\n\nPage Content:\n{content}"
 
-    payload: dict[str, Any] = {
-        "model": REWRITE_MODEL,
-        "messages": [
+    chat_res = await _chat_request(
+        messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
-        "temperature": 0,
-        "max_tokens": 2048,
-        "stream": False,
-        "thinking": {"type": "disabled"},
-    }
-
-    result = await _request(
-        "POST", "/v1/chat/completions", payload=payload, timeout=EXTRACT_TIMEOUT, attempts=1
+        thinking={"type": "disabled"},
+        model=REWRITE_MODEL,
+        temperature=0,
+        max_tokens=2048,
+        timeout=EXTRACT_TIMEOUT,
+        attempts=2,
     )
-    if not result.get("ok"):
+    if not chat_res.get("ok"):
         return {
             "ok": False,
             "url": clean_url,
-            "error": result.get("error")
+            "error": chat_res.get("error")
             or {"code": "extraction_failed", "message": "Extraction model request failed."},
+            "llm_cost_usd": 0.0,
         }, 1
 
-    choices = result.get("data", {}).get("choices") or []
-    raw_text = choices[0]["message"]["content"] if choices else None
-    if not isinstance(raw_text, str):
+    raw_text = chat_res.get("content")
+    llm_cost = chat_res.get("cost_usd", 0.0)
+    if not isinstance(raw_text, str) or not raw_text.strip():
         return {
             "ok": False,
             "url": clean_url,
@@ -2682,6 +2694,7 @@ async def _extract_page(
                 "code": "extraction_failed",
                 "message": "Invalid response payload from extraction model.",
             },
+            "llm_cost_usd": llm_cost,
         }, 1
 
     parsed, err = sanitize_json(raw_text)
@@ -2693,6 +2706,7 @@ async def _extract_page(
                 "code": "extraction_failed",
                 "message": err or "Failed to parse extraction response as JSON.",
             },
+            "llm_cost_usd": llm_cost,
         }, 1
 
     notes: list[str] = []
@@ -2713,6 +2727,7 @@ async def _extract_page(
         "data": parsed,
         "cached": fetch_res.get("cached", False),
         "notes": notes,
+        "llm_cost_usd": llm_cost,
     }, 1
 
 
@@ -2767,19 +2782,24 @@ async def deepseek_extract(
     if not item.get("ok"):
         return {"ok": False, "error": item["error"]}
 
-    fetch_reqs = round(fetch_res.get("cost_usd", 0.0) / COST_PER_REQUEST)
-    requests_used = fetch_reqs + llm_reqs
-    cost = round(requests_used * COST_PER_REQUEST, 5)
+    fetch_cost = fetch_res.get("cost_usd", 0.0)
+    llm_cost = item.get("llm_cost_usd", 0.0)
+    total_cost = round(fetch_cost + llm_cost, 6)
     return {
         "ok": True,
         "url": clean_url,
         "title": item.get("title"),
         "data": item.get("data"),
         "cached": fetch_res.get("cached", False),
-        "cost_usd": cost,
+        "cost_usd": total_cost,
+        "cost_breakdown": {
+            "search": 0.0,
+            "fetch": round(fetch_cost, 6),
+            "llm": round(llm_cost, 6),
+        },
         "untrusted_content": True,
         "notes": item.get("notes", []),
-        "_meta": _envelope_meta(cost, untrusted_content=True),
+        "_meta": _envelope_meta(total_cost, untrusted_content=True),
     }
 
 
@@ -2892,7 +2912,9 @@ async def deepseek_extract_many(
 
     failed_count = sum(not item.get("ok", False) for item in results)
     cached_count = sum(item.get("cached", False) for item in results)
-    cost = round(requests_used * COST_PER_REQUEST, 5)
+    total_fetch_cost = sum(env.get("cost_usd", 0.0) for env in fetch_envelopes.values() if env.get("ok"))
+    total_llm_cost = sum(item.get("llm_cost_usd", 0.0) for item in results if item.get("ok"))
+    total_cost = round(total_fetch_cost + total_llm_cost, 6)
 
     return {
         "ok": True,
@@ -2902,11 +2924,16 @@ async def deepseek_extract_many(
         "cached_count": cached_count,
         "failed_count": failed_count,
         "partial": failed_count > 0,
-        "cost_usd": cost,
+        "cost_usd": total_cost,
+        "cost_breakdown": {
+            "search": 0.0,
+            "fetch": round(total_fetch_cost, 6),
+            "llm": round(total_llm_cost, 6),
+        },
         "untrusted_content": True,
         "results": results,
         "notes": notes,
-        "_meta": _envelope_meta(cost, untrusted_content=True),
+        "_meta": _envelope_meta(total_cost, untrusted_content=True),
     }
 
 

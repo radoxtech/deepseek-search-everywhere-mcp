@@ -198,7 +198,10 @@ async def test_extract_many_success_with_fields(fake_upstream: Any) -> None:
     assert len(upstream.fetch_calls) == 2
     assert len(upstream.chat_calls) == 2
     assert res["requests_used"] == 4
-    assert res["cost_usd"] == round(4 * server.COST_PER_REQUEST, 5)
+    assert "cost_breakdown" in res
+    assert res["cost_breakdown"]["fetch"] == round(2 * server.COST_PER_REQUEST, 6)
+    assert res["cost_breakdown"]["llm"] > 0.0
+    assert res["cost_usd"] == round(res["cost_breakdown"]["fetch"] + res["cost_breakdown"]["llm"], 6)
 
 
 async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
