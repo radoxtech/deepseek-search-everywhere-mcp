@@ -7,11 +7,13 @@ Thresholds tolerate normal web variability while still catching off-topic or bro
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 from live_judge import assert_quality, judge_answerable, judge_items
+from repeat_runner import repeat_llm
 
 from deepseek_search_everywhere_mcp import server
 from deepseek_search_everywhere_mcp.boilerplate import REDDIT, rules_for
@@ -296,3 +298,27 @@ async def test_live_auth_failed_on_invalid_key(monkeypatch: pytest.MonkeyPatch) 
     assert envelope["ok"] is False
     assert envelope["error"]["code"] == "auth_failed"
     assert envelope["error"]["status"] == 401
+
+
+@pytest.mark.live_llm
+@repeat_llm(repeats=3)
+async def test_live_llm_usage_and_json_mode() -> None:
+    res = await server._chat_request(
+        messages=[
+            {"role": "system", "content": "You are a JSON generator. Return valid JSON only."},
+            {"role": "user", "content": "Return a JSON object with a single key 'status' set to 'ok'."},
+        ],
+        thinking={"type": "disabled"},
+        response_format={"type": "json_object"},
+        max_tokens=64,
+        temperature=0,
+    )
+    assert res["ok"] is True
+    assert res["usage"]
+    assert res["usage"].get("prompt_tokens", 0) > 0
+    assert res["usage"].get("completion_tokens", 0) > 0
+    assert res["cost_usd"] > 0
+    assert res["pricing_period"] in ("peak", "off_peak")
+    assert isinstance(res["content"], str)
+    parsed = json.loads(res["content"])
+    assert parsed.get("status") == "ok"

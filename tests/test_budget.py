@@ -127,3 +127,70 @@ def test_server_enforces_budget_exceeded(fake_upstream, tmp_path):
     # Reset server state
     set_settings(None)
     server.reset_state()
+
+
+async def test_fifty_concurrent_reservations_never_exceed_limit(tmp_path: Any) -> None:
+    state_file = tmp_path / "budget.json"
+    tracker = DailyBudgetTracker(limit_usd=0.05, state_path=state_file)
+
+    # 50 tasks attempt to reserve $0.002 each ($0.10 total, limit is $0.05)
+    results = await asyncio.gather(*(tracker.reserve(0.002) for _ in range(50)))
+    successful = [r for r in results if r is not None]
+
+    assert len(successful) == 25
+    assert len(successful) * 0.002 <= 0.05
+
+    status = await tracker.get_status()
+    assert status["reserved_usd"] == 0.05
+    assert status["spent_usd"] == 0.0
+    assert status["remaining_usd"] == 0.0
+
+    # Release 10 reservations
+    for res in successful[:10]:
+        await res.release()
+
+    status_after_release = await tracker.get_status()
+    assert round(status_after_release["reserved_usd"], 6) == 0.03
+    assert round(status_after_release["remaining_usd"], 6) == 0.02
+
+    # Commit remaining 15 reservations at $0.0015 actual cost
+    for res in successful[10:]:
+        await res.commit(0.0015)
+
+    status_after_commit = await tracker.get_status()
+    assert status_after_commit["reserved_usd"] == 0.0
+    assert round(status_after_commit["spent_usd"], 6) == round(15 * 0.0015, 6)
+    assert status_after_commit["requests"] == 15
+
+
+async def test_two_trackers_on_one_file_lose_no_updates(tmp_path: Any) -> None:
+    state_file = tmp_path / "budget.json"
+    tracker1 = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
+    tracker2 = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
+
+    async def run_worker(tracker: DailyBudgetTracker, cost: float) -> None:
+        res = await tracker.reserve(cost * 2)
+        assert res is not None
+        await asyncio.sleep(0.005)
+        await res.commit(cost)
+
+    tasks = []
+    # 10 tasks on tracker1 committing $0.001 each
+    for _ in range(10):
+        tasks.append(run_worker(tracker1, 0.001))
+    # 10 tasks on tracker2 committing $0.002 each
+    for _ in range(10):
+        tasks.append(run_worker(tracker2, 0.002))
+
+    await asyncio.gather(*tasks)
+
+    # Both trackers should observe 20 requests and $0.030 total spent
+    status1 = await tracker1.get_status()
+    status2 = await tracker2.get_status()
+
+    assert status1["requests"] == 20
+    assert status2["requests"] == 20
+    assert round(status1["spent_usd"], 6) == 0.03
+    assert round(status2["spent_usd"], 6) == 0.03
+    assert status1["reserved_usd"] == 0.0
+    assert status2["reserved_usd"] == 0.0
