@@ -1694,6 +1694,41 @@ def _with_search_advice(error: dict[str, Any], url: str) -> dict[str, Any]:
     return {**error, "error": {**detail, "message": message}}
 
 
+def _is_canonical_match(target_url: str, candidate_url: str) -> bool:
+    """Check if candidate_url matches target_url canonically.
+
+    Must share the same normalized host (no parent/subdomain match).
+    For PDFs: same host and same filename (ignoring optional .pdf extension).
+    For non-PDFs: same host and same normalized path.
+    """
+    try:
+        t_parts = urllib.parse.urlsplit(target_url)
+        c_parts = urllib.parse.urlsplit(candidate_url)
+    except ValueError:
+        return False
+
+    t_host = (t_parts.hostname or "").lower()
+    c_host = (c_parts.hostname or "").lower()
+    if t_host.startswith("www."):
+        t_host = t_host[4:]
+    if c_host.startswith("www."):
+        c_host = c_host[4:]
+    if not t_host or t_host != c_host:
+        return False
+
+    is_pdf = t_parts.path.lower().endswith(".pdf") or _PDF_ID_PATH.search(t_parts.path.lower()) is not None
+
+    t_path = t_parts.path.rstrip("/")
+    c_path = c_parts.path.rstrip("/")
+
+    if is_pdf:
+        t_filename = t_path.split("/")[-1].removesuffix(".pdf") if t_path else ""
+        c_filename = c_path.split("/")[-1].removesuffix(".pdf") if c_path else ""
+        return bool(t_filename and t_filename == c_filename)
+
+    return t_path == c_path
+
+
 async def _search_fallback_fetch(
     url: str,
     *,
@@ -1734,16 +1769,7 @@ async def _search_fallback_fetch(
 
     for res in search_res.get("results") or []:
         res_url = res.get("url") or ""
-        try:
-            res_parts = urllib.parse.urlsplit(res_url)
-            res_host = (res_parts.hostname or "").lower()
-        except ValueError:
-            continue
-        if not (
-            res_host == target_host
-            or res_host.endswith(f".{target_host}")
-            or target_host.endswith(f".{res_host}")
-        ):
+        if not _is_canonical_match(url, res_url):
             continue
 
         raw_content = res.get("content") or ""
@@ -1805,9 +1831,6 @@ async def _fetch(
                 record = fallback_record
                 cached = False
                 fallback_used = True
-                fetch_cache = _get_fetch_cache()
-                if fetch_cache is not None:
-                    fetch_cache.set(key, record)
             else:
                 return _with_search_advice(record, url)
         else:
@@ -1878,9 +1901,11 @@ async def _fetch(
         cost = 0.0 if cached else COST_PER_REQUEST
     if fallback_used or record.get("fallback_from_search"):
         notes.append("Content retrieved via DeepSeek search index (direct fetch unavailable).")
+    source = "search_index" if (fallback_used or record.get("fallback_from_search")) else "fetch"
     envelope: dict[str, Any] = {
         "ok": True,
         "url": url,
+        "source": source,
         "title": _collapse_repeated_title(data.get("title")),
         "content": content,
         "chars": len(content),

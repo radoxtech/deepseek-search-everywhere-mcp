@@ -81,6 +81,7 @@ async def test_fetch_pdf_fallback_success(fake_upstream: Any) -> None:
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is True
+    assert res["source"] == "search_index"
     assert res["title"] == "Attention Is All You Need"
     assert "The dominant sequence" in res["content"]
     assert any("Content retrieved via DeepSeek search index" in note for note in res["notes"])
@@ -107,12 +108,13 @@ async def test_fetch_reddit_fallback_success(fake_upstream: Any) -> None:
 
     res = await server.deepseek_fetch(reddit_url)
     assert res["ok"] is True
+    assert res["source"] == "search_index"
     assert res["title"] == "Discussion on LLMs"
     assert "Interesting thread" in res["content"]
     assert any("Content retrieved via DeepSeek search index" in note for note in res["notes"])
 
 
-async def test_fetch_pdf_fallback_caching(fake_upstream: Any) -> None:
+async def test_fetch_pdf_fallback_not_cached_under_original_key(fake_upstream: Any) -> None:
     pdf_url = "https://arxiv.org/pdf/1706.03762"
     search_item = {
         "url": "https://arxiv.org/pdf/1706.03762",
@@ -124,18 +126,34 @@ async def test_fetch_pdf_fallback_caching(fake_upstream: Any) -> None:
 
     res1 = await server.deepseek_fetch(pdf_url)
     assert res1["ok"] is True
+    assert res1["source"] == "search_index"
     assert res1["cached"] is False
     assert len(upstream.calls) == 2
 
-    # Second call should be served from fetch cache at 0 cost
+    # Second call should not be served from cache; fallback is never cached under original key
     res2 = await server.deepseek_fetch(pdf_url)
     assert res2["ok"] is True
-    assert res2["cached"] is True
-    assert res2["cost_usd"] == 0.0
-    assert res2["content"] == "Paper content to cache."
-    assert any("Content retrieved via DeepSeek search index" in note for note in res2["notes"])
-    # No new upstream calls
-    assert len(upstream.calls) == 2
+    assert res2["source"] == "search_index"
+    assert res2["cached"] is False
+    # Upstream fetch was called again (not served from fetch cache)
+    assert len([c for c in upstream.calls if c["path"] == server.FETCH_PATH]) == 2
+
+
+async def test_fetch_fallback_same_host_different_path_rejected(fake_upstream: Any) -> None:
+    reddit_url = "https://www.reddit.com/r/MachineLearning/comments/123/target_thread"
+    # Result is from reddit.com, but a completely different thread
+    search_item = {
+        "url": "https://www.reddit.com/r/MachineLearning/comments/999/other_thread",
+        "title": "Other Thread",
+        "content": "Unrelated content",
+    }
+    upstream = FallbackUpstream(fetch_status=404, search_results=[search_item])
+    fake_upstream(upstream)
+
+    res = await server.deepseek_fetch(reddit_url)
+    assert res["ok"] is False
+    assert res["error"]["code"] == "not_found"
+    assert "deepseek_search" in res["error"]["message"]
 
 
 async def test_fetch_fallback_disabled(fake_upstream: Any) -> None:
