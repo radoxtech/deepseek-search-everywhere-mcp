@@ -157,5 +157,36 @@ def test_search_many_deadline_timeout(fake_upstream):
 
     fake_upstream(slow_request)
     res = asyncio.run(server.deepseek_search_many(["slow_q"], deadline=0.01))
-    assert res["ok"] is False
-    assert res["error"]["code"] == "timeout"
+    assert res["ok"] is True
+    assert res["partial"] is True
+    assert res["failed_count"] == 1
+    assert res["results"][0]["ok"] is False
+    assert res["results"][0]["error"]["code"] == "deadline_exceeded"
+
+
+def test_search_many_partial_on_slow_query(fake_upstream):
+    async def mixed_request(method, path, **kwargs):
+        payload = kwargs.get("payload") or {}
+        q = payload.get("query", "")
+        if "slow" in q:
+            await asyncio.sleep(0.5)
+            return {"ok": True, "data": {"results": [{"title": "Slow", "url": "https://slow.test"}]}}
+        return {"ok": True, "data": {"results": [{"title": "Fast", "url": "https://fast.test"}]}}
+
+    fake_upstream(mixed_request)
+    res = asyncio.run(server.deepseek_search_many(["fast_q", "slow_q"], deadline=0.05))
+    assert res["ok"] is True
+    assert res["partial"] is True
+    assert res["count"] == 2
+    assert res["failed_count"] == 1
+    assert res["requests_used"] == 1
+
+    fast_res = res["results"][0]
+    assert fast_res["ok"] is True
+    assert fast_res["query"] == "fast_q"
+    assert len(fast_res["results"]) == 1
+
+    slow_res = res["results"][1]
+    assert slow_res["ok"] is False
+    assert slow_res["query"] == "slow_q"
+    assert slow_res["error"]["code"] == "deadline_exceeded"

@@ -1410,16 +1410,19 @@ async def deepseek_search_many(
             strip_boilerplate=strip_boilerplate,
         )
 
-    tasks = [_run_one(q) for q in unique_queries]
+    tasks = [asyncio.create_task(_run_one(q)) for q in unique_queries]
     timeout = deadline if deadline is not None else SEARCH_TIMEOUT
     try:
-        raw_results = await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=timeout,
-        )
-    except TimeoutError:
-        return _fail("timeout", f"Search batch timed out after {timeout} seconds.")
+        if tasks:
+            await asyncio.wait(tasks, timeout=timeout)
+    finally:
+        pending = [task for task in tasks if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
+    deadline_error = _fail("deadline_exceeded", f"Search query timed out after {timeout:g} s.")
     results: list[dict[str, Any]] = []
     requests_used = 0
     cached_count = 0
@@ -1428,21 +1431,15 @@ async def deepseek_search_many(
     if duplicates:
         notes.append(f"deduped {duplicates} duplicate query/queries")
 
-    for q, res in zip(unique_queries, raw_results, strict=True):
-        if isinstance(res, Exception):
-            failed_count += 1
-            results.append(
-                {
-                    "query": q,
-                    "ok": False,
-                    "count": 0,
-                    "results": [],
-                    "cached": False,
-                    "error": _fail("network_error", str(res))["error"],
-                    "notes": [],
-                }
-            )
-        elif isinstance(res, dict) and res.get("ok"):
+    for q, task in zip(unique_queries, tasks, strict=True):
+        if task.cancelled():
+            res = deadline_error
+        elif task.exception() is not None:
+            res = _fail("network_error", str(task.exception()))
+        else:
+            res = task.result()
+
+        if isinstance(res, dict) and res.get("ok"):
             is_cached = res.get("cached", False)
             if is_cached:
                 cached_count += 1
