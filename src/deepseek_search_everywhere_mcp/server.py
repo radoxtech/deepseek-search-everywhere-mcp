@@ -1109,11 +1109,10 @@ async def deepseek_search(
 ) -> dict[str, Any]:
     """Search the web with DeepSeek index and return page text, snippets, and metadata.
 
-    Primary search and retrieval tool. Queries DeepSeek index directly for ranked results
-    with snippets (need_content=False) or indexed full text (default need_content=True).
+    Primary search and retrieval tool. Returns snippets (need_content=False) or full text.
 
     Args:
-        query: Query, max 128 chars (supports site:, -site:, "phrase", after:, before:).
+        query: Query, max 128 chars (site:, -site:, "phrase", after:, before:).
         count: Results, 1-50 (default 5).
         ori_question: Natural question, max 128 chars; improves ranking.
         need_content: Full text inline (default True; False for snippets).
@@ -1125,8 +1124,8 @@ async def deepseek_search(
         localization: Optional IP for geo-targeting.
         exclude_terms: Exclude terms (e.g. ['spam']).
         exact_phrases: Exact phrases (e.g. ['AI agent']).
-        after: Date on or after (YYYY-MM-DD/YYYY).
-        before: Date on or before (YYYY-MM-DD/YYYY).
+        after: Date on or after (YYYY-MM-DD).
+        before: Date on or before (YYYY-MM-DD).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
         refresh: Bypass cache (default False).
@@ -1284,9 +1283,8 @@ async def deepseek_fetch(
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
-    Retrieves Markdown for a known URL. Use when target URL is known. For multiple URLs
-    use deepseek_fetch_many; for structured data use deepseek_extract; for search use
-    deepseek_search. Auto-resolves documents and protected pages via search index on 404.
+    Retrieves Markdown for a known URL. For multiple URLs use deepseek_fetch_many;
+    for structured data use deepseek_extract. Auto-resolves on 404 via search index.
 
     Args:
         url: Absolute http(s) URL, max 8192 chars.
@@ -1296,11 +1294,11 @@ async def deepseek_fetch(
         limit: Max characters from offset.
         find_text: Find substring and start offset there.
         query: Query to extract ranked snippets.
-        section: 1-based index to read a document section.
-        max_snippets: Max snippets when query is set (default 3, 1-5).
+        section: 1-based document section index.
+        max_snippets: Max snippets when query is set (default 3).
         refresh: Bypass cache (default False).
         strip_boilerplate: Remove site UI lines (default True).
-        fallback_to_search: Search fallback on 404 for documents/protected pages (default True).
+        fallback_to_search: Auto-search fallback on 404 (default True).
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
@@ -1792,12 +1790,11 @@ async def deepseek_fetch_many(
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
-    Fetch multiple known URLs in parallel. Use when target URLs are known. Do not use
-    for a single URL (use deepseek_fetch), nor for search (use deepseek_search).
+    Fetch multiple known URLs in parallel. Use when target URLs are known.
     Skips blanks, deduplicates, and preserves order.
 
     Args:
-        urls: 1-10 absolute http(s) URLs, max 8192 characters each.
+        urls: 1-10 absolute http(s) URLs, max 8192 chars each.
         max_chars_per_url: Content cap per page (default 4000).
         max_total_chars: Total content cap across pages (default 20000).
         clean: Remove Markdown backslash escapes (default True).
@@ -1805,7 +1802,7 @@ async def deepseek_fetch_many(
         refresh: Bypass cache (default False).
         strip_boilerplate: Remove site UI lines (default True).
         deadline: Max seconds before cancelling fetches (default 120s).
-        fallback_to_search: Search fallback on 404 for documents/protected pages (default True).
+        fallback_to_search: Auto-search fallback on 404 (default True).
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -2005,12 +2002,12 @@ async def deepseek_research(
     one search returning raw content. Auto-fetches stub results in parallel.
 
     Args:
-        question: Search query, max 128 characters.
-        max_pages: Results to use, 1-50 (default 5).
+        question: Query, max 128 chars.
+        max_pages: Results, 1-50 (default 5).
         per_page_chars: Cap per source (default 6000).
-        total_chars: Budget across sources (default 30000).
-        after: Date on or after (YYYY-MM-DD/YYYY).
-        before: Date on or before (YYYY-MM-DD/YYYY).
+        total_chars: Total content cap (default 30000).
+        after: Date on or after (YYYY-MM-DD).
+        before: Date on or before (YYYY-MM-DD).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
         lang: Language filter (e.g. 'pl', 'es').
@@ -2392,11 +2389,11 @@ async def deepseek_extract(
     """Extract structured JSON from a web page conforming to target fields or a schema.
 
     Extracts specific entities or key-value data without returning full page text.
-    Returns extracted JSON under 'data'. Do not use for general reading (use deepseek_fetch).
+    Returns extracted JSON under 'data'. For batch use deepseek_extract_many.
 
     Args:
         url: Absolute web page URL to extract from.
-        fields: Target attribute names (e.g. ['price', 'specs']), exclusive with schema.
+        fields: Target attribute names (e.g. ['price']), exclusive with schema.
         schema: JSON Schema defining target structure, exclusive with fields.
         instruction: Optional extraction guidance.
         clean: Remove Markdown backslash escapes (default True).
@@ -2465,7 +2462,7 @@ async def deepseek_extract_many(
 
     Args:
         urls: 1-10 absolute web page URLs to extract from.
-        fields: Target attribute names (e.g. ['price', 'specs']), exclusive with schema.
+        fields: Target attribute names (e.g. ['price']), exclusive with schema.
         schema: JSON Schema defining target structure, exclusive with fields.
         instruction: Optional extraction guidance across pages.
         clean: Remove Markdown backslash escapes (default True).
