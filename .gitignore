@@ -24,6 +24,10 @@ htmlcov/
 *.log
 *.db
 
+# Plans and scratchpads
+docs/plans/
+plans/
+
 # OS and editors
 .DS_Store
 .idea/

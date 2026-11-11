@@ -52,6 +52,8 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 - New tool parameters are keyword-only.
 - Tests are offline by default and use the `fake_upstream` fixture; tests that hit the real API are
   marked `live` and are skipped without a key.
+- Never commit implementation plans, roadmaps, or temporary design documents into the repository;
+  keep plans strictly as agent session artifacts or local untracked scratchpads.
 
 ## Invariants (do not change without an explicit maintainer decision)
 
