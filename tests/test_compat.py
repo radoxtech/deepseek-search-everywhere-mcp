@@ -10,11 +10,13 @@ from deepseek_search_everywhere_mcp import server
 
 TOOL_NAMES = {
     "deepseek_search",
+    "deepseek_search_many",
     "deepseek_fetch",
     "deepseek_fetch_many",
     "deepseek_research",
     "deepseek_deep_research",
     "deepseek_extract",
+    "deepseek_extract_many",
     "deepseek_check_balance",
 }
 
@@ -40,16 +42,23 @@ def test_tool_names_are_stable():
     [
         "_search",
         "deepseek_search",
+        "deepseek_search_many",
         "deepseek_web_search",
         "deepseek_search_and_read",
         "deepseek_fetch",
         "deepseek_deep_research",
         "deepseek_extract",
+        "deepseek_extract_many",
     ],
 )
 def test_new_parameters_are_keyword_only(name):
     signature = inspect.signature(getattr(server, name))
     assert signature.parameters["refresh"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_clear_cache_parameter_is_keyword_only():
+    signature = inspect.signature(server.deepseek_check_balance)
+    assert signature.parameters["clear_cache"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
 def test_search_parameter_order_is_unchanged():
@@ -131,7 +140,7 @@ def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
     assert "primary search and retrieval tool" in search_desc.lower()
 
     total_chars = sum(len(tool.description) for tool in tools.values())
-    assert total_chars < 6500
+    assert total_chars < 7500
 
 
 def test_legacy_v1_tool_aliases_callable():

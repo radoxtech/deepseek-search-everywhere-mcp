@@ -275,3 +275,15 @@ async def test_fetch_pdf_live() -> None:
     _assert_ok(envelope)
     assert "attention" in envelope["content"].lower() or "transformer" in envelope["content"].lower()
     assert envelope["title"] is not None
+
+
+async def test_search_many_live() -> None:
+    queries = ["python asyncio best practices", "fastmcp schema design"]
+    envelope = await server.deepseek_search_many(queries, count=2)
+    _assert_ok(envelope)
+    assert envelope["count"] == 2
+    assert envelope["partial"] is False
+    assert len(envelope["results"]) == 2
+    for item in envelope["results"]:
+        assert item["ok"] is True
+        assert len(item["results"]) >= 1

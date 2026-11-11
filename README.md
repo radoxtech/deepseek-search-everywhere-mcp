@@ -311,12 +311,14 @@ The container runs as an unprivileged non-root user (`UID 10001`) with dependenc
 | Tool | Purpose | Parameters (defaults) |
 |---|---|---|
 | `deepseek_search` | Search the web; returns inline page text (default) or snippets and metadata | `query`, `count=5` (1-50), `ori_question`, `need_content=True`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `localization=None`, `exclude_terms=None`, `exact_phrases=None`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
+| `deepseek_search_many` | Search the web with 1-5 queries concurrently; returns ranked snippets (default) or full text | `queries`, `count=5` (1-50), `need_content=False`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `localization=None`, `exclude_terms=None`, `exact_phrases=None`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True`, `deadline=None` |
 | `deepseek_fetch` | Fetch one known URL as Markdown (supports lexical snippet extraction, sectional reading and windowed pagination) | `url`, `clean=True`, `max_chars=20000`, `offset=None`, `limit=None`, `find_text=None`, `query=None`, `section=None`, `max_snippets=3`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `query`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_research` | Single-pass source gathering: search with content and auto-fetch stub pages (< 200 chars). No iteration, no summary | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `after`, `before`, `include_domains`, `exclude_domains`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_deep_research` | Multi-angle research on a topic; decomposes subqueries, gathers sources, and synthesizes a cited report | `topic`, `max_queries=3` (2-4), `max_pages_per_query=3` (1-5), `lang`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_extract` | Extract structured JSON from a web page conforming to target fields or a schema | `url`, `fields=None`, `schema=None`, `instruction=None`, `clean=True`, `max_chars=40000`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_check_balance` | Account balance and session metrics (upstream queries, cache hits, estimated cost) | none |
+| `deepseek_extract_many` | Extract structured JSON from 1-10 web pages concurrently conforming to fields or schema | `urls`, `fields=None`, `schema=None`, `instruction=None`, `clean=True`, `max_chars_per_url=20000`, `max_total_chars=60000`, `refresh=False`, `strip_boilerplate=True`, `deadline=None` |
+| `deepseek_check_balance` | Account balance, session metrics and cache management (purges memory cache on clear_cache=True) | `clear_cache=False` |
 
 Notes on the parameters:
 
