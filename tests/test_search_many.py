@@ -124,3 +124,38 @@ def test_search_many_cache_and_refresh(fake_upstream):
     assert r3["ok"] is True
     assert r3["cached"] is False
     assert r3["requests_used"] == 1
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_code"),
+    [
+        ({"count": 0}, "bad_count"),
+        ({"count": 51}, "bad_count"),
+        ({"max_chars_per_result": 0}, "bad_request"),
+        ({"max_total_chars": 0}, "bad_request"),
+    ],
+)
+def test_search_many_invalid_count_and_caps(kwargs, expected_code):
+    res = asyncio.run(server.deepseek_search_many(["q"], **kwargs))
+    assert res["ok"] is False
+    assert res["error"]["code"] == expected_code
+
+
+def test_search_many_need_content_true(fake_upstream):
+    results_map = {"full": [{"title": "Full", "url": "https://f.test", "content": "Full markdown body"}]}
+    _install_fake_search(fake_upstream, results_map)
+
+    res = asyncio.run(server.deepseek_search_many(["full"], need_content=True))
+    assert res["ok"] is True
+    assert res["results"][0]["results"][0]["content"] == "Full markdown body"
+
+
+def test_search_many_deadline_timeout(fake_upstream):
+    async def slow_request(*args, **kwargs):
+        await asyncio.sleep(0.5)
+        return {"ok": True, "data": {"results": []}}
+
+    fake_upstream(slow_request)
+    res = asyncio.run(server.deepseek_search_many(["slow_q"], deadline=0.01))
+    assert res["ok"] is False
+    assert res["error"]["code"] == "timeout"

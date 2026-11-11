@@ -1235,6 +1235,10 @@ async def deepseek_search_many(
         return _fail("bad_request", "queries must contain between 1 and 5 entries.")
     if not all(isinstance(q, str) for q in queries):
         return _fail("bad_request", "all items in queries must be strings.")
+    if count < 1 or count > MAX_COUNT:
+        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
+    if max_chars_per_result < 1 or max_total_chars < 1:
+        return _fail("bad_request", "max_chars_per_result and max_total_chars must be at least 1.")
 
     unique_queries: list[str] = []
     seen: set[str] = set()
