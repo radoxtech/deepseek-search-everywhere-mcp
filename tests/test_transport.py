@@ -67,7 +67,7 @@ async def test_oversized_search_response_is_rejected(upstream, sleeps) -> None:
     produced: list[int] = []
     upstream(lambda request: httpx.Response(200, content=_chunks(16, produced)))
 
-    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=30)
 
     assert result["ok"] is False
     assert result["error"]["code"] == "response_too_large"
@@ -100,7 +100,7 @@ async def test_retry_after_date_is_honored(upstream, sleeps, monkeypatch, offset
     )
     seen = upstream(lambda request: next(responses))
 
-    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=30)
 
     assert result == {"ok": True, "data": {"results": []}}
     assert len(seen) == 2
@@ -130,7 +130,7 @@ async def test_large_error_body_is_capped(upstream, sleeps) -> None:
     produced: list[int] = []
     upstream(lambda request: httpx.Response(400, content=_chunks(16, produced, 64 * 1024)))
 
-    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=30)
 
     assert result["error"]["status"] == 400
     assert len(result["error"]["message"]) <= 64 * 1024
@@ -142,7 +142,7 @@ async def test_megabyte_json_error_message_stays_bounded(upstream, sleeps) -> No
     body = json.dumps({"error": {"message": "x" * MIB, "code": "bad"}})
     upstream(lambda request: httpx.Response(500, text=body))
 
-    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=30)
 
     assert len(result["error"]["message"]) <= 64 * 1024
     assert sleeps == [2.0]
@@ -172,7 +172,7 @@ async def test_timeouts_are_retried_then_reported(upstream, sleeps) -> None:
 
     seen = upstream(handler)
 
-    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=30)
 
     assert result["error"]["code"] == "timeout"
     assert len(seen) == 2
@@ -263,3 +263,73 @@ def test_http_lifespan_closes_transport_client(monkeypatch: pytest.MonkeyPatch) 
 
     assert transport._client is None
     assert client_instance.is_closed
+
+
+async def test_retry_skipped_when_first_attempt_leaves_less_than_half_budget(
+    upstream, sleeps, monkeypatch
+) -> None:
+    loop = asyncio.get_running_loop()
+    real_time = loop.time
+    simulated_advance = 0.0
+
+    monkeypatch.setattr(loop, "time", lambda: real_time() + simulated_advance)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal simulated_advance
+        # First attempt takes 6.0s out of 10.0s budget
+        simulated_advance += 6.0
+        return httpx.Response(503, json={"error": {"message": "busy"}})
+
+    seen = upstream(handler)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=10.0)
+
+    assert result["ok"] is False
+    assert result["error"]["status"] == 503
+    assert len(seen) == 1
+    assert sleeps == []
+
+
+async def test_retry_allowed_when_at_least_half_budget_remains(upstream, sleeps, monkeypatch) -> None:
+    loop = asyncio.get_running_loop()
+    real_time = loop.time
+    simulated_advance = 0.0
+
+    monkeypatch.setattr(loop, "time", lambda: real_time() + simulated_advance)
+
+    attempts_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal simulated_advance, attempts_count
+        attempts_count += 1
+        if attempts_count == 1:
+            simulated_advance += 1.0
+            return httpx.Response(503, json={"error": {"message": "busy"}})
+        return httpx.Response(200, json={"results": []})
+
+    seen = upstream(handler)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=10.0)
+
+    assert result["ok"] is True
+    assert len(seen) == 2
+    assert sleeps == [2.0]
+
+
+async def test_deadline_bounds_total_budget_and_prevents_retry(upstream, sleeps, monkeypatch) -> None:
+    loop = asyncio.get_running_loop()
+    real_time = loop.time
+    simulated_advance = 0.0
+
+    monkeypatch.setattr(loop, "time", lambda: real_time() + simulated_advance)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal simulated_advance
+        # Takes 2.5s out of 4.0s deadline (remaining 1.5s < 50% of 4.0s)
+        simulated_advance += 2.5
+        return httpx.Response(503, json={"error": {"message": "busy"}})
+
+    seen = upstream(handler)
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=10.0, deadline=4.0)
+
+    assert result["ok"] is False
+    assert len(seen) == 1
+    assert sleeps == []

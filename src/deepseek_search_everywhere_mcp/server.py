@@ -59,8 +59,8 @@ from .urls import CODE_INVALID, UrlError, validate_url
 MAX_QUERY = 128
 MAX_URL = 8192
 MAX_TOPIC = 500
-SEARCH_TIMEOUT = 60.0
-FETCH_TIMEOUT = 120.0
+SEARCH_TIMEOUT = 45.0
+FETCH_TIMEOUT = 60.0
 BALANCE_TIMEOUT = 20.0
 CHAT_TIMEOUT = 8.0
 SYNTHESIS_TIMEOUT = 25.0
@@ -289,7 +289,11 @@ def _fetch_cache_key(url: str) -> str:
 
 
 async def _limited_request(
-    endpoint: str, path: str, payload: dict[str, Any], timeout: float
+    endpoint: str,
+    path: str,
+    payload: dict[str, Any],
+    timeout: float,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Take one ``endpoint`` token, then call upstream once (transport retries included).
 
@@ -307,7 +311,7 @@ async def _limited_request(
             metrics.searches_upstream += 1
         elif endpoint == FETCH:
             metrics.fetches_upstream += 1
-        return await _request("POST", path, payload=payload, timeout=timeout)
+        return await _request("POST", path, payload=payload, timeout=timeout, deadline=deadline)
     except asyncio.CancelledError:
         ticket.refund()
         raise

@@ -63,9 +63,12 @@ def reset_state() -> None:
     """Reset shared transport state and close any open client."""
     global _client, _client_loop
     client = _client
+    client_loop = _client_loop
     _client = None
     _client_loop = None
     if client is not None and not client.is_closed:
+        if client_loop is not None and client_loop.is_closed():
+            return
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
@@ -73,7 +76,10 @@ def reset_state() -> None:
             else:
                 loop.run_until_complete(client.aclose())
         except RuntimeError:
-            asyncio.run(client.aclose())
+            try:
+                asyncio.run(client.aclose())
+            except Exception:
+                pass
 
 
 def _base_url() -> str:
@@ -193,13 +199,19 @@ async def _attempt(
 
 
 async def request(
-    method: str, path: str, *, payload: dict[str, Any] | None = None, timeout: float, attempts: int = 2
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    timeout: float = 30.0,
+    deadline: float | None = None,
+    attempts: int = 2,
 ) -> dict[str, Any]:
     """Call the DeepSeek API and return ``{"ok": True, "data": ...}`` or an error envelope.
 
-    ``attempts`` is the total number of tries, so ``attempts=1`` means no retry and the
-    default of 2 allows one retry. Each attempt gets its own ``timeout``; 429 and 5xx gateway
-    errors, timeouts and network errors are retried, other 4xx responses are returned at once.
+    ``attempts`` is the total number of tries. Retries are bounded by the total request
+    budget (``deadline`` if specified, else ``timeout``); a second attempt is made only
+    if at least 50% of the total budget remains after the first attempt and any backoff delay.
     """
     key = _api_key()
     if not key:
@@ -211,11 +223,26 @@ async def request(
     headers = {"Authorization": f"Bearer {key}"}
     last: dict[str, Any] = _fail("request_failed", "No attempt was made.")
 
+    budget = deadline if deadline is not None else timeout
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+
     for attempt in range(attempts):
+        elapsed = loop.time() - t0
+        remaining = budget - elapsed
+
+        if attempt > 0 and remaining < 0.5 * budget:
+            break
+
+        current_timeout = min(timeout, remaining)
+        if current_timeout <= 0:
+            last = _fail("timeout", f"Request to {path} timed out after {budget:.0f}s.")
+            break
+
         delay = DEFAULT_RETRY_DELAY
         try:
             result, retry_delay = await _attempt(
-                method, url, path, payload=payload, headers=headers, timeout=timeout
+                method, url, path, payload=payload, headers=headers, timeout=current_timeout
             )
             if retry_delay is None:
                 return _scrub(result, key)
@@ -224,6 +251,12 @@ async def request(
             last = _fail("timeout", f"Request to {path} timed out after {timeout:.0f}s.")
         except httpx.RequestError as exc:
             last = _fail("network_error", f"{type(exc).__name__}: {exc}")
+
         if attempt + 1 < attempts:
+            elapsed = loop.time() - t0
+            remaining = budget - elapsed
+            if (remaining - delay) < 0.5 * budget:
+                break
             await _sleep(delay)
+
     return _scrub(last, key)

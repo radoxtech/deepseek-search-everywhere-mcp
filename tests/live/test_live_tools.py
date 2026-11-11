@@ -287,3 +287,12 @@ async def test_search_many_live() -> None:
     for item in envelope["results"]:
         assert item["ok"] is True
         assert len(item["results"]) >= 1
+
+
+async def test_live_auth_failed_on_invalid_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-invalid-key-for-auth-failure-test")
+    server.reset_state()
+    envelope = await server.deepseek_search("test invalid key")
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "auth_failed"
+    assert envelope["error"]["status"] == 401
