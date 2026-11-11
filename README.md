@@ -6,12 +6,12 @@
 
 <p align="center">
   <a href="https://pypi.org/project/deepseek-search-everywhere-mcp/"><img src="https://img.shields.io/pypi/v/deepseek-search-everywhere-mcp.svg" alt="PyPI version"></a>
-  <a href="https://pypistats.org/packages/deepseek-search-everywhere-mcp"><img src="https://img.shields.io/pypi/dm/deepseek-search-everywhere-mcp?color=blue&label=pypi%20downloads" alt="PyPI Downloads"></a>
+  <a href="https://pypistats.org/packages/deepseek-search-everywhere-mcp"><img src="https://img.shields.io/pypi/dw/deepseek-search-everywhere-mcp?color=blue&label=pypi%20downloads" alt="PyPI Downloads"></a>
+  <a href="https://pypi.org/project/deepseek-search-everywhere-mcp/"><img src="https://img.shields.io/pypi/pyversions/deepseek-search-everywhere-mcp" alt="Python versions"></a>
   <a href="https://registry.modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP%20Registry-listed-brightgreen.svg" alt="MCP Registry"></a>
   <a href="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml"><img src="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://glama.ai/mcp/servers/radoxtech/deepseek-search-everywhere-mcp"><img src="https://glama.ai/mcp/servers/radoxtech/deepseek-search-everywhere-mcp/badges/score.svg" alt="Glama score"></a>
-  <a href="https://github.com/radoxtech/deepseek-search-everywhere-mcp/stargazers"><img src="https://img.shields.io/github/stars/radoxtech/deepseek-search-everywhere-mcp?style=social" alt="GitHub Stars"></a>
 </p>
 
 > ⭐ **If you find this MCP server useful for your agent workflows, please star this repository!** It helps other developers discover this project and directly supports ongoing maintenance.
@@ -630,7 +630,7 @@ mcp-publisher publish
 Publish to PyPI first: the registry checks that the package version exists. release-please keeps `pyproject.toml`
 and `server.json` in step; `tests/test_version_sync.py` fails when they drift apart.
 
-## Star History & Support
+## Support the Project
 
 ⭐ **If you find this MCP server valuable, please star this repository on [GitHub](https://github.com/radoxtech/deepseek-search-everywhere-mcp)!** 
 
