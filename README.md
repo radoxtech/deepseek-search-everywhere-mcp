@@ -531,8 +531,8 @@ Full policy and reporting instructions: [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
-- `deepseek_fetch` returns HTTP 404 for PDFs and Reddit and times out on some sites. Use
-  `deepseek_search` with the page title or a `site:`-scoped query instead.
+- Direct page fetch does not render raw binary files (such as PDFs) natively; `deepseek_fetch`
+  automatically falls back to search index retrieval when direct fetch is unavailable on documents.
 - Fetch returns only title and content: no final URL, status code or publication date.
 - Fetch latency is DeepSeek's page render, not this server: an already rendered page returns in about 0.5 s,
   others take 3-10 s, and a missing page (HTTP 404) still takes 3-5 s before DeepSeek reports it. A 404 is

@@ -245,3 +245,33 @@ async def test_deep_research_live() -> None:
     assert isinstance(envelope["report"], str) and len(envelope["report"]) > 100
     assert len(envelope["sources"]) >= 1
     assert "[" in envelope["report"] and "]" in envelope["report"]
+
+
+async def test_extract_many_live() -> None:
+    urls = [
+        "https://docs.python.org/3/library/asyncio.html",
+        "https://docs.python.org/3/library/json.html",
+    ]
+    envelope = await server.deepseek_extract_many(
+        urls,
+        fields=["module_name", "primary_purpose"],
+        instruction="Focus on python library details",
+    )
+    _assert_ok(envelope)
+    assert envelope["count"] == 2
+    assert envelope["partial"] is False
+    assert len(envelope["results"]) == 2
+    for item in envelope["results"]:
+        assert item["ok"] is True
+        data = item["data"]
+        assert isinstance(data, dict)
+        assert "module_name" in data
+        assert data["module_name"] is not None
+
+
+async def test_fetch_pdf_live() -> None:
+    url = "https://arxiv.org/pdf/1706.03762"
+    envelope = await server.deepseek_fetch(url)
+    _assert_ok(envelope)
+    assert "attention" in envelope["content"].lower() or "transformer" in envelope["content"].lower()
+    assert envelope["title"] is not None
