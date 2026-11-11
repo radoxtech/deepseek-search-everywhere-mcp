@@ -240,6 +240,31 @@ def _get_rate_limiter() -> RateLimiter:
     return _rate_limiter
 
 
+def _clear_caches() -> dict[str, int]:
+    """Purge in-memory response caches (search, fetch, rewrite) and return evicted counts."""
+    cleared = {
+        "search_entries": len(_search_cache) if _search_cache is not None else 0,
+        "fetch_entries": len(_fetch_cache) if _fetch_cache is not None else 0,
+        "rewrite_entries": len(_rewrite_cache) if _rewrite_cache is not None else 0,
+    }
+    if _search_cache is not None:
+        _search_cache.clear()
+    if _fetch_cache is not None:
+        _fetch_cache.clear()
+    if _rewrite_cache is not None:
+        _rewrite_cache.clear()
+    return cleared
+
+
+def _get_cache_stats() -> dict[str, Any]:
+    """Return current occupancy and capacity stats across active caches."""
+    return {
+        "search": _search_cache.stats() if _search_cache is not None else None,
+        "fetch": _fetch_cache.stats() if _fetch_cache is not None else None,
+        "rewrite": _rewrite_cache.stats() if _rewrite_cache is not None else None,
+    }
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -1113,21 +1138,21 @@ async def deepseek_search(
 
     Args:
         query: Query, max 128 chars (site:, -site:, "phrase", after:, before:).
-        count: Results, 1-50 (default 5).
-        ori_question: Natural question, max 128 chars; improves ranking.
-        need_content: Full text inline (default True; False for snippets).
-        lang: Language filter (e.g. 'es', 'de').
+        count: Results count, 1-50 (default 5).
+        ori_question: Natural question improving ranking (max 128 chars).
+        need_content: Inline full text (default True; False for snippets).
+        lang: Language filter (e.g. 'en', 'es').
         max_chars_per_result: Cap per result (default 4000).
         max_total_chars: Total content cap (default 30000).
-        dedupe: Collapse duplicates (default True).
+        dedupe: Collapse duplicate URLs (default True).
         rewrite: Query rewrite via deepseek-flash (default False).
-        localization: Optional IP for geo-targeting.
-        exclude_terms: Exclude terms (e.g. ['spam']).
-        exact_phrases: Exact phrases (e.g. ['AI agent']).
-        after: Date on or after (YYYY-MM-DD).
-        before: Date on or before (YYYY-MM-DD).
-        include_domains: Restrict domains (e.g. ['arxiv.org']).
-        exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
+        localization: Geo-targeting IP.
+        exclude_terms: Exclude terms list.
+        exact_phrases: Exact phrases list.
+        after: Date on/after (YYYY-MM-DD).
+        before: Date on/before (YYYY-MM-DD).
+        include_domains: Restrict domains list.
+        exclude_domains: Exclude domains list.
         refresh: Bypass cache (default False).
         summary_chars: Summary cap without content.
         strip_boilerplate: Remove site UI lines (default True).
@@ -1153,6 +1178,192 @@ async def deepseek_search(
         summary_chars=summary_chars,
         strip_boilerplate=strip_boilerplate,
     )
+
+
+@_timed
+async def deepseek_search_many(
+    queries: list[str],
+    *,
+    count: int = 5,
+    need_content: bool = False,
+    lang: str | None = None,
+    max_chars_per_result: int = 4000,
+    max_total_chars: int = 30000,
+    dedupe: bool = True,
+    rewrite: bool = False,
+    localization: str | None = None,
+    exclude_terms: list[str] | None = None,
+    exact_phrases: list[str] | None = None,
+    after: str | None = None,
+    before: str | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
+    refresh: bool = False,
+    summary_chars: int | None = None,
+    strip_boilerplate: bool = True,
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    """Search the web with multiple queries concurrently and return ranked results per query.
+
+    Batch multi-query search across 1-5 queries in parallel. Returns snippets (default)
+    or full text. Deduplicates identical queries and preserves query order.
+
+    Args:
+        queries: 1-5 search queries, max 128 chars each.
+        count: Results count per query, 1-50 (default 5).
+        need_content: Inline full text (default False for snippets).
+        lang: Language filter (e.g. 'en', 'es').
+        max_chars_per_result: Cap per result (default 4000).
+        max_total_chars: Total content cap across queries (default 30000).
+        dedupe: Collapse duplicate URLs (default True).
+        rewrite: Query rewrite via deepseek-flash (default False).
+        localization: Geo-targeting IP.
+        exclude_terms: Exclude terms list.
+        exact_phrases: Exact phrases list.
+        after: Date on/after (YYYY-MM-DD).
+        before: Date on/before (YYYY-MM-DD).
+        include_domains: Restrict domains list.
+        exclude_domains: Exclude domains list.
+        refresh: Bypass cache (default False).
+        summary_chars: Summary cap without content.
+        strip_boilerplate: Remove site UI lines (default True).
+        deadline: Timeout in seconds for all queries.
+    """
+    if not isinstance(queries, list) or not queries:
+        return _fail("bad_request", "queries must be a non-empty list of strings.")
+    if len(queries) > 5:
+        return _fail("bad_request", "queries must contain between 1 and 5 entries.")
+    if not all(isinstance(q, str) for q in queries):
+        return _fail("bad_request", "all items in queries must be strings.")
+    if count < 1 or count > MAX_COUNT:
+        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
+    if max_chars_per_result < 1 or max_total_chars < 1:
+        return _fail("bad_request", "max_chars_per_result and max_total_chars must be at least 1.")
+
+    unique_queries: list[str] = []
+    seen: set[str] = set()
+    duplicates = 0
+    for q in queries:
+        trimmed = q.strip()
+        if not trimmed:
+            continue
+        if trimmed in seen:
+            duplicates += 1
+            continue
+        seen.add(trimmed)
+        unique_queries.append(trimmed)
+
+    if not unique_queries:
+        return _fail("bad_request", "queries must contain at least one non-empty query.")
+
+    per_query_chars = max(1000, max_total_chars // len(unique_queries))
+
+    async def _run_one(q: str) -> dict[str, Any]:
+        return await _search(
+            q,
+            count=count,
+            ori_question=None,
+            need_content=need_content,
+            lang=lang,
+            max_chars_per_result=max_chars_per_result,
+            max_total_chars=per_query_chars,
+            dedupe=dedupe,
+            rewrite=rewrite,
+            localization=localization,
+            exclude_terms=exclude_terms,
+            exact_phrases=exact_phrases,
+            after=after,
+            before=before,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            refresh=refresh,
+            summary_chars=summary_chars,
+            strip_boilerplate=strip_boilerplate,
+        )
+
+    tasks = [_run_one(q) for q in unique_queries]
+    timeout = deadline if deadline is not None else SEARCH_TIMEOUT
+    try:
+        raw_results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        return _fail("timeout", f"Search batch timed out after {timeout} seconds.")
+
+    results: list[dict[str, Any]] = []
+    requests_used = 0
+    cached_count = 0
+    failed_count = 0
+    notes: list[str] = []
+    if duplicates:
+        notes.append(f"deduped {duplicates} duplicate query/queries")
+
+    for q, res in zip(unique_queries, raw_results, strict=True):
+        if isinstance(res, Exception):
+            failed_count += 1
+            results.append(
+                {
+                    "query": q,
+                    "ok": False,
+                    "count": 0,
+                    "results": [],
+                    "cached": False,
+                    "error": _fail("network_error", str(res))["error"],
+                    "notes": [],
+                }
+            )
+        elif isinstance(res, dict) and res.get("ok"):
+            is_cached = res.get("cached", False)
+            if is_cached:
+                cached_count += 1
+            else:
+                requests_used += 1
+            results.append(
+                {
+                    "query": q,
+                    "ok": True,
+                    "count": len(res.get("results") or []),
+                    "results": res.get("results") or [],
+                    "cached": is_cached,
+                    "notes": res.get("notes") or [],
+                }
+            )
+            for n in res.get("notes") or []:
+                if n not in notes:
+                    notes.append(n)
+        else:
+            failed_count += 1
+            err = res.get("error") if isinstance(res, dict) else None
+            results.append(
+                {
+                    "query": q,
+                    "ok": False,
+                    "count": 0,
+                    "results": [],
+                    "cached": False,
+                    "error": err,
+                    "notes": res.get("notes", []) if isinstance(res, dict) else [],
+                }
+            )
+
+    cost = round(requests_used * COST_PER_REQUEST, 5)
+    return {
+        "ok": True,
+        "count": len(results),
+        "total_results": sum(r["count"] for r in results),
+        "requests_used": requests_used,
+        "cached": _all_cached(requests_used, cached_count),
+        "cached_count": cached_count,
+        "failed_count": failed_count,
+        "partial": failed_count > 0,
+        "cost_usd": cost,
+        "untrusted_content": True,
+        "results": results,
+        "searches": results,
+        "notes": notes,
+        "_meta": _envelope_meta(cost, untrusted_content=True),
+    }
 
 
 async def deepseek_web_search(
@@ -2563,15 +2774,24 @@ async def deepseek_extract_many(
 
 
 @_timed
-async def deepseek_check_balance() -> dict[str, Any]:
-    """Check DeepSeek account balance (CNY/USD) and in-memory session telemetry.
+async def deepseek_check_balance(*, clear_cache: bool = False) -> dict[str, Any]:
+    """Check account balance (CNY/USD), session telemetry, and manage response cache.
 
-    Verify account funds and monitor session usage (requests, cache hits, estimated cost).
-    Do not use for search or retrieval (use deepseek_search or deepseek_fetch). Requires
-    DEEPSEEK_API_KEY. Takes no arguments.
+    Verify funds, monitor session usage, or reset session caches (search, fetch, rewrite).
+    Use clear_cache=True to purge in-memory caches.
+
+    Args:
+        clear_cache: Clear all in-memory response caches when True (default False).
     """
+    cleared_info: dict[str, int] | None = None
+    if clear_cache:
+        cleared_info = _clear_caches()
+
     result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
+        if clear_cache:
+            result["cache_cleared"] = True
+            result["cache_evicted"] = cleared_info
         return result
     data = result["data"]
     metrics = _get_session_metrics()
@@ -2581,20 +2801,30 @@ async def deepseek_check_balance() -> dict[str, Any]:
     cost_usd = round(metrics.requests_upstream * 0.00075, 5)
     savings_usd = round(metrics.cache_hits * 0.00075, 5)
 
-    return {
+    session_data: dict[str, Any] = {
+        "uptime_seconds": uptime,
+        "requests_upstream": metrics.requests_upstream,
+        "cache_hits": metrics.cache_hits,
+        "total_queries_handled": total_handled,
+        "cache_hit_rate": hit_rate,
+        "estimated_upstream_cost_usd": cost_usd,
+        "estimated_cache_savings_usd": savings_usd,
+        "cache": _get_cache_stats(),
+    }
+    if clear_cache:
+        session_data["cache_cleared"] = True
+        session_data["cache_evicted"] = cleared_info
+
+    resp: dict[str, Any] = {
         "ok": True,
         "is_available": data.get("is_available"),
         "balances": data.get("balance_infos") or data.get("balances") or data,
-        "session": {
-            "uptime_seconds": uptime,
-            "requests_upstream": metrics.requests_upstream,
-            "cache_hits": metrics.cache_hits,
-            "total_queries_handled": total_handled,
-            "cache_hit_rate": hit_rate,
-            "estimated_upstream_cost_usd": cost_usd,
-            "estimated_cache_savings_usd": savings_usd,
-        },
+        "session": session_data,
     }
+    if clear_cache:
+        resp["cache_cleared"] = True
+        resp["cache_evicted"] = cleared_info
+    return resp
 
 
 # Backward compatibility alias for v1.x
@@ -2603,6 +2833,7 @@ deepseek_balance = deepseek_check_balance
 
 TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_search,
+    deepseek_search_many,
     deepseek_fetch,
     deepseek_fetch_many,
     deepseek_research,
@@ -2614,6 +2845,9 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
 
 TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     "deepseek_search": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_search_many": ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
     ),
     "deepseek_fetch": ToolAnnotations(
