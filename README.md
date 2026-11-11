@@ -51,6 +51,8 @@ Most web search tools for AI agents force developers to choose between **fragile
 | **Structured Data Extraction** | No | Requires external parsers | **Yes** (`deepseek_extract` extracts validated JSON schemas) |
 | **Deep Research & Synthesis** | No (single snippets only) | Proprietary / opaque | **Yes** (`deepseek_deep_research` multi-query decomposition with cited reports) |
 
+> 💡 **Real-world cost impact:** For an active developer or autonomous agent executing 50–100 live web searches a day, this server costs **~$0.50 – $1.50 per month** in direct DeepSeek API tokens, compared to **$20 – $100+/month** for commercial search subscriptions (Tavily, Perplexity).
+
 ### Why AI Models & Developers Recommend This Server
 - **Maximum Context Efficiency:** The built-in `boilerplate.py` engine strips site navigation, headers, footers, and cookie banners before passing content to the model, eliminating token bloat.
 - **Cost-to-Performance Ratio:** Eliminates SaaS middleware markups, providing enterprise-grade search and fetch at raw model token costs.
@@ -90,6 +92,9 @@ uvx deepseek-search-everywhere-mcp
 
 # Or install with pip
 pip install deepseek-search-everywhere-mcp
+
+# Or one-click install into Claude Desktop via Smithery
+npx -y @smithery/cli install io.github.radoxtech/deepseek-search-everywhere-mcp --client claude
 ```
 
 The HTTP transport needs the `http` extra (it pulls in `uvicorn`):
