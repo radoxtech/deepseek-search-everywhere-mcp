@@ -322,3 +322,32 @@ async def test_live_llm_usage_and_json_mode() -> None:
     assert isinstance(res["content"], str)
     parsed = json.loads(res["content"])
     assert parsed.get("status") == "ok"
+
+
+async def test_live_phase3_data_correctness() -> None:
+    # 1. Dead URL returns 404, not foreign content substitution
+    dead_url = "https://arxiv.org/abs/nonexistent-dead-paper-999999"
+    fetch_res = await server.deepseek_fetch(dead_url)
+    assert fetch_res["ok"] is False
+    assert fetch_res["error"]["code"] == "not_found"
+
+    # 2. Query with lang + filters accepted and fits within 128 chars
+    search_res = await server.deepseek_search(
+        "quantum computing algorithms research",
+        count=2,
+        lang="en",
+        include_domains=["arxiv.org"],
+    )
+    assert search_res["ok"] is True
+    assert len(search_res["query_used"]) <= 128
+    assert "lang:en" in search_res["query_used"]
+    assert "site:arxiv.org" in search_res["query_used"]
+
+    # 3. IDN domain filter accepted and sent in Unicode form
+    idn_res = await server.deepseek_search(
+        "klimat",
+        count=2,
+        include_domains=["źródło.pl", "nature.com"],
+    )
+    assert idn_res["ok"] is True
+    assert "site:źródło.pl" in idn_res["query_used"]
