@@ -93,9 +93,6 @@ uvx deepseek-search-everywhere-mcp
 
 # Or install with pip
 pip install deepseek-search-everywhere-mcp
-
-# Or one-click install into Claude Desktop via Smithery
-npx -y @smithery/cli install io.github.radoxtech/deepseek-search-everywhere-mcp --client claude
 ```
 
 The HTTP transport needs the `http` extra (it pulls in `uvicorn`):
