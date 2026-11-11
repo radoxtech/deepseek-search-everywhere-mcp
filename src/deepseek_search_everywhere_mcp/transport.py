@@ -33,6 +33,48 @@ MAX_RETRY_DELAY = 10.0
 # Retry backoff sleep; a module-level seam so tests can replace it without patching asyncio.
 _sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
+CLIENT_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+
+_client: httpx.AsyncClient | None = None
+_client_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Return a shared httpx.AsyncClient bound to the current event loop."""
+    global _client, _client_loop
+    loop = asyncio.get_running_loop()
+    if _client is None or _client.is_closed or _client_loop is not loop:
+        _client = httpx.AsyncClient(limits=CLIENT_LIMITS)
+        _client_loop = loop
+    return _client
+
+
+async def close_client() -> None:
+    """Close the shared HTTP client if open."""
+    global _client, _client_loop
+    client = _client
+    _client = None
+    _client_loop = None
+    if client is not None and not client.is_closed:
+        await client.aclose()
+
+
+def reset_state() -> None:
+    """Reset shared transport state and close any open client."""
+    global _client, _client_loop
+    client = _client
+    _client = None
+    _client_loop = None
+    if client is not None and not client.is_closed:
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                loop.create_task(client.aclose())
+            else:
+                loop.run_until_complete(client.aclose())
+        except RuntimeError:
+            asyncio.run(client.aclose())
+
 
 def _base_url() -> str:
     return os.environ.get("DEEPSEEK_BASE_URL", BASE_DEFAULT).rstrip("/")
@@ -130,16 +172,16 @@ async def _attempt(
 ) -> tuple[dict[str, Any], float | None]:
     """Run one HTTP exchange; return the envelope and a retry delay when it is retryable."""
     cap = _response_cap(path)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream(method, url, json=payload, headers=headers) as response:
-            status = response.status_code
-            if status >= 400:
-                raw, _ = await _read_capped(response, ERROR_BODY_CAP)
-                error = _map_http_error(status, raw.decode("utf-8", errors="replace"), path=path)
-                if status in RETRY_STATUSES:
-                    return error, _retry_after(response.headers.get("Retry-After"))
-                return error, None
-            body, too_large = await _read_capped(response, cap)
+    client = _get_client()
+    async with client.stream(method, url, json=payload, headers=headers, timeout=timeout) as response:
+        status = response.status_code
+        if status >= 400:
+            raw, _ = await _read_capped(response, ERROR_BODY_CAP)
+            error = _map_http_error(status, raw.decode("utf-8", errors="replace"), path=path)
+            if status in RETRY_STATUSES:
+                return error, _retry_after(response.headers.get("Retry-After"))
+            return error, None
+        body, too_large = await _read_capped(response, cap)
     if too_large:
         return _fail(
             "response_too_large", f"Response from {path} exceeded the {cap}-byte limit.", status

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
@@ -200,3 +201,65 @@ async def test_attempts_is_the_total_number_of_tries(upstream, sleeps, attempts,
     assert result["ok"] is False
     assert len(seen) == expected_calls
     assert len(sleeps) == expected_calls - 1
+
+
+async def test_client_reused_within_same_loop() -> None:
+    c1 = transport._get_client()
+    c2 = transport._get_client()
+    assert c1 is c2
+    assert not c1.is_closed
+    assert transport.CLIENT_LIMITS.max_connections == 20
+    assert transport.CLIENT_LIMITS.max_keepalive_connections == 10
+
+
+def test_client_recreated_on_new_loop() -> None:
+    async def get_c() -> httpx.AsyncClient:
+        return transport._get_client()
+
+    loop1 = asyncio.new_event_loop()
+    try:
+        c1 = loop1.run_until_complete(get_c())
+    finally:
+        loop1.close()
+
+    loop2 = asyncio.new_event_loop()
+    try:
+        c2 = loop2.run_until_complete(get_c())
+    finally:
+        loop2.close()
+
+    assert c1 is not c2
+
+
+async def test_client_closed_on_reset() -> None:
+    c = transport._get_client()
+    assert not c.is_closed
+    transport.reset_state()
+    assert transport._client is None
+    # Let scheduled close tasks execute
+    await asyncio.sleep(0.01)
+    assert c.is_closed
+
+
+def test_http_lifespan_closes_transport_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    from starlette.testclient import TestClient
+
+    from deepseek_search_everywhere_mcp.http_app import build_http_app
+
+    monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
+    app = build_http_app()
+
+    client_instance = None
+
+    async def use_client() -> None:
+        nonlocal client_instance
+        client_instance = transport._get_client()
+
+    asyncio.run(use_client())
+    assert client_instance is not None
+
+    with TestClient(app):
+        pass
+
+    assert transport._client is None
+    assert client_instance.is_closed

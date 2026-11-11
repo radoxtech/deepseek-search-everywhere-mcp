@@ -8,9 +8,11 @@ Serving the application (for example with uvicorn) is left to the caller.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import secrets
+from collections.abc import AsyncIterator
 
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
@@ -102,4 +104,18 @@ def build_http_app(settings: Settings | None = None, *, token: str | None = None
     )
     app = server.streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, token=secret, path=settings.http_path)
+
+    original_lifespan = app.router.lifespan_context
+
+    @contextlib.asynccontextmanager
+    async def _lifespan_with_client_cleanup(app_instance: Starlette) -> AsyncIterator[None]:
+        async with original_lifespan(app_instance):
+            try:
+                yield
+            finally:
+                from .transport import close_client
+
+                await close_client()
+
+    app.router.lifespan_context = _lifespan_with_client_cleanup
     return app
