@@ -16,6 +16,7 @@ MIB = 1024 * 1024
 
 ENV_CACHE = "DEEPSEEK_MCP_CACHE"
 ENV_LOG_LEVEL = "DEEPSEEK_MCP_LOG_LEVEL"
+ENV_DAILY_BUDGET = "DEEPSEEK_DAILY_BUDGET_USD"
 
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"
@@ -62,6 +63,9 @@ class Settings:
     research_max_pages: int = 5
     research_gap_deadline: float = 15.0
 
+    # Daily spend budget limit in USD (None means disabled).
+    daily_budget_usd: float | None = None
+
     # HTTP transport defaults (the CLI may override them).
     http_host: str = "127.0.0.1"
     http_port: int = 8000
@@ -81,6 +85,8 @@ class Settings:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
             if name in {"limiter_max_wait", "batch_deadline", "research_gap_deadline"} and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
+        if self.daily_budget_usd is not None and not self.daily_budget_usd > 0:
+            raise ValueError(f"daily_budget_usd must be > 0, got {self.daily_budget_usd!r}")
         if not 1 <= self.batch_concurrency <= MAX_BATCH_CONCURRENCY:
             raise ValueError(
                 f"batch_concurrency must be between 1 and {MAX_BATCH_CONCURRENCY}, "
@@ -105,6 +111,17 @@ class Settings:
         level = os.environ.get(ENV_LOG_LEVEL, "").strip()
         if level:
             overrides["log_level"] = level.upper()
+        budget = os.environ.get(ENV_DAILY_BUDGET, "").strip()
+        if budget:
+            try:
+                val = float(budget)
+                if val <= 0:
+                    raise ValueError
+                overrides["daily_budget_usd"] = val
+            except ValueError:
+                raise ValueError(
+                    f"daily_budget_usd: {ENV_DAILY_BUDGET} must be a positive number, got {budget!r}"
+                ) from None
         return cls(**overrides)
 
 

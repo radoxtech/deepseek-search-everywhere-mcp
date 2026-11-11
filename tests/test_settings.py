@@ -77,6 +77,18 @@ def test_from_env_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Settings.from_env().log_level == "DEBUG"
 
 
+def test_from_env_daily_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert Settings.from_env().daily_budget_usd is None
+    monkeypatch.setenv("DEEPSEEK_DAILY_BUDGET_USD", "5.50")
+    assert Settings.from_env().daily_budget_usd == 5.5
+    monkeypatch.setenv("DEEPSEEK_DAILY_BUDGET_USD", "-1")
+    with pytest.raises(ValueError, match="daily_budget_usd"):
+        Settings.from_env()
+    monkeypatch.setenv("DEEPSEEK_DAILY_BUDGET_USD", "invalid")
+    with pytest.raises(ValueError, match="daily_budget_usd"):
+        Settings.from_env()
+
+
 def test_other_env_knobs_are_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     for name, value in {
         "DEEPSEEK_MCP_SEARCH_QPS": "7",
