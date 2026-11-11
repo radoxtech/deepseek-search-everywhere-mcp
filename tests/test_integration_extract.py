@@ -141,3 +141,119 @@ async def test_extract_chat_failure(fake_upstream: Any) -> None:
     res = await server.deepseek_extract("https://example.com", fields=["item"])
     assert res["ok"] is False
     assert res["error"]["code"] == "extraction_failed"
+
+
+async def test_extract_many_parameter_validation(fake_upstream: Any) -> None:
+    fake_upstream(ExtractUpstream())
+
+    # Empty urls
+    res = await server.deepseek_extract_many([], fields=["item"])
+    assert res["ok"] is False
+    assert res["error"]["code"] == "bad_request"
+
+    # Too many urls (> 10)
+    res = await server.deepseek_extract_many([f"https://example.com/{i}" for i in range(11)], fields=["item"])
+    assert res["ok"] is False
+    assert res["error"]["code"] == "bad_request"
+
+    # Neither fields nor schema
+    res = await server.deepseek_extract_many(["https://example.com/1"])
+    assert res["ok"] is False
+    assert res["error"]["code"] == "bad_request"
+
+    # Both fields and schema
+    res = await server.deepseek_extract_many(
+        ["https://example.com/1"], fields=["item"], schema={"type": "object"}
+    )
+    assert res["ok"] is False
+    assert res["error"]["code"] == "bad_request"
+
+
+async def test_extract_many_success_with_fields(fake_upstream: Any) -> None:
+    model_output = json.dumps({"product": "Test Item", "price": 10.0})
+    upstream = ExtractUpstream(page_content="Test Item is $10.", chat_response=model_output)
+    fake_upstream(upstream)
+
+    urls = [
+        "https://example.com/p1",
+        "https://example.com/p2",
+        "https://example.com/p1",  # Duplicate URL
+    ]
+    res = await server.deepseek_extract_many(
+        urls,
+        fields=["product", "price"],
+        instruction="Extract product details",
+    )
+    assert res["ok"] is True
+    assert res["count"] == 2
+    assert res["partial"] is False
+    assert res["failed_count"] == 0
+    assert any("deduped 1 duplicate URL(s)" in note for note in res["notes"])
+
+    for item in res["results"]:
+        assert item["ok"] is True
+        assert item["data"] == {"product": "Test Item", "price": 10.0}
+        assert item["title"] == "Test Page Title"
+
+    assert len(upstream.fetch_calls) == 2
+    assert len(upstream.chat_calls) == 2
+    assert res["requests_used"] == 4
+    assert res["cost_usd"] == round(4 * server.COST_PER_REQUEST, 5)
+
+
+async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
+    class MixedUpstream:
+        def __init__(self) -> None:
+            self.fetch_calls: list[dict[str, Any]] = []
+            self.chat_calls: list[dict[str, Any]] = []
+
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            payload = kwargs.get("payload") or {}
+            if path == server.FETCH_PATH:
+                self.fetch_calls.append(payload)
+                url = payload.get("url") or ""
+                if "empty" in url:
+                    return {"ok": True, "data": {"url": url, "title": "Empty", "content": ""}}
+                return {"ok": True, "data": {"url": url, "title": "Valid", "content": "Product info."}}
+            if path == "/v1/chat/completions":
+                self.chat_calls.append(payload)
+                return {
+                    "ok": True,
+                    "data": {
+                        "choices": [{"message": {"role": "assistant", "content": '{"name": "Widget"}'}}]
+                    },
+                }
+            return {"ok": False, "error": {"code": "not_found", "message": "unexpected"}}
+
+    upstream = MixedUpstream()
+    fake_upstream(upstream)
+
+    urls = [
+        "https://example.com/valid",
+        "http://127.0.0.1/admin",  # SSRF blocked locally
+        "https://example.com/empty",  # Empty page
+    ]
+    res = await server.deepseek_extract_many(urls, fields=["name"])
+    assert res["ok"] is True
+    assert res["count"] == 3
+    assert res["partial"] is True
+    assert res["failed_count"] == 2
+
+    valid_item = res["results"][0]
+    assert valid_item["ok"] is True
+    assert valid_item["data"] == {"name": "Widget"}
+
+    blocked_item = res["results"][1]
+    assert blocked_item["ok"] is False
+    assert blocked_item["error"]["code"] == "ssrf_blocked"
+
+    empty_item = res["results"][2]
+    assert empty_item["ok"] is False
+    assert empty_item["error"]["code"] == "empty_page"
+
+    # Only 2 fetch calls reached upstream (blocked item was rejected locally)
+    assert len(upstream.fetch_calls) == 2
+    # Only 1 chat call reached upstream (empty page fast-failed before LLM)
+    assert len(upstream.chat_calls) == 1
+    # 2 upstream fetch calls + 1 upstream chat call = 3
+    assert res["requests_used"] == 3

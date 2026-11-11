@@ -1111,28 +1111,27 @@ async def deepseek_search(
 
     Primary search and retrieval tool. Queries DeepSeek index directly for ranked results
     with snippets (need_content=False) or indexed full text (default need_content=True).
-    Unlike deepseek_research (auto-fetches stubs), this returns indexed content only.
 
     Args:
-        query: Search query, max 128 chars (supports site:, -site:, "phrase", after:, before:).
-        count: Results to return, 1-50 (default 5).
+        query: Query, max 128 chars (supports site:, -site:, "phrase", after:, before:).
+        count: Results, 1-50 (default 5).
         ori_question: Natural question, max 128 chars; improves ranking.
         need_content: Full text inline (default True; False for snippets).
-        lang: Language filter (e.g. 'es', 'de', 'ja').
+        lang: Language filter (e.g. 'es', 'de').
         max_chars_per_result: Cap per result (default 4000).
-        max_total_chars: Budget across results (default 30000).
-        dedupe: Collapse duplicate results (default True).
-        rewrite: Rewrite query via deepseek-flash (default False).
-        localization: Optional IP for geo-targeted results.
-        exclude_terms: Terms to exclude (e.g. ['spam']).
-        exact_phrases: Exact phrases to match (e.g. ['AI agent']).
+        max_total_chars: Total content cap (default 30000).
+        dedupe: Collapse duplicates (default True).
+        rewrite: Query rewrite via deepseek-flash (default False).
+        localization: Optional IP for geo-targeting.
+        exclude_terms: Exclude terms (e.g. ['spam']).
+        exact_phrases: Exact phrases (e.g. ['AI agent']).
         after: Date on or after (YYYY-MM-DD/YYYY).
         before: Date on or before (YYYY-MM-DD/YYYY).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
-        refresh: Bypass response cache (default False).
-        summary_chars: Summary cap per result without content.
-        strip_boilerplate: Strip site UI text (default True).
+        refresh: Bypass cache (default False).
+        summary_chars: Summary cap without content.
+        strip_boilerplate: Remove site UI lines (default True).
     """
     return await _search(
         query,
@@ -1281,25 +1280,27 @@ async def deepseek_fetch(
     max_snippets: int = 3,
     refresh: bool = False,
     strip_boilerplate: bool = True,
+    fallback_to_search: bool = True,
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
     Retrieves Markdown for a known URL. Use when target URL is known. For multiple URLs
     use deepseek_fetch_many; for structured data use deepseek_extract; for search use
-    deepseek_search. Returns 404 for PDFs/Reddit (use deepseek_search instead).
+    deepseek_search. Auto-resolves PDFs/Reddit via search index when direct fetch returns 404.
 
     Args:
-        url: Absolute http(s) URL, max 8192 characters.
+        url: Absolute http(s) URL, max 8192 chars.
         clean: Remove Markdown backslash escapes (default True).
-        max_chars: Content cap after cleaning (default 20000).
-        offset: Offset to start reading from (0-based).
-        limit: Max characters to return from offset.
+        max_chars: Content cap (default 20000).
+        offset: Start reading offset (0-based).
+        limit: Max characters from offset.
         find_text: Find substring and start offset there.
-        query: Query to extract ranked relevant snippets.
-        section: 1-based index to read a specific document section.
-        max_snippets: Max ranked snippets when query is set (default 3, 1-5).
-        refresh: Bypass cache and fetch page again (default False).
-        strip_boilerplate: Remove site UI lines from text (default True).
+        query: Query to extract ranked snippets.
+        section: 1-based index to read a document section.
+        max_snippets: Max snippets when query is set (default 3, 1-5).
+        refresh: Bypass cache (default False).
+        strip_boilerplate: Remove site UI lines (default True).
+        fallback_to_search: Search fallback on 404 for PDF/Reddit (default True).
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
@@ -1317,6 +1318,7 @@ async def deepseek_fetch(
         max_snippets=max_snippets,
         refresh=refresh,
         strip_boilerplate=strip_boilerplate,
+        fallback_to_search=fallback_to_search,
     )
 
 
@@ -1354,6 +1356,74 @@ def _with_search_advice(error: dict[str, Any], url: str) -> dict[str, Any]:
     return {**error, "error": {**detail, "message": message}}
 
 
+async def _search_fallback_fetch(
+    url: str,
+    *,
+    refresh: bool = False,
+    strip_boilerplate: bool = True,
+) -> dict[str, Any] | None:
+    """Attempt to retrieve page content via DeepSeek search when fetch returns 404 for PDF/Reddit.
+
+    Returns ``{"data": {"title": ..., "content": ...}, "fallback_from_search": True}`` on success,
+    or ``None`` if search yielded no matching results for the target domain or had empty content.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        target_host = (parts.hostname or "").lower()
+    except ValueError:
+        return None
+
+    clean_url = url.split("?", 1)[0].split("#", 1)[0]
+    if clean_url.startswith("https://"):
+        clean_url = clean_url[8:]
+    elif clean_url.startswith("http://"):
+        clean_url = clean_url[7:]
+    if clean_url.startswith("www."):
+        clean_url = clean_url[4:]
+    search_query = clean_url[:MAX_QUERY]
+
+    search_res = await _search(
+        search_query,
+        count=2,
+        ori_question=None,
+        need_content=True,
+        lang=None,
+        max_chars_per_result=40000,
+        max_total_chars=40000,
+        dedupe=True,
+        rewrite=False,
+        refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
+    )
+    if not search_res.get("ok"):
+        return None
+
+    for res in search_res.get("results") or []:
+        res_url = res.get("url") or ""
+        try:
+            res_parts = urllib.parse.urlsplit(res_url)
+            res_host = (res_parts.hostname or "").lower()
+        except ValueError:
+            continue
+        if not (
+            res_host == target_host
+            or res_host.endswith(f".{target_host}")
+            or target_host.endswith(f".{res_host}")
+        ):
+            continue
+
+        raw_content = res.get("content") or ""
+        if raw_content.strip():
+            return {
+                "data": {
+                    "title": res.get("title") or "",
+                    "content": raw_content,
+                },
+                "fallback_from_search": True,
+            }
+    return None
+
+
 async def _fetch(
     url: str,
     clean: bool,
@@ -1367,6 +1437,7 @@ async def _fetch(
     max_snippets: int = 3,
     refresh: bool,
     strip_boilerplate: bool = True,
+    fallback_to_search: bool = True,
 ) -> dict[str, Any]:
     """Fetch an already validated ``url`` through the cache, single-flight and limiter.
 
@@ -1388,8 +1459,25 @@ async def _fetch(
         lambda: _fetch_upstream(url, key),
         refresh=refresh,
     )
+    fallback_used = False
     if record.get("ok") is False:
-        return _with_search_advice(record, url)
+        if fallback_to_search and record.get("error", {}).get("status") == 404 and _needs_search_advice(url):
+            fallback_record = await _search_fallback_fetch(
+                url,
+                refresh=refresh,
+                strip_boilerplate=strip_boilerplate,
+            )
+            if fallback_record is not None:
+                record = fallback_record
+                cached = False
+                fallback_used = True
+                fetch_cache = _get_fetch_cache()
+                if fetch_cache is not None:
+                    fetch_cache.set(key, record)
+            else:
+                return _with_search_advice(record, url)
+        else:
+            return _with_search_advice(record, url)
 
     data = record["data"]
     content = data.get("content") or ""
@@ -1450,7 +1538,12 @@ async def _fetch(
         content, truncated = _truncate(content, max_chars)
         window_has_more = None
 
-    cost = 0.0 if cached else COST_PER_REQUEST
+    if fallback_used:
+        cost = 2 * COST_PER_REQUEST
+    else:
+        cost = 0.0 if cached else COST_PER_REQUEST
+    if fallback_used or record.get("fallback_from_search"):
+        notes.append("Content retrieved via DeepSeek search index (direct fetch unsupported for PDF/Reddit).")
     envelope: dict[str, Any] = {
         "ok": True,
         "url": url,
@@ -1524,6 +1617,7 @@ async def _fetch_isolated(
     semaphore: asyncio.Semaphore,
     strip_boilerplate: bool = True,
     query: str | None = None,
+    fallback_to_search: bool = True,
 ) -> dict[str, Any]:
     """Run one batch fetch under ``semaphore``; unexpected exceptions become error envelopes."""
     async with semaphore:
@@ -1535,6 +1629,7 @@ async def _fetch_isolated(
                 query=query,
                 refresh=refresh,
                 strip_boilerplate=strip_boilerplate,
+                fallback_to_search=fallback_to_search,
             )
         except Exception as exc:  # broad on purpose: one failing URL must not fail the whole batch
             message = redact(f"{type(exc).__name__}: {exc}")
@@ -1577,6 +1672,7 @@ async def _run_batch(
     strip_boilerplate: bool = True,
     query: str | None = None,
     deadline: float | None = None,
+    fallback_to_search: bool = True,
 ) -> dict[int, asyncio.Task[dict[str, Any]]]:
     """Fetch every non-rejected item concurrently under the batch concurrency and deadline.
 
@@ -1587,7 +1683,16 @@ async def _run_batch(
     semaphore = asyncio.Semaphore(settings.batch_concurrency)
     tasks = {
         index: asyncio.create_task(
-            _fetch_isolated(url, clean, per_url, refresh, semaphore, strip_boilerplate, query=query)
+            _fetch_isolated(
+                url,
+                clean,
+                per_url,
+                refresh,
+                semaphore,
+                strip_boilerplate,
+                query=query,
+                fallback_to_search=fallback_to_search,
+            )
         )
         for index, (url, rejection) in enumerate(items)
         if rejection is None
@@ -1687,22 +1792,24 @@ async def deepseek_fetch_many(
     refresh: bool = False,
     strip_boilerplate: bool = True,
     deadline: float | None = None,
+    fallback_to_search: bool = True,
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
     Fetch multiple known URLs in parallel. Use when target URLs are known. Do not use
-    for a single URL (use deepseek_fetch), nor for search/discovery (use deepseek_search).
+    for a single URL (use deepseek_fetch), nor for search (use deepseek_search).
     Skips blanks, deduplicates, and preserves order.
 
     Args:
         urls: 1-10 absolute http(s) URLs, max 8192 characters each.
         max_chars_per_url: Content cap per page (default 4000).
-        max_total_chars: Total content budget across all pages (default 20000).
+        max_total_chars: Total content cap across pages (default 20000).
         clean: Remove Markdown backslash escapes (default True).
-        query: Query to extract ranked snippets across fetched pages.
-        refresh: Bypass cache and fetch pages again (default False).
-        strip_boilerplate: Remove site UI lines from text (default True).
-        deadline: Max seconds before cancelling pending fetches (default 120s).
+        query: Query to extract ranked snippets across pages.
+        refresh: Bypass cache (default False).
+        strip_boilerplate: Remove site UI lines (default True).
+        deadline: Max seconds before cancelling fetches (default 120s).
+        fallback_to_search: Search fallback on 404 for PDF/Reddit (default True).
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -1715,7 +1822,14 @@ async def deepseek_fetch_many(
         return _fail("bad_request", "urls must contain at least one non-empty URL.")
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
     tasks = await _run_batch(
-        items, clean, per_url, refresh, strip_boilerplate, query=query, deadline=deadline
+        items,
+        clean,
+        per_url,
+        refresh,
+        strip_boilerplate,
+        query=query,
+        deadline=deadline,
+        fallback_to_search=fallback_to_search,
     )
     return _assemble_batch(items, tasks, duplicates, max_total_chars, deadline=deadline)
 
@@ -1892,10 +2006,7 @@ async def deepseek_research(
     """Single-pass source gathering: search with page content and auto-fetch stub pages.
 
     Gathers candidate sources for research. It does not iterate, refine the query or summarise:
-    one search and sources return raw content for caller to synthesise.
-
-    Unlike deepseek_search, auto-fetches stub results in parallel for deep source gathering.
-    Use when research requires complete documents rather than snippets.
+    one search returning raw content. Auto-fetches stub results in parallel.
 
     Args:
         question: Search query, max 128 characters.
@@ -1906,11 +2017,11 @@ async def deepseek_research(
         before: Date on or before (YYYY-MM-DD/YYYY).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
         exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
-        lang: Language filter (e.g. 'pl', 'es', 'ja').
+        lang: Language filter (e.g. 'pl', 'es').
         rewrite: Translate query via deepseek-flash (default False).
         dedupe: Collapse duplicate results (default True).
-        refresh: Bypass response cache (default False).
-        strip_boilerplate: Strip site UI text (default True).
+        refresh: Bypass cache (default False).
+        strip_boilerplate: Remove site UI lines (default True).
     """
     if per_page_chars < 1 or total_chars < 1:
         return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
@@ -2160,34 +2271,8 @@ async def deepseek_deep_research(
     }
 
 
-@_timed
-async def deepseek_extract(
-    url: str,
-    *,
-    fields: list[str] | None = None,
-    schema: dict[str, Any] | None = None,
-    instruction: str | None = None,
-    clean: bool = True,
-    max_chars: int = 40000,
-    refresh: bool = False,
-    strip_boilerplate: bool = True,
-) -> dict[str, Any]:
-    """Extract structured JSON from a web page conforming to target fields or a schema.
-
-    Extracts specific entities or key-value data without returning full page text.
-    Returns extracted JSON under 'data'. Do not use for general reading (use deepseek_fetch),
-    nor for search or discovery (use deepseek_search).
-
-    Args:
-        url: Absolute web page URL to extract from.
-        fields: Target attribute names (e.g. ['price', 'specs']), exclusive with schema.
-        schema: JSON Schema defining target structure, exclusive with fields.
-        instruction: Optional extraction guidance.
-        clean: Remove Markdown backslash escapes (default True).
-        max_chars: Content cap before extraction (default 40000).
-        refresh: Bypass cache and fetch page again (default False).
-        strip_boilerplate: Remove site UI lines from text (default True).
-    """
+def _validate_extract_spec(fields: list[str] | None, schema: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Validate that either 'fields' or 'schema' is provided and structurally sound."""
     if not fields and not schema:
         return _fail("bad_request", "Either 'fields' or 'schema' must be provided.")
     if fields is not None and schema is not None:
@@ -2202,29 +2287,30 @@ async def deepseek_extract(
             return _fail("bad_request", "'fields' must be a non-empty list of non-empty strings.")
     if schema is not None and not isinstance(schema, dict):
         return _fail("bad_request", "'schema' must be a dictionary.")
+    return None
 
-    clean_url = url.strip() if isinstance(url, str) else ""
-    rejection = _check_fetch_url(clean_url)
-    if rejection is not None:
-        return rejection
 
-    fetch_res = await _fetch(
-        clean_url,
-        clean=clean,
-        max_chars=max_chars,
-        refresh=refresh,
-        strip_boilerplate=strip_boilerplate,
-    )
-    if fetch_res.get("ok") is False:
-        return fetch_res
+async def _extract_page(
+    clean_url: str,
+    fetch_res: dict[str, Any],
+    system_prompt: str,
+    fields: list[str] | None,
+    schema: dict[str, Any] | None,
+) -> tuple[dict[str, Any], int]:
+    """Perform LLM extraction for one successfully fetched page.
 
+    Returns ``(item_result, upstream_llm_requests)``.
+    """
     content = fetch_res.get("content") or ""
     if not content.strip():
         notes = fetch_res.get("notes") or []
         msg = notes[0] if notes else "The fetched page has no readable content to extract from."
-        return _fail("empty_page", msg)
+        return {
+            "ok": False,
+            "url": clean_url,
+            "error": {"code": "empty_page", "message": msg},
+        }, 0
 
-    system_prompt = build_extract_prompt(fields, schema, instruction)
     page_title = fetch_res.get("title") or "Untitled"
     user_content = f"URL: {clean_url}\nTitle: {page_title}\n\nPage Content:\n{content}"
 
@@ -2244,15 +2330,35 @@ async def deepseek_extract(
         "POST", "/v1/chat/completions", payload=payload, timeout=EXTRACT_TIMEOUT, attempts=1
     )
     if not result.get("ok"):
-        return result
+        return {
+            "ok": False,
+            "url": clean_url,
+            "error": result.get("error")
+            or {"code": "extraction_failed", "message": "Extraction model request failed."},
+        }, 1
 
-    raw_text = result["data"]["choices"][0]["message"]["content"]
+    choices = result.get("data", {}).get("choices") or []
+    raw_text = choices[0]["message"]["content"] if choices else None
     if not isinstance(raw_text, str):
-        return _fail("extraction_failed", "Invalid response payload from extraction model.")
+        return {
+            "ok": False,
+            "url": clean_url,
+            "error": {
+                "code": "extraction_failed",
+                "message": "Invalid response payload from extraction model.",
+            },
+        }, 1
 
     parsed, err = sanitize_json(raw_text)
     if err or parsed is None:
-        return _fail("extraction_failed", err or "Failed to parse extraction response as JSON.")
+        return {
+            "ok": False,
+            "url": clean_url,
+            "error": {
+                "code": "extraction_failed",
+                "message": err or "Failed to parse extraction response as JSON.",
+            },
+        }, 1
 
     notes: list[str] = []
     if fetch_res.get("cached"):
@@ -2265,16 +2371,199 @@ async def deepseek_extract(
         if schema_errors:
             notes.extend(schema_errors)
 
-    requests_used = (0 if fetch_res.get("cached") else 1) + 1
-    cost = round(requests_used * COST_PER_REQUEST, 5)
     return {
         "ok": True,
         "url": clean_url,
         "title": fetch_res.get("title"),
         "data": parsed,
         "cached": fetch_res.get("cached", False),
+        "notes": notes,
+    }, 1
+
+
+@_timed
+async def deepseek_extract(
+    url: str,
+    *,
+    fields: list[str] | None = None,
+    schema: dict[str, Any] | None = None,
+    instruction: str | None = None,
+    clean: bool = True,
+    max_chars: int = 40000,
+    refresh: bool = False,
+    strip_boilerplate: bool = True,
+) -> dict[str, Any]:
+    """Extract structured JSON from a web page conforming to target fields or a schema.
+
+    Extracts specific entities or key-value data without returning full page text.
+    Returns extracted JSON under 'data'. Do not use for general reading (use deepseek_fetch).
+
+    Args:
+        url: Absolute web page URL to extract from.
+        fields: Target attribute names (e.g. ['price', 'specs']), exclusive with schema.
+        schema: JSON Schema defining target structure, exclusive with fields.
+        instruction: Optional extraction guidance.
+        clean: Remove Markdown backslash escapes (default True).
+        max_chars: Content cap before extraction (default 40000).
+        refresh: Bypass cache (default False).
+        strip_boilerplate: Remove site UI lines (default True).
+    """
+    spec_err = _validate_extract_spec(fields, schema)
+    if spec_err is not None:
+        return spec_err
+
+    clean_url = url.strip() if isinstance(url, str) else ""
+    rejection = _check_fetch_url(clean_url)
+    if rejection is not None:
+        return rejection
+
+    fetch_res = await _fetch(
+        clean_url,
+        clean=clean,
+        max_chars=max_chars,
+        refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
+    )
+    if fetch_res.get("ok") is False:
+        return fetch_res
+
+    system_prompt = build_extract_prompt(fields, schema, instruction)
+    item, llm_reqs = await _extract_page(clean_url, fetch_res, system_prompt, fields, schema)
+    if not item.get("ok"):
+        return {"ok": False, "error": item["error"]}
+
+    fetch_reqs = round(fetch_res.get("cost_usd", 0.0) / COST_PER_REQUEST)
+    requests_used = fetch_reqs + llm_reqs
+    cost = round(requests_used * COST_PER_REQUEST, 5)
+    return {
+        "ok": True,
+        "url": clean_url,
+        "title": item.get("title"),
+        "data": item.get("data"),
+        "cached": fetch_res.get("cached", False),
         "cost_usd": cost,
         "untrusted_content": True,
+        "notes": item.get("notes", []),
+        "_meta": _envelope_meta(cost, untrusted_content=True),
+    }
+
+
+@_timed
+async def deepseek_extract_many(
+    urls: list[str],
+    *,
+    fields: list[str] | None = None,
+    schema: dict[str, Any] | None = None,
+    instruction: str | None = None,
+    clean: bool = True,
+    max_chars_per_url: int = 20000,
+    max_total_chars: int = 60000,
+    refresh: bool = False,
+    strip_boilerplate: bool = True,
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    """Extract structured JSON from multiple web pages concurrently conforming to target fields or a schema.
+
+    Batch extraction across 1-10 URLs. Extracts entities or key-value data in parallel
+    without returning full page text. Returns extracted JSON per URL under 'data'.
+
+    Args:
+        urls: 1-10 absolute web page URLs to extract from.
+        fields: Target attribute names (e.g. ['price', 'specs']), exclusive with schema.
+        schema: JSON Schema defining target structure, exclusive with fields.
+        instruction: Optional extraction guidance across pages.
+        clean: Remove Markdown backslash escapes (default True).
+        max_chars_per_url: Content cap per page (default 20000).
+        max_total_chars: Total content cap (default 60000).
+        refresh: Bypass cache (default False).
+        strip_boilerplate: Remove site UI lines (default True).
+        deadline: Max seconds before cancelling fetches (default 120s).
+    """
+    spec_err = _validate_extract_spec(fields, schema)
+    if spec_err is not None:
+        return spec_err
+
+    settings = get_settings()
+    if not urls or len(urls) > settings.batch_max_urls:
+        return _fail("bad_request", f"urls must contain 1-{settings.batch_max_urls} entries.")
+    if max_chars_per_url < 1 or max_total_chars < 1:
+        return _fail("bad_request", "max_chars_per_url and max_total_chars must be at least 1.")
+
+    items, duplicates = _dedupe_urls(urls)
+    if not items:
+        return _fail("bad_request", "urls must contain at least one non-empty URL.")
+
+    per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
+    fetch_tasks = await _run_batch(items, clean, per_url, refresh, strip_boilerplate, deadline=deadline)
+
+    actual_deadline = deadline if deadline is not None else settings.batch_deadline
+    deadline_error = _fail(
+        "deadline_exceeded", f"Not fetched within the {actual_deadline:g} s batch deadline."
+    )
+
+    system_prompt = build_extract_prompt(fields, schema, instruction)
+
+    extract_coros: list[Awaitable[tuple[dict[str, Any], int]]] = []
+    extract_indices: dict[int, int] = {}
+    fetch_envelopes: dict[int, dict[str, Any]] = {}
+
+    requests_used = 0
+    for index, (url, rejection) in enumerate(items):
+        if rejection is not None:
+            fetch_envelopes[index] = rejection
+        elif fetch_tasks[index].cancelled():
+            fetch_envelopes[index] = deadline_error
+        else:
+            fetch_envelopes[index] = fetch_tasks[index].result()
+
+        env = fetch_envelopes[index]
+        if env.get("ok"):
+            fetch_reqs = round(env.get("cost_usd", 0.0) / COST_PER_REQUEST)
+            requests_used += fetch_reqs
+            extract_indices[index] = len(extract_coros)
+            extract_coros.append(_extract_page(url, env, system_prompt, fields, schema))
+        elif rejection is None and env.get("error", {}).get("code") not in _LOCAL_ERROR_CODES:
+            requests_used += 1
+
+    extracted_results: list[tuple[dict[str, Any], int]] = []
+    if extract_coros:
+        extracted_results = await asyncio.gather(*extract_coros)
+
+    results: list[dict[str, Any]] = []
+    for index, (url, _) in enumerate(items):
+        if index in extract_indices:
+            item_result, llm_reqs = extracted_results[extract_indices[index]]
+            requests_used += llm_reqs
+            results.append(item_result)
+        else:
+            env = fetch_envelopes[index]
+            results.append(
+                {
+                    "ok": False,
+                    "url": url,
+                    "error": env.get("error", {"code": "fetch_failed", "message": "Failed to fetch page."}),
+                }
+            )
+
+    notes: list[str] = []
+    if duplicates:
+        notes.append(f"deduped {duplicates} duplicate URL(s)")
+
+    failed_count = sum(not item.get("ok", False) for item in results)
+    cached_count = sum(item.get("cached", False) for item in results)
+    cost = round(requests_used * COST_PER_REQUEST, 5)
+
+    return {
+        "ok": True,
+        "count": len(results),
+        "requests_used": requests_used,
+        "cached": _all_cached(requests_used, cached_count),
+        "cached_count": cached_count,
+        "failed_count": failed_count,
+        "partial": failed_count > 0,
+        "cost_usd": cost,
+        "untrusted_content": True,
+        "results": results,
         "notes": notes,
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }
@@ -2326,6 +2615,7 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_research,
     deepseek_deep_research,
     deepseek_extract,
+    deepseek_extract_many,
     deepseek_check_balance,
 )
 
@@ -2346,6 +2636,9 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
     ),
     "deepseek_extract": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_extract_many": ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
     ),
     "deepseek_check_balance": ToolAnnotations(

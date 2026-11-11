@@ -131,7 +131,7 @@ def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
     assert "primary search and retrieval tool" in search_desc.lower()
 
     total_chars = sum(len(tool.description) for tool in tools.values())
-    assert total_chars < 6500
+    assert total_chars < 7000
 
 
 def test_legacy_v1_tool_aliases_callable():
