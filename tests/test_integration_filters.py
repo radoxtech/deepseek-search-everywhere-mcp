@@ -40,6 +40,26 @@ def test_filters_reject_bad_domain(fake_upstream):
     assert result["error"]["code"] == "bad_domain"
 
 
+def test_filters_accept_idn_domains_and_send_unicode_to_search(fake_upstream):
+    upstream = _install_search(fake_upstream)
+    result = asyncio.run(
+        server.deepseek_web_search(
+            "klimat",
+            include_domains=["źródło.pl", "münchen.de"],
+            exclude_domains=["xn--rdo-gna01bwk.pl"],
+        )
+    )
+    assert result["ok"] is True
+    used = result["query_used"]
+    assert "site:źródło.pl" in used
+    assert "site:münchen.de" in used
+    assert "-site:źródło.pl" in used
+    call_query = upstream.calls[0]["payload"]["query"]
+    assert "site:źródło.pl" in call_query
+    assert "site:münchen.de" in call_query
+    assert "-site:źródło.pl" in call_query
+
+
 def test_filters_reject_bad_date(fake_upstream):
     _install_search(fake_upstream)
     result = asyncio.run(server.deepseek_web_search("test", after="2024-02-31"))

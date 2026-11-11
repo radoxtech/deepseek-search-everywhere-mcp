@@ -17,9 +17,10 @@ _DOMAIN_CHAR_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$|^localh
 
 
 def normalize_domain(raw: str) -> tuple[str | None, str | None]:
-    """Strip protocol, path and whitespace from ``raw``; validate domain characters.
+    """Strip protocol, path and whitespace from ``raw``; validate domain characters via IDNA.
 
-    Returns ``(domain, None)`` on success, or ``(None, error_message)`` on failure.
+    Returns ``(unicode_domain, None)`` on success, or ``(None, error_message)`` on failure.
+    Always returns the domain in Unicode form for upstream search.
     """
     cleaned = (raw or "").strip()
     if not cleaned:
@@ -30,9 +31,26 @@ def normalize_domain(raw: str) -> tuple[str | None, str | None]:
     cleaned = cleaned.split("/", 1)[0].split(":", 1)[0].strip().lower()
     if cleaned.startswith("www."):
         cleaned = cleaned[4:]
-    if not cleaned or not _DOMAIN_CHAR_RE.match(cleaned):
+    if not cleaned:
         return None, f"Invalid domain: {raw!r}."
-    return cleaned, None
+
+    if cleaned == "localhost":
+        return "localhost", None
+
+    try:
+        ascii_form = cleaned.encode("idna").decode("ascii")
+    except (UnicodeError, ValueError):
+        return None, f"Invalid domain: {raw!r}."
+
+    if not _DOMAIN_CHAR_RE.match(ascii_form):
+        return None, f"Invalid domain: {raw!r}."
+
+    try:
+        unicode_form = ascii_form.encode("ascii").decode("idna")
+    except (UnicodeError, ValueError):
+        unicode_form = cleaned
+
+    return unicode_form, None
 
 
 def normalize_date(raw: str) -> tuple[str | None, str | None]:
