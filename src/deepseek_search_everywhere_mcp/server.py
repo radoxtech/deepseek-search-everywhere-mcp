@@ -29,6 +29,7 @@ from mcp.types import ToolAnnotations
 
 from ._version import __version__
 from .boilerplate import remove_boilerplate
+from .budget import DailyBudgetTracker
 from .cache import SingleFlight, TTLCache
 from .deep_research import (
     build_decomposition_messages,
@@ -88,6 +89,17 @@ OVERFETCH_RATIO = 0.5
 SEARCH_SUMMARY_CHARS = 400
 # Note added by every tool whose content was cut to fit a character budget.
 TRUNCATED_NOTE = "Some page content was truncated to respect the character budget."
+# Upstream pricing per billable Search/Fetch request: $0.75 per 1,000 requests.
+COST_PER_REQUEST = 0.00075
+
+
+def _envelope_meta(cost_usd: float, untrusted_content: bool = True) -> dict[str, Any]:
+    """Build the standard ``_meta`` payload reporting estimated costs and security classification."""
+    return {
+        "cost_usd": cost_usd,
+        "untrusted_content": untrusted_content,
+    }
+
 
 logger = logging.getLogger(__name__)
 
@@ -123,14 +135,26 @@ _rewrite_cache: TTLCache | None = None
 _rewrite_flight: SingleFlight | None = None
 _rate_limiter: RateLimiter | None = None
 _session_metrics: SessionMetrics | None = None
+_budget_tracker: DailyBudgetTracker | None = None
 
 
 def reset_state() -> None:
     """Forget the response and rewrite caches, in-flight calls, session metrics and the rate limiter."""
     global _search_cache, _search_flight, _fetch_cache, _fetch_flight
-    global _rewrite_cache, _rewrite_flight, _rate_limiter, _session_metrics
+    global _rewrite_cache, _rewrite_flight, _rate_limiter, _session_metrics, _budget_tracker
     _search_cache = _search_flight = _fetch_cache = _fetch_flight = None
-    _rewrite_cache = _rewrite_flight = _rate_limiter = _session_metrics = None
+    _rewrite_cache = _rewrite_flight = _rate_limiter = _session_metrics = _budget_tracker = None
+
+
+def _get_budget_tracker() -> DailyBudgetTracker | None:
+    """Return the active daily budget tracker, or ``None`` when daily budget is disabled."""
+    global _budget_tracker
+    settings = get_settings()
+    if settings.daily_budget_usd is None:
+        return None
+    if _budget_tracker is None:
+        _budget_tracker = DailyBudgetTracker(settings.daily_budget_usd)
+    return _budget_tracker
 
 
 def _get_session_metrics() -> SessionMetrics:
@@ -599,9 +623,20 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None, 
 
     Returns ``{"data": ..., "query_original": ...}`` on success or an error envelope.
     """
+    budget = _get_budget_tracker()
+    if budget is not None:
+        allowed, spent, limit = await budget.check_budget(COST_PER_REQUEST)
+        if not allowed:
+            return _fail(
+                "budget_exceeded",
+                f"Daily spend limit of ${limit:.2f} exceeded (spent ${spent:.4f}).",
+                429,
+            )
     result = await _limited_request(SEARCH, SEARCH_PATH, payload, SEARCH_TIMEOUT)
     if not result.get("ok"):
         return result
+    if budget is not None:
+        await budget.record_spend(COST_PER_REQUEST)
     record = {"data": result["data"], "query_original": query_original}
     cache = _get_search_cache()
     if cache is not None and result["data"].get("results"):
@@ -650,7 +685,13 @@ async def _maybe_rewrite(
 
 
 def _build_search_payload(
-    query: str, count: int, dedupe: bool, need_content: bool, ori_question: str | None
+    query: str,
+    count: int,
+    dedupe: bool,
+    need_content: bool,
+    ori_question: str | None,
+    *,
+    localization: str | None = None,
 ) -> dict[str, Any]:
     """Build the upstream search payload (``query`` already carries any ``lang:`` operator)."""
     payload: dict[str, Any] = {
@@ -660,6 +701,8 @@ def _build_search_payload(
     }
     if ori_question:
         payload["ori_question"] = ori_question[:MAX_QUERY]
+    if localization and localization.strip():
+        payload["localization"] = localization.strip()
     return payload
 
 
@@ -907,6 +950,9 @@ async def _search(
     dedupe: bool = True,
     rewrite: bool = False,
     *,
+    localization: str | None = None,
+    exclude_terms: list[str] | None = None,
+    exact_phrases: list[str] | None = None,
     after: str | None = None,
     before: str | None = None,
     include_domains: list[str] | None = None,
@@ -921,10 +967,18 @@ async def _search(
     ``strip_boilerplate`` removes known site-UI lines from page content; it only shapes the
     response, so the cache key and the cached upstream data are the same either way.
     """
+    if localization is not None:
+        if not isinstance(localization, str):
+            return _fail("bad_request", "localization must be a string.")
+        if len(localization.strip()) > 64:
+            return _fail("bad_request", "localization exceeds maximum length of 64 characters.")
+
     query = (query or "").strip()
     ops_string, filter_code, filter_err = compile_filters(
         include_domains=include_domains,
         exclude_domains=exclude_domains,
+        exclude_terms=exclude_terms,
+        exact_phrases=exact_phrases,
         after=after,
         before=before,
     )
@@ -958,7 +1012,9 @@ async def _search(
         else:
             used = ops_string
 
-    payload = _build_search_payload(used, count, dedupe, need_content, ori_question)
+    payload = _build_search_payload(
+        used, count, dedupe, need_content, ori_question, localization=localization
+    )
     key = _search_cache_key(payload)
     record, cached = await _cached_call(
         _get_search_cache(),
@@ -980,6 +1036,7 @@ async def _search(
         raw, need_content, max_chars_per_result, max_total_chars, summary_cap, strip_boilerplate
     )
 
+    cost = 0.0 if cached else COST_PER_REQUEST
     envelope: dict[str, Any] = {
         "ok": True,
         "query_used": used,
@@ -987,10 +1044,13 @@ async def _search(
         "need_content": need_content,
         "deduped": removed,
         "cached": cached,
+        "cost_usd": cost,
+        "untrusted_content": True,
         "results": shaped,
         "notes": _search_notes(
             used, query_original, rewrite_failed, removed, trimmed, lang, truncated, filter_ops=ops_string
         ),
+        "_meta": _envelope_meta(cost, untrusted_content=True),
     }
     if query_original is not None:
         envelope["query_original"] = query_original
@@ -1002,9 +1062,20 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
 
     Returns ``{"data": ...}`` with the raw upstream page on success or an error envelope.
     """
+    budget = _get_budget_tracker()
+    if budget is not None:
+        allowed, spent, limit = await budget.check_budget(COST_PER_REQUEST)
+        if not allowed:
+            return _fail(
+                "budget_exceeded",
+                f"Daily spend limit of ${limit:.2f} exceeded (spent ${spent:.4f}).",
+                429,
+            )
     result = await _limited_request(FETCH, FETCH_PATH, {"url": url}, FETCH_TIMEOUT)
     if not result.get("ok"):
         return result
+    if budget is not None:
+        await budget.record_spend(COST_PER_REQUEST)
     record = {"data": result["data"]}
     cache = _get_fetch_cache()
     if cache is not None and result["data"].get("content"):
@@ -1024,6 +1095,9 @@ async def deepseek_search(
     max_total_chars: int = 30000,
     dedupe: bool = True,
     rewrite: bool = False,
+    localization: str | None = None,
+    exclude_terms: list[str] | None = None,
+    exact_phrases: list[str] | None = None,
     after: str | None = None,
     before: str | None = None,
     include_domains: list[str] | None = None,
@@ -1049,6 +1123,9 @@ async def deepseek_search(
         max_total_chars: Budget across results (default 30000).
         dedupe: Collapse duplicate results (default True).
         rewrite: Rewrite query via deepseek-flash (default False).
+        localization: Optional IP for geo-targeted results.
+        exclude_terms: Terms to exclude (e.g. ['spam']).
+        exact_phrases: Exact phrases to match (e.g. ['AI agent']).
         after: Date on or after (YYYY-MM-DD/YYYY).
         before: Date on or before (YYYY-MM-DD/YYYY).
         include_domains: Restrict domains (e.g. ['arxiv.org']).
@@ -1067,6 +1144,9 @@ async def deepseek_search(
         max_total_chars,
         dedupe,
         rewrite,
+        localization=localization,
+        exclude_terms=exclude_terms,
+        exact_phrases=exact_phrases,
         after=after,
         before=before,
         include_domains=include_domains,
@@ -1088,6 +1168,9 @@ async def deepseek_web_search(
     dedupe: bool = True,
     rewrite: bool = False,
     *,
+    localization: str | None = None,
+    exclude_terms: list[str] | None = None,
+    exact_phrases: list[str] | None = None,
     after: str | None = None,
     before: str | None = None,
     include_domains: list[str] | None = None,
@@ -1107,6 +1190,9 @@ async def deepseek_web_search(
         max_total_chars=max_total_chars,
         dedupe=dedupe,
         rewrite=rewrite,
+        localization=localization,
+        exclude_terms=exclude_terms,
+        exact_phrases=exact_phrases,
         after=after,
         before=before,
         include_domains=include_domains,
@@ -1187,6 +1273,9 @@ async def deepseek_fetch(
     clean: bool = True,
     max_chars: int = 20000,
     *,
+    offset: int | None = None,
+    limit: int | None = None,
+    find_text: str | None = None,
     query: str | None = None,
     section: int | None = None,
     max_snippets: int = 3,
@@ -1203,6 +1292,9 @@ async def deepseek_fetch(
         url: Absolute http(s) URL, max 8192 characters.
         clean: Remove Markdown backslash escapes (default True).
         max_chars: Content cap after cleaning (default 20000).
+        offset: Character offset to start reading from (0-based).
+        limit: Max characters to return from offset.
+        find_text: Locate substring; sets offset to its position.
         query: Query to extract ranked relevant snippets.
         section: 1-based index to read a specific document section.
         max_snippets: Max ranked snippets when query is set (default 3, 1-5).
@@ -1217,6 +1309,9 @@ async def deepseek_fetch(
         url,
         clean,
         max_chars,
+        offset=offset,
+        limit=limit,
+        find_text=find_text,
         query=query,
         section=section,
         max_snippets=max_snippets,
@@ -1264,6 +1359,9 @@ async def _fetch(
     clean: bool,
     max_chars: int,
     *,
+    offset: int | None = None,
+    limit: int | None = None,
+    find_text: str | None = None,
     query: str | None = None,
     section: int | None = None,
     max_snippets: int = 3,
@@ -1272,11 +1370,16 @@ async def _fetch(
 ) -> dict[str, Any]:
     """Fetch an already validated ``url`` through the cache, single-flight and limiter.
 
-    Cleaning, snippets, sectional reading and ``strip_boilerplate`` shape the cached page and
+    Cleaning, snippets, sectional reading, pagination and ``strip_boilerplate`` shape the cached page and
     never change the cache key.
 
     Returns the ``deepseek_fetch`` envelope, or an error envelope from upstream or the limiter.
     """
+    if offset is not None and offset < 0:
+        return _fail("bad_request", "offset must be at least 0.")
+    if limit is not None and limit <= 0:
+        return _fail("bad_request", "limit must be greater than 0.")
+
     key = _fetch_cache_key(url)
     record, cached = await _cached_call(
         _get_fetch_cache(),
@@ -1299,7 +1402,7 @@ async def _fetch(
         content = stripped
 
     total_sections: int | None = None
-    has_more: bool | None = None
+    section_has_more: bool | None = None
     section_index: int | None = None
     snippets_count: int | None = None
 
@@ -1317,26 +1420,60 @@ async def _fetch(
         else:
             section_index = section
             content = sections[section - 1]["content"]
-            has_more = section < total_sections
+            section_has_more = section < total_sections
     elif query:
         content, snippets_count = extract_snippets(content, query, max_snippets=max_snippets)
 
-    content, truncated = _truncate(content, max_chars)
+    total_chars = len(content)
+    notes = _fetch_notes(content, only_boilerplate)
 
+    if find_text:
+        target = find_text.strip()
+        if target:
+            search_start = offset if offset is not None else 0
+            idx = content.lower().find(target.lower(), search_start)
+            if idx >= 0:
+                offset = idx
+            else:
+                notes.append(f"find_text '{target}' not found in page content.")
+                content = ""
+
+    is_windowed = offset is not None or limit is not None or find_text is not None
+    if is_windowed:
+        start = offset if offset is not None else 0
+        effective_limit = min(limit if limit is not None else max_chars, max_chars)
+        content = content[start : start + effective_limit]
+        window_has_more = (start + len(content)) < total_chars
+        truncated = window_has_more
+    else:
+        start = 0
+        content, truncated = _truncate(content, max_chars)
+        window_has_more = None
+
+    cost = 0.0 if cached else COST_PER_REQUEST
     envelope: dict[str, Any] = {
         "ok": True,
         "url": url,
         "title": _collapse_repeated_title(data.get("title")),
         "content": content,
         "chars": len(content),
+        "total_chars": total_chars,
         "truncated": truncated,
         "cached": cached,
-        "notes": _fetch_notes(content, only_boilerplate),
+        "cost_usd": cost,
+        "untrusted_content": True,
+        "notes": notes,
+        "_meta": _envelope_meta(cost, untrusted_content=True),
     }
     if section is not None:
         envelope["section"] = section_index
         envelope["total_sections"] = total_sections
-        envelope["has_more"] = has_more
+        envelope["has_more"] = section_has_more
+    elif is_windowed:
+        envelope["offset"] = start
+        envelope["has_more"] = window_has_more
+        if find_text:
+            envelope["find_text"] = find_text
     if query:
         envelope["query"] = query
         envelope["snippets_count"] = snippets_count
@@ -1375,6 +1512,7 @@ def _batch_item(url: str, envelope: dict[str, Any]) -> dict[str, Any]:
         "content": envelope["content"],
         "chars": len(envelope["content"]),
         "cached": envelope["cached"],
+        "untrusted_content": True,
     }
 
 
@@ -1521,6 +1659,7 @@ def _assemble_batch(
         notes.append(TRUNCATED_NOTE)
     failed_count = sum(not item["ok"] for item in results)
     cached_count = sum(item["cached"] for item in results)
+    cost = round(requests_used * COST_PER_REQUEST, 5)
     return {
         "ok": True,
         "count": len(results),
@@ -1529,8 +1668,11 @@ def _assemble_batch(
         "cached_count": cached_count,
         "failed_count": failed_count,
         "partial": failed_count > 0,
+        "cost_usd": cost,
+        "untrusted_content": True,
         "results": results,
         "notes": notes,
+        "_meta": _envelope_meta(cost, untrusted_content=True),
     }
 
 
@@ -1709,6 +1851,7 @@ def _research_envelope(
         notes.append(TRUNCATED_NOTE)
     requests_used = (0 if search["cached"] else 1) + fill.requests_used
     cached_count = (1 if search["cached"] else 0) + fill.cached_count
+    cost = round(requests_used * COST_PER_REQUEST, 5)
     envelope: dict[str, Any] = {
         "ok": True,
         "question": question,
@@ -1717,9 +1860,12 @@ def _research_envelope(
         "requests_used": requests_used,
         "cached": _all_cached(requests_used, cached_count),
         "cached_count": cached_count,
+        "cost_usd": cost,
+        "untrusted_content": True,
         "notes": notes,
         "failed_count": fill.failed,
         "partial": fill.failed > 0,
+        "_meta": _envelope_meta(cost, untrusted_content=True),
     }
     if "query_original" in search:
         envelope["query_original"] = search["query_original"]
@@ -1909,6 +2055,7 @@ async def deepseek_deep_research(
     # Step 5: Select synthesis context (capped at 6 sources, 24k chars)
     synthesis_context = select_synthesis_context(sources)
     if not synthesis_context:
+        cost = round(requests_used * COST_PER_REQUEST, 5)
         return {
             "ok": True,
             "topic": clean_topic,
@@ -1919,12 +2066,16 @@ async def deepseek_deep_research(
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
             "cached_count": cached_count,
+            "cost_usd": cost,
+            "untrusted_content": True,
             "notes": notes + ["No readable source content available for synthesis."],
+            "_meta": _envelope_meta(cost, untrusted_content=True),
         }
 
     # Soft deadline check before synthesis
     elapsed = _clock() - t0
     if elapsed > RESEARCH_DEADLINE - 5.0:
+        cost = round(requests_used * COST_PER_REQUEST, 5)
         return {
             "ok": True,
             "topic": clean_topic,
@@ -1935,7 +2086,10 @@ async def deepseek_deep_research(
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
             "cached_count": cached_count,
+            "cost_usd": cost,
+            "untrusted_content": True,
             "notes": notes + ["Synthesis deadline reached; returning gathered sources."],
+            "_meta": _envelope_meta(cost, untrusted_content=True),
         }
 
     # Step 6: Synthesize cited briefing report
@@ -1956,6 +2110,7 @@ async def deepseek_deep_research(
     )
 
     if not synth_res.get("ok"):
+        cost = round((requests_used + 1) * COST_PER_REQUEST, 5)
         return {
             "ok": True,
             "topic": clean_topic,
@@ -1966,15 +2121,19 @@ async def deepseek_deep_research(
             "requests_used": requests_used + 1,
             "cached": _all_cached(requests_used + 1, cached_count),
             "cached_count": cached_count,
+            "cost_usd": cost,
+            "untrusted_content": True,
             "notes": notes
             + [
                 f"Synthesis model call failed: {synth_res.get('error', {}).get('message', 'unknown')}; "
                 "returning gathered sources."
             ],
+            "_meta": _envelope_meta(cost, untrusted_content=True),
         }
 
     report_text = synth_res["data"]["choices"][0]["message"]["content"]
     clean_report = sanitize_citations(report_text, max_id=len(synthesis_context))
+    cost = round((requests_used + 1) * COST_PER_REQUEST, 5)
 
     return {
         "ok": True,
@@ -1994,7 +2153,10 @@ async def deepseek_deep_research(
         "requests_used": requests_used + 1,
         "cached": _all_cached(requests_used + 1, cached_count),
         "cached_count": cached_count,
+        "cost_usd": cost,
+        "untrusted_content": True,
         "notes": notes,
+        "_meta": _envelope_meta(cost, untrusted_content=True),
     }
 
 
@@ -2103,13 +2265,18 @@ async def deepseek_extract(
         if schema_errors:
             notes.extend(schema_errors)
 
+    requests_used = (0 if fetch_res.get("cached") else 1) + 1
+    cost = round(requests_used * COST_PER_REQUEST, 5)
     return {
         "ok": True,
         "url": clean_url,
         "title": fetch_res.get("title"),
         "data": parsed,
         "cached": fetch_res.get("cached", False),
+        "cost_usd": cost,
+        "untrusted_content": True,
         "notes": notes,
+        "_meta": _envelope_meta(cost, untrusted_content=True),
     }
 
 

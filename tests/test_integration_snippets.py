@@ -70,3 +70,81 @@ def test_fetch_many_with_query(fake_upstream):
     item = result["results"][0]
     assert item["ok"] is True
     assert "Excerpt" in item["content"]
+
+
+def test_fetch_offset_limit_pagination(fake_upstream):
+    _install_fetch(fake_upstream)
+    # Fetch first 30 chars
+    p1 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=0, limit=30))
+    assert p1["ok"] is True
+    assert p1["offset"] == 0
+    assert p1["chars"] == 30
+    assert p1["total_chars"] == len(SAMPLE_PAGE)
+    assert p1["has_more"] is True
+    assert p1["content"] == SAMPLE_PAGE[:30]
+
+    # Fetch next 30 chars
+    p2 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=30, limit=30))
+    assert p2["ok"] is True
+    assert p2["offset"] == 30
+    assert p2["chars"] == 30
+    assert p2["has_more"] is True
+    assert p2["content"] == SAMPLE_PAGE[30:60]
+
+
+def test_fetch_offset_out_of_bounds(fake_upstream):
+    _install_fetch(fake_upstream)
+    result = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=99999))
+    assert result["ok"] is True
+    assert result["offset"] == 99999
+    assert result["chars"] == 0
+    assert result["content"] == ""
+    assert result["has_more"] is False
+
+
+def test_fetch_offset_limit_rejections(fake_upstream):
+    _install_fetch(fake_upstream)
+    res1 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=-1))
+    assert res1["ok"] is False
+    assert res1["error"]["code"] == "bad_request"
+    assert "offset must be at least 0" in res1["error"]["message"]
+
+    res2 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", limit=0))
+    assert res2["ok"] is False
+    assert res2["error"]["code"] == "bad_request"
+    assert "limit must be greater than 0" in res2["error"]["message"]
+
+
+def test_fetch_find_text_success(fake_upstream):
+    _install_fetch(fake_upstream)
+    # Search for "quantum mechanics" (case-insensitive)
+    result = asyncio.run(
+        server.deepseek_fetch("https://example.com/quantum", find_text="QUANTUM MECHANICS", limit=40)
+    )
+    assert result["ok"] is True
+    assert result["find_text"] == "QUANTUM MECHANICS"
+    assert "Quantum Mechanics" in result["content"]
+    assert result["chars"] <= 40
+    assert result["offset"] == SAMPLE_PAGE.lower().find("quantum mechanics")
+
+
+def test_fetch_find_text_not_found(fake_upstream):
+    _install_fetch(fake_upstream)
+    result = asyncio.run(server.deepseek_fetch("https://example.com/quantum", find_text="nonexistent text"))
+    assert result["ok"] is True
+    assert result["content"] == ""
+    assert result["chars"] == 0
+    assert any("not found in page content" in note for note in result["notes"])
+
+
+def test_fetch_find_text_with_offset(fake_upstream):
+    _install_fetch(fake_upstream)
+    # Find "qubits" starting after the first chapter
+    first_qubits = SAMPLE_PAGE.lower().find("qubits")
+    assert first_qubits >= 0
+    result = asyncio.run(
+        server.deepseek_fetch("https://example.com/quantum", offset=first_qubits + 1, find_text="qubits")
+    )
+    assert result["ok"] is True
+    second_qubits = SAMPLE_PAGE.lower().find("qubits", first_qubits + 1)
+    assert result["offset"] == second_qubits

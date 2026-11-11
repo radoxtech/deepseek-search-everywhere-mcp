@@ -64,8 +64,11 @@ async def test_second_identical_fetch_is_served_from_cache(upstream: Upstream) -
     assert upstream.calls[0]["payload"] == {"url": URL}
     assert first["cached"] is False
     assert second["cached"] is True
-    assert {k: v for k, v in first.items() if k not in ("cached", "elapsed_ms")} == {
-        k: v for k, v in second.items() if k not in ("cached", "elapsed_ms")
+    assert first["cost_usd"] == 0.00075
+    assert second["cost_usd"] == 0.0
+    ignore = ("cached", "elapsed_ms", "cost_usd", "_meta")
+    assert {k: v for k, v in first.items() if k not in ignore} == {
+        k: v for k, v in second.items() if k not in ignore
     }
 
 
