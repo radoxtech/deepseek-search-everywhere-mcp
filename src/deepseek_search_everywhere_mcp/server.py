@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import hashlib
+import inspect
 import json
 import logging
 import math
@@ -1108,10 +1109,9 @@ async def deepseek_search(
 ) -> dict[str, Any]:
     """Search the web with DeepSeek index and return page text, snippets, and metadata.
 
-    Primary search and retrieval tool for AI agents. Queries DeepSeek's search index directly
-    to return ranked results with snippets (need_content=False) or indexed full page text
-    (default need_content=True). Use for standard search, targeted queries, and discovery.
-    Unlike deepseek_research (auto-fetches stub pages), this tool only returns indexed content.
+    Primary search and retrieval tool. Queries DeepSeek index directly for ranked results
+    with snippets (need_content=False) or indexed full text (default need_content=True).
+    Unlike deepseek_research (auto-fetches stubs), this returns indexed content only.
 
     Args:
         query: Search query, max 128 chars (supports site:, -site:, "phrase", after:, before:).
@@ -1284,17 +1284,17 @@ async def deepseek_fetch(
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
-    Retrieves full Markdown content for a known URL. Use when target URL is known.
-    For multiple URLs use deepseek_fetch_many; for structured data use deepseek_extract;
-    for search use deepseek_search. Returns 404 for PDFs/Reddit (use deepseek_search instead).
+    Retrieves Markdown for a known URL. Use when target URL is known. For multiple URLs
+    use deepseek_fetch_many; for structured data use deepseek_extract; for search use
+    deepseek_search. Returns 404 for PDFs/Reddit (use deepseek_search instead).
 
     Args:
         url: Absolute http(s) URL, max 8192 characters.
         clean: Remove Markdown backslash escapes (default True).
         max_chars: Content cap after cleaning (default 20000).
-        offset: Character offset to start reading from (0-based).
+        offset: Offset to start reading from (0-based).
         limit: Max characters to return from offset.
-        find_text: Locate substring; sets offset to its position.
+        find_text: Find substring and start offset there.
         query: Query to extract ranked relevant snippets.
         section: 1-based index to read a specific document section.
         max_snippets: Max ranked snippets when query is set (default 3, 1-5).
@@ -1892,10 +1892,10 @@ async def deepseek_research(
     """Single-pass source gathering: search with page content and auto-fetch stub pages.
 
     Gathers candidate sources for research. It does not iterate, refine the query or summarise:
-    there is exactly one search and sources return raw content for the caller to synthesise.
+    one search and sources return raw content for caller to synthesise.
 
-    Unlike deepseek_search (index-only), deepseek_research auto-fetches stub results in parallel
-    for deep source gathering. Use when research requires complete documents rather than snippets.
+    Unlike deepseek_search, auto-fetches stub results in parallel for deep source gathering.
+    Use when research requires complete documents rather than snippets.
 
     Args:
         question: Search query, max 128 characters.
@@ -2369,7 +2369,12 @@ def create_server(**options: Any) -> FastMCP:
     # The low-level server's ``version`` is what ``initialize`` returns as ``serverInfo.version``.
     server._mcp_server.version = __version__
     for tool in TOOLS:
-        server.add_tool(tool, annotations=TOOL_ANNOTATIONS.get(tool.__name__))
+        description = inspect.cleandoc(tool.__doc__) if tool.__doc__ else None
+        server.add_tool(
+            tool,
+            description=description,
+            annotations=TOOL_ANNOTATIONS.get(tool.__name__),
+        )
     return server
 
 
