@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deepseek-search-everywhere-mcp"
-version = "2.1.2"
+version = "2.2.0"
 description = "Research-grade MCP server for the DeepSeek Search & Fetch API"
 readme = "README.md"
 license = "MIT"

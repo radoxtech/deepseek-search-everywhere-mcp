@@ -7,12 +7,12 @@
     "url": "https://github.com/radoxtech/deepseek-search-everywhere-mcp",
     "source": "github"
   },
-  "version": "2.1.2",
+  "version": "2.2.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "deepseek-search-everywhere-mcp",
-      "version": "2.1.2",
+      "version": "2.2.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
