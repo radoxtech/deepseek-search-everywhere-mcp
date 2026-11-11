@@ -508,6 +508,9 @@ def _canonical_url(url: str) -> str | None:
         return None
     if not parts.scheme or not parts.hostname:
         return None
+    scheme = parts.scheme.lower()
+    if scheme in ("http", "https"):
+        scheme = "https"
     host = parts.hostname.lower()
     if host.startswith("www."):
         host = host[4:]
@@ -521,7 +524,7 @@ def _canonical_url(url: str) -> str | None:
         if not _is_tracking_param(name)
     ]
     params.sort()
-    return urllib.parse.urlunsplit((parts.scheme.lower(), netloc, path, urllib.parse.urlencode(params), ""))
+    return urllib.parse.urlunsplit((scheme, netloc, path, urllib.parse.urlencode(params), ""))
 
 
 def _title_site_key(item: dict) -> tuple[str, str] | None:
@@ -546,11 +549,16 @@ def _dedupe_key(item: dict) -> tuple | None:
     return ("title", *title_site)
 
 
+def _is_https_url(item: dict[str, Any]) -> bool:
+    url = item.get("url")
+    return isinstance(url, str) and url.lower().startswith("https://")
+
+
 def _dedupe_results(items: list[dict]) -> tuple[list[dict], int]:
     kept: list[dict] = []
     removed = 0
-    seen: set[tuple] = set()
-    seen_title_sites: set[tuple[str, str]] = set()
+    seen_keys: dict[tuple, int] = {}
+    seen_title_sites: dict[tuple[str, str], int] = {}
 
     for item in items:
         if not isinstance(item, dict):
@@ -560,14 +568,23 @@ def _dedupe_results(items: list[dict]) -> tuple[list[dict], int]:
         key = _dedupe_key(item)
         title_site = _title_site_key(item)
 
-        if (key is not None and key in seen) or (title_site is not None and title_site in seen_title_sites):
+        target_idx: int | None = None
+        if key is not None and key in seen_keys:
+            target_idx = seen_keys[key]
+        elif title_site is not None and title_site in seen_title_sites:
+            target_idx = seen_title_sites[title_site]
+
+        if target_idx is not None:
             removed += 1
+            if _is_https_url(item) and not _is_https_url(kept[target_idx]):
+                kept[target_idx] = item
             continue
 
+        idx = len(kept)
         if key is not None:
-            seen.add(key)
+            seen_keys[key] = idx
         if title_site is not None:
-            seen_title_sites.add(title_site)
+            seen_title_sites[title_site] = idx
         kept.append(item)
 
     return kept, removed

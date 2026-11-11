@@ -261,6 +261,30 @@ def test_dedupe_preserves_input_and_order():
     assert removed == 1
 
 
+def test_dedupe_treats_http_and_https_as_duplicates_and_prefers_https(fake_upstream):
+    results = [
+        {"title": "HTTP First", "url": "http://example.com/page", "site_name": "Example"},
+        {"title": "HTTPS Second", "url": "https://example.com/page", "site_name": "Example"},
+    ]
+    result, _ = _run_search(fake_upstream, results)
+    assert result["count"] == 1
+    assert result["deduped"] == 1
+    assert result["results"][0]["url"] == "https://example.com/page"
+    assert result["results"][0]["title"] == "HTTPS Second"
+
+
+def test_dedupe_keeps_https_when_https_comes_first(fake_upstream):
+    results = [
+        {"title": "HTTPS First", "url": "https://example.com/page", "site_name": "Example"},
+        {"title": "HTTP Second", "url": "http://example.com/page", "site_name": "Example"},
+    ]
+    result, _ = _run_search(fake_upstream, results)
+    assert result["count"] == 1
+    assert result["deduped"] == 1
+    assert result["results"][0]["url"] == "https://example.com/page"
+    assert result["results"][0]["title"] == "HTTPS First"
+
+
 def test_dedupe_false_preserves_duplicates(fake_upstream):
     results = [
         {"title": "Same", "url": "https://example.com/a?utm_source=x", "site_name": "Example"},
