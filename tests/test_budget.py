@@ -121,7 +121,7 @@ def test_server_enforces_budget_exceeded(fake_upstream, tmp_path):
     res2 = asyncio.run(server.deepseek_search("test2"))
     assert res2["ok"] is False
     assert res2["error"]["code"] == "budget_exceeded"
-    assert res2["error"]["status"] == 429
+    assert res2["error"]["status"] == 402
     assert "Daily spend limit" in res2["error"]["message"]
 
     # Reset server state

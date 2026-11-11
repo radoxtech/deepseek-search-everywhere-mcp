@@ -13,7 +13,7 @@ from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 URL = "https://example.com/article"
 PAGE = {"title": "Article", "content": "\\# Heading\n\nBody text\\, with escapes" + "x" * 500}
-NOT_FOUND = {"ok": False, "error": {"code": "http_404", "message": "failed to fetch URL"}}
+NOT_FOUND = {"ok": False, "error": {"code": "not_found", "message": "failed to fetch URL"}}
 
 
 class Upstream:
@@ -249,11 +249,11 @@ async def test_404_suggests_search_only_for_pdf_and_reddit(
     upstream: Upstream, url: str, advice: bool
 ) -> None:
     upstream.responses = [
-        {"ok": False, "error": {"code": "http_404", "message": "failed to fetch URL", "status": 404}}
+        {"ok": False, "error": {"code": "not_found", "message": "failed to fetch URL", "status": 404}}
     ]
     result = await server.deepseek_fetch(url)
     assert result["ok"] is False
-    assert result["error"]["code"] == "http_404"
+    assert result["error"]["code"] == "not_found"
     assert result["error"]["status"] == 404
     assert ("deepseek_search" in result["error"]["message"]) is advice
     assert result["error"]["message"].startswith("failed to fetch URL")

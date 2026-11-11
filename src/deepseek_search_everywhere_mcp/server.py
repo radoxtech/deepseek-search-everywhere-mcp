@@ -656,7 +656,7 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None, 
             return _fail(
                 "budget_exceeded",
                 f"Daily spend limit of ${limit:.2f} exceeded (spent ${spent:.4f}).",
-                429,
+                402,
             )
     result = await _limited_request(SEARCH, SEARCH_PATH, payload, SEARCH_TIMEOUT)
     if not result.get("ok"):
@@ -1095,7 +1095,7 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
             return _fail(
                 "budget_exceeded",
                 f"Daily spend limit of ${limit:.2f} exceeded (spent ${spent:.4f}).",
-                429,
+                402,
             )
     result = await _limited_request(FETCH, FETCH_PATH, {"url": url}, FETCH_TIMEOUT)
     if not result.get("ok"):

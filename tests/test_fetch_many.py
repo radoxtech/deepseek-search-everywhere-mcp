@@ -48,13 +48,13 @@ def upstream(fake_upstream: Any) -> Upstream:
 
 async def test_partial_failure_keeps_order_and_ok(upstream: Upstream) -> None:
     upstream.delays[C] = 0.05
-    upstream.pages[B] = {"ok": False, "error": {"code": "http_404", "message": "failed", "status": 404}}
+    upstream.pages[B] = {"ok": False, "error": {"code": "not_found", "message": "failed", "status": 404}}
     result = await server.deepseek_fetch_many([C, "ftp://bad", B, A])
     assert result["ok"] is True
     assert [item["url"] for item in result["results"]] == [C, "ftp://bad", B, A]
     assert [item["ok"] for item in result["results"]] == [True, False, False, True]
     assert result["results"][1]["error"]["code"] == "bad_url"
-    assert result["results"][2]["error"]["code"] == "http_404"
+    assert result["results"][2]["error"]["code"] == "not_found"
     assert result["results"][0]["title"] == f"Title {C}"
     assert result["count"] == 4
     assert result["partial"] is True

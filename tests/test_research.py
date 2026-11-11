@@ -95,7 +95,7 @@ async def test_research_fetches_only_the_gaps(upstream: Upstream) -> None:
 
 async def test_research_partial_fetch_failure(upstream: Upstream) -> None:
     upstream.failures["https://site4.example.com/page"] = {
-        "code": "http_404",
+        "code": "not_found",
         "message": "not found",
         "status": 404,
     }
@@ -104,7 +104,7 @@ async def test_research_partial_fetch_failure(upstream: Upstream) -> None:
     assert result["partial"] is True
     assert result["failed_count"] == 1
     failed = result["sources"][3]
-    assert failed["error"]["code"] == "http_404"
+    assert failed["error"]["code"] == "not_found"
     assert failed["origin"] == "search"
     assert failed["content"] == "too short"
     assert result["sources"][1]["origin"] == "fetch"
@@ -192,7 +192,7 @@ async def test_research_fetched_title_replaces_host_fallback(upstream: Upstream)
 
 
 async def test_research_notes_are_prose(upstream: Upstream) -> None:
-    upstream.failures["https://site4.example.com/page"] = {"code": "http_404", "message": "x", "status": 404}
+    upstream.failures["https://site4.example.com/page"] = {"code": "not_found", "message": "x", "status": 404}
     result = await server.deepseek_research("notes question", per_page_chars=300, total_chars=1000)
     assert server.TRUNCATED_NOTE in result["notes"]
     assert len(result["notes"]) >= 3

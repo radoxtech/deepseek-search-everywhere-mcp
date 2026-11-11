@@ -135,7 +135,7 @@ async def _attempt(
             status = response.status_code
             if status >= 400:
                 raw, _ = await _read_capped(response, ERROR_BODY_CAP)
-                error = _map_http_error(status, raw.decode("utf-8", errors="replace"))
+                error = _map_http_error(status, raw.decode("utf-8", errors="replace"), path=path)
                 if status in RETRY_STATUSES:
                     return error, _retry_after(response.headers.get("Retry-After"))
                 return error, None

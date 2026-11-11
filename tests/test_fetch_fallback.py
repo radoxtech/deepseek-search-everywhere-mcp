@@ -38,14 +38,14 @@ class FallbackUpstream:
             return {
                 "ok": False,
                 "error": {
-                    "code": f"http_{self.fetch_status}",
+                    "code": "not_found" if self.fetch_status == 404 else f"http_{self.fetch_status}",
                     "message": "failed to fetch URL",
                     "status": self.fetch_status,
                 },
             }
         if path == server.SEARCH_PATH:
             if not self.search_ok:
-                return {"ok": False, "error": {"code": "upstream_500", "message": "Search error"}}
+                return {"ok": False, "error": {"code": "upstream_error", "message": "Search error"}}
             return {
                 "ok": True,
                 "data": {
@@ -150,7 +150,7 @@ async def test_fetch_fallback_disabled(fake_upstream: Any) -> None:
 
     res = await server.deepseek_fetch(pdf_url, fallback_to_search=False)
     assert res["ok"] is False
-    assert res["error"]["code"] == "http_404"
+    assert res["error"]["code"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
     # Only 1 fetch call, no search call
     assert len(upstream.calls) == 1
@@ -170,7 +170,7 @@ async def test_fetch_fallback_domain_mismatch_fails_to_404(fake_upstream: Any) -
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "http_404"
+    assert res["error"]["code"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
 
 
@@ -186,7 +186,7 @@ async def test_fetch_fallback_empty_content_fails_to_404(fake_upstream: Any) -> 
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "http_404"
+    assert res["error"]["code"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
 
 

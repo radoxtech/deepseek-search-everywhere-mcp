@@ -177,7 +177,7 @@ async def test_retried_429_takes_one_token_and_is_cached_once_it_succeeds(
     ) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
         if len(attempts) == 1:
-            return {"ok": False, "error": {"code": "http_429", "message": "slow down"}}, 0.0
+            return {"ok": False, "error": {"code": "upstream_rate_limited", "message": "slow down"}}, 0.0
         return {"ok": True, "data": PAGE}, None
 
     monkeypatch.setattr(transport, "_attempt", rate_limited_once)
@@ -196,11 +196,11 @@ async def test_exhausted_429_retries_are_one_token_and_not_cached(
 
     async def always_429(method: str, url: str, path: str, **_: Any) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
-        return {"ok": False, "error": {"code": "http_429", "message": "slow down"}}, 0.0
+        return {"ok": False, "error": {"code": "upstream_rate_limited", "message": "slow down"}}, 0.0
 
     monkeypatch.setattr(transport, "_attempt", always_429)
     first = await _search()
-    assert first["ok"] is False and first["error"]["code"] == "http_429"
+    assert first["ok"] is False and first["error"]["code"] == "upstream_rate_limited"
     assert len(attempts) == 2
     assert limiter.acquired == [SEARCH]
     second = await _search()
