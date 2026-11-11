@@ -32,6 +32,40 @@ def default_state_path() -> pathlib.Path:
     return pathlib.Path.home() / ".cache" / "deepseek-search-everywhere-mcp" / "budget.json"
 
 
+class Reservation:
+    """An active spend reservation against a daily budget."""
+
+    __slots__ = ("_amount", "_settled", "_tracker")
+
+    def __init__(self, tracker: DailyBudgetTracker, amount: float) -> None:
+        self._tracker = tracker
+        self._amount = amount
+        self._settled = False
+
+    @property
+    def amount(self) -> float:
+        return self._amount
+
+    async def commit(self, actual_cost: float) -> None:
+        if self._settled:
+            return
+        self._settled = True
+        await self._tracker._commit_reservation(self._amount, actual_cost)
+
+    async def release(self) -> None:
+        if self._settled:
+            return
+        self._settled = True
+        await self._tracker._release_reservation(self._amount)
+
+    async def __aenter__(self) -> Reservation:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if not self._settled:
+            await self.release()
+
+
 class DailyBudgetTracker:
     """Thread-safe and async-safe tracker for daily spend limits."""
 
@@ -41,6 +75,7 @@ class DailyBudgetTracker:
         self._lock = asyncio.Lock()
         self._date = _utc_today()
         self._spent_usd = 0.0
+        self._reserved_usd = 0.0
         self._requests = 0
         self._loaded = False
         self._disk_warning_logged = False
@@ -51,6 +86,7 @@ class DailyBudgetTracker:
         if not self.state_path.exists():
             self._date = today
             self._spent_usd = 0.0
+            self._reserved_usd = 0.0
             self._requests = 0
             self._loaded = True
             return
@@ -62,15 +98,18 @@ class DailyBudgetTracker:
             if file_date == today:
                 self._date = today
                 self._spent_usd = float(data.get("spent_usd", 0.0))
+                self._reserved_usd = float(data.get("reserved_usd", 0.0))
                 self._requests = int(data.get("requests", 0))
             else:
                 self._date = today
                 self._spent_usd = 0.0
+                self._reserved_usd = 0.0
                 self._requests = 0
         except (OSError, ValueError, TypeError) as exc:
             logger.warning("Could not read budget file %s (%s); resetting tracker.", self.state_path, exc)
             self._date = today
             self._spent_usd = 0.0
+            self._reserved_usd = 0.0
             self._requests = 0
         self._loaded = True
 
@@ -79,6 +118,7 @@ class DailyBudgetTracker:
         data = {
             "date": self._date,
             "spent_usd": round(self._spent_usd, 6),
+            "reserved_usd": round(self._reserved_usd, 6),
             "requests": self._requests,
             "limit_usd": self.limit_usd,
         }
@@ -96,6 +136,61 @@ class DailyBudgetTracker:
                 )
                 self._disk_warning_logged = True
 
+    async def reserve(self, amount: float) -> Reservation | None:
+        """Atomically reserve ``amount`` USD against today's limit.
+
+        Returns a :class:`Reservation` on success, or ``None`` if the budget would be exceeded.
+        """
+        async with self._lock:
+            today = _utc_today()
+            if not self._loaded:
+                self._load_locked()
+            elif self._date != today:
+                self._date = today
+                self._spent_usd = 0.0
+                self._reserved_usd = 0.0
+                self._requests = 0
+                self._save_locked()
+
+            if (self._spent_usd + self._reserved_usd + amount) > self.limit_usd:
+                return None
+
+            self._reserved_usd += amount
+            self._save_locked()
+            return Reservation(self, amount)
+
+    async def _commit_reservation(self, reserved: float, actual: float) -> None:
+        """Settle a reservation, deducting reserved amount and adding actual incurred spend."""
+        async with self._lock:
+            today = _utc_today()
+            if not self._loaded:
+                self._load_locked()
+            elif self._date != today:
+                self._date = today
+                self._spent_usd = 0.0
+                self._reserved_usd = 0.0
+                self._requests = 0
+
+            self._reserved_usd = max(0.0, self._reserved_usd - reserved)
+            self._spent_usd += actual
+            self._requests += 1
+            self._save_locked()
+
+    async def _release_reservation(self, reserved: float) -> None:
+        """Release an unused reservation, restoring available budget."""
+        async with self._lock:
+            today = _utc_today()
+            if not self._loaded:
+                self._load_locked()
+            elif self._date != today:
+                self._date = today
+                self._spent_usd = 0.0
+                self._reserved_usd = 0.0
+                self._requests = 0
+
+            self._reserved_usd = max(0.0, self._reserved_usd - reserved)
+            self._save_locked()
+
     async def check_budget(self, projected_cost: float = 0.00075) -> tuple[bool, float, float]:
         """Check whether ``projected_cost`` fits within today's remaining budget.
 
@@ -108,10 +203,11 @@ class DailyBudgetTracker:
             elif self._date != today:
                 self._date = today
                 self._spent_usd = 0.0
+                self._reserved_usd = 0.0
                 self._requests = 0
                 self._save_locked()
 
-            if self._spent_usd + projected_cost > self.limit_usd:
+            if (self._spent_usd + self._reserved_usd + projected_cost) > self.limit_usd:
                 return False, self._spent_usd, self.limit_usd
             return True, self._spent_usd, self.limit_usd
 
@@ -124,6 +220,7 @@ class DailyBudgetTracker:
             elif self._date != today:
                 self._date = today
                 self._spent_usd = 0.0
+                self._reserved_usd = 0.0
                 self._requests = 0
 
             self._spent_usd += cost
@@ -139,6 +236,7 @@ class DailyBudgetTracker:
                 "date": self._date,
                 "limit_usd": self.limit_usd,
                 "spent_usd": round(self._spent_usd, 6),
+                "reserved_usd": round(self._reserved_usd, 6),
                 "requests": self._requests,
-                "remaining_usd": max(0.0, round(self.limit_usd - self._spent_usd, 6)),
+                "remaining_usd": max(0.0, round(self.limit_usd - self._spent_usd - self._reserved_usd, 6)),
             }

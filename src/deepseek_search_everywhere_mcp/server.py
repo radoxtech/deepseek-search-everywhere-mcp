@@ -30,7 +30,7 @@ from mcp.types import ToolAnnotations
 
 from ._version import __version__
 from .boilerplate import remove_boilerplate
-from .budget import DailyBudgetTracker
+from .budget import DailyBudgetTracker, Reservation
 from .cache import SingleFlight, TTLCache
 from .deep_research import (
     build_decomposition_messages,
@@ -48,9 +48,9 @@ from .extract import (
     validate_schema,
 )
 from .filters import compile_filters
-from .ratelimit import FETCH, SEARCH, RateLimiter, RateLimitExceeded
+from .ratelimit import CHAT, FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
-from .settings import DEFAULT_LOG_LEVEL, get_settings
+from .settings import DEFAULT_LOG_LEVEL, get_pricing_period, get_settings
 from .snippets import extract_snippets, split_sections
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
@@ -315,6 +315,133 @@ async def _limited_request(
     except asyncio.CancelledError:
         ticket.refund()
         raise
+
+
+async def _chat_request(
+    messages: list[dict[str, Any]],
+    *,
+    thinking: dict[str, Any],
+    model: str = REWRITE_MODEL,
+    max_tokens: int | None = None,
+    response_format: dict[str, Any] | None = None,
+    temperature: float | None = None,
+    timeout: float = CHAT_TIMEOUT,
+    deadline: float | None = None,
+    attempts: int = 2,
+    reasoning_effort: str | None = None,
+) -> dict[str, Any]:
+    """Execute a chat completion request through rate limiting and budget reservation.
+
+    'thinking' is a required keyword-only argument with no default.
+    Surfaces finish_reason, usage-based cost, and pricing_period.
+    """
+    if not isinstance(thinking, dict):
+        raise ValueError("'thinking' must be a dictionary.")
+
+    try:
+        ticket = await _get_rate_limiter().acquire(CHAT)
+    except RateLimitExceeded as exc:
+        return exc.to_envelope()
+
+    budget = _get_budget_tracker()
+    reservation: Reservation | None = None
+    settings = get_settings()
+    est_cost = 0.001
+    if budget is not None:
+        est_input_tokens = sum(len(str(m.get("content", ""))) for m in messages) // 2
+        est_output_tokens = max_tokens if max_tokens is not None else 2048
+        peak_rates = settings.llm_pricing.peak
+        est_cost = max(
+            0.0001,
+            (est_input_tokens / 1_000_000) * peak_rates.cache_miss_per_1m
+            + (est_output_tokens / 1_000_000) * peak_rates.output_per_1m,
+        )
+        reservation = await budget.reserve(est_cost)
+        if reservation is None:
+            ticket.refund()
+            return _fail(
+                "budget_exceeded",
+                f"Daily spend limit of ${budget.limit_usd:.2f} exceeded.",
+                402,
+            )
+
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "thinking": thinking,
+        "stream": False,
+    }
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if response_format is not None:
+        payload["response_format"] = response_format
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
+
+    try:
+        result = await _request(
+            "POST",
+            "/v1/chat/completions",
+            payload=payload,
+            timeout=timeout,
+            deadline=deadline,
+            attempts=attempts,
+        )
+    except BaseException:
+        ticket.refund()
+        if reservation is not None:
+            await reservation.release()
+        raise
+
+    if not result.get("ok"):
+        if reservation is not None:
+            await reservation.release()
+        return result
+
+    data = result.get("data") or {}
+    choices = data.get("choices") or []
+    choice = choices[0] if choices else {}
+    msg = choice.get("message") or {}
+    content = msg.get("content") or ""
+    reasoning_content = msg.get("reasoning_content")
+    finish_reason = choice.get("finish_reason")
+    usage = data.get("usage") or {}
+
+    period = get_pricing_period()
+    rates = settings.llm_pricing.peak if period == "peak" else settings.llm_pricing.off_peak
+    notes: list[str] = []
+
+    if usage and ("prompt_tokens" in usage or "completion_tokens" in usage):
+        prompt_tokens = int(usage.get("prompt_tokens", 0))
+        comp_tokens = int(usage.get("completion_tokens", 0))
+        hit_tokens = int(usage.get("prompt_cache_hit_tokens", 0))
+        miss_tokens = int(usage.get("prompt_cache_miss_tokens", max(0, prompt_tokens - hit_tokens)))
+        cost_usd = (
+            (hit_tokens / 1_000_000) * rates.cache_hit_per_1m
+            + (miss_tokens / 1_000_000) * rates.cache_miss_per_1m
+            + (comp_tokens / 1_000_000) * rates.output_per_1m
+        )
+    else:
+        cost_usd = est_cost
+        notes.append("Usage missing from upstream response; cost estimated.")
+
+    cost_usd = round(cost_usd, 6)
+    if reservation is not None:
+        await reservation.commit(cost_usd)
+
+    return {
+        "ok": True,
+        "content": content,
+        "reasoning_content": reasoning_content,
+        "finish_reason": finish_reason,
+        "usage": usage,
+        "cost_usd": cost_usd,
+        "pricing_period": period,
+        "notes": notes,
+        "raw": data,
+    }
 
 
 async def _cached_call(
@@ -2715,6 +2842,12 @@ async def deepseek_extract_many(
     extract_indices: dict[int, int] = {}
     fetch_envelopes: dict[int, dict[str, Any]] = {}
 
+    extract_sem = asyncio.Semaphore(4)
+
+    async def _bounded_extract_page(u: str, e: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        async with extract_sem:
+            return await _extract_page(u, e, system_prompt, fields, schema)
+
     requests_used = 0
     for index, (url, rejection) in enumerate(items):
         if rejection is not None:
@@ -2729,7 +2862,7 @@ async def deepseek_extract_many(
             fetch_reqs = round(env.get("cost_usd", 0.0) / COST_PER_REQUEST)
             requests_used += fetch_reqs
             extract_indices[index] = len(extract_coros)
-            extract_coros.append(_extract_page(url, env, system_prompt, fields, schema))
+            extract_coros.append(_bounded_extract_page(url, env))
         elif rejection is None and env.get("error", {}).get("code") not in _LOCAL_ERROR_CODES:
             requests_used += 1
 

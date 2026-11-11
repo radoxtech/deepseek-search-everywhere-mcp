@@ -28,6 +28,9 @@ async def run_repeated(
         raise ValueError(f"repeats must be at least 1, got {repeats}")
     results: list[T] = []
     for _ in range(repeats):
+        from deepseek_search_everywhere_mcp import server
+
+        server.reset_state()
         res = func(*args, **kwargs)
         if inspect.isawaitable(res):
             res = await res

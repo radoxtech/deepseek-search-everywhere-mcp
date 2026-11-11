@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, fields
+from datetime import UTC, datetime
 from typing import Any
 
 MIB = 1024 * 1024
@@ -23,6 +24,44 @@ DEFAULT_LOG_LEVEL = "WARNING"
 
 # deepseek_fetch_many never runs more fetches than this at once.
 MAX_BATCH_CONCURRENCY = 5
+
+
+@dataclass(frozen=True, slots=True)
+class LLMRates:
+    cache_hit_per_1m: float
+    cache_miss_per_1m: float
+    output_per_1m: float
+
+
+@dataclass(frozen=True, slots=True)
+class LLMPricing:
+    peak: LLMRates = LLMRates(cache_hit_per_1m=0.006, cache_miss_per_1m=0.30, output_per_1m=1.20)
+    off_peak: LLMRates = LLMRates(cache_hit_per_1m=0.003, cache_miss_per_1m=0.15, output_per_1m=0.60)
+
+
+DEFAULT_LLM_PRICING = LLMPricing()
+
+
+def get_pricing_period(when: datetime | None = None) -> str:
+    """Return 'peak' or 'off_peak' based on the UTC timestamp.
+
+    Peak: Mon-Fri 01:00-04:00 and 06:00-10:00 UTC.
+    All other times (weekends, other UTC hours) are off-peak.
+    """
+    if when is None:
+        when = datetime.now(UTC)
+    elif when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    else:
+        when = when.astimezone(UTC)
+
+    if when.weekday() in (5, 6):
+        return "off_peak"
+
+    hour = when.hour
+    if (1 <= hour < 4) or (6 <= hour < 10):
+        return "peak"
+    return "off_peak"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +91,8 @@ class Settings:
     search_burst: int = 20
     fetch_qps: float = 5
     fetch_burst: int = 10
+    chat_qps: float = 10
+    chat_burst: int = 20
     limiter_max_wait: float = 5
 
     # Batch fetching.
@@ -65,6 +106,9 @@ class Settings:
 
     # Daily spend budget limit in USD (None means disabled).
     daily_budget_usd: float | None = None
+
+    # LLM pricing rates for peak and off-peak periods.
+    llm_pricing: LLMPricing = DEFAULT_LLM_PRICING
 
     # HTTP transport defaults (the CLI may override them).
     http_host: str = "127.0.0.1"
