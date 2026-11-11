@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import pathlib
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import pytest
 from live_judge import RECORDS
+from repeat_runner import run_repeated
 
 REPORT_PATH = pathlib.Path(__file__).resolve().parents[2] / "build" / "live-report.json"
 
@@ -14,6 +17,12 @@ REPORT_PATH = pathlib.Path(__file__).resolve().parents[2] / "build" / "live-repo
 @pytest.fixture(autouse=True)
 def _live_key(live_api_key: None) -> None:
     """Give every test in this directory the real key (or skip it when there is none)."""
+
+
+@pytest.fixture
+def repeat_runner() -> Callable[..., Awaitable[list[Any]]]:
+    """Fixture providing the repeat runner helper to live tests."""
+    return run_repeated
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
