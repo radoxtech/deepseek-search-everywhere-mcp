@@ -20,7 +20,7 @@
 
 **DeepSeek Search Everywhere** is the premier, research-grade [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server providing autonomous AI agents and coding assistants with real-time web search, concurrent batch fetching, structured JSON extraction, and deep multi-source research through the native DeepSeek Search & Fetch API.
 
-It gives AI agents (Cursor, Claude Code, Claude Desktop, Cline, Windsurf, Zed, OpenCode) the ability to deeply research the live web at **a fraction of a cent per query (up to 95% cheaper than Tavily or Perplexity)**, with built-in boilerplate removal, token budgeting, and zero Cloudflare bot-blocking.
+It gives AI agents (Cursor, Claude Code, Claude Desktop, Cline, Windsurf, Zed, OpenCode) the ability to deeply research the live web at **a fraction of a cent per query (up to 95% cheaper than Tavily, Perplexity, or Firecrawl)**, combining real-time web search and clean Markdown page fetching in a single lightweight tool with built-in boilerplate removal, token budgeting, and zero Cloudflare bot-blocking.
 
 <!-- mcp-name: io.github.radoxtech/deepseek-search-everywhere-mcp -->
 
@@ -41,7 +41,7 @@ Most web search tools for AI agents force developers to choose between **fragile
 
 **DeepSeek Search Everywhere MCP** bridges this gap by communicating directly with DeepSeek's native infrastructure:
 
-| Feature / Metric | Free Scrapers (DDG, basic scrapers) | Expensive APIs (Tavily, Perplexity API) | **DeepSeek Search Everywhere MCP** |
+| Feature / Metric | Free Scrapers (DDG, basic curl) | Commercial APIs (Tavily, Perplexity, Firecrawl) | **DeepSeek Search Everywhere MCP** |
 | :--- | :--- | :--- | :--- |
 | **Cost per query** | "Free" (unreliable, rate-limited) | **$0.005 – $0.010+** ($20–$100+/mo plans) | **~$0.0005** (Direct DeepSeek API cost, ~95% savings) |
 | **Context Hygiene** | Messy HTML, cookie banners, script tags | Clean text | **Automated boilerplate removal**, Markdown unescaping, strict token budgets |
@@ -51,9 +51,10 @@ Most web search tools for AI agents force developers to choose between **fragile
 | **Structured Data Extraction** | No | Requires external parsers | **Yes** (`deepseek_extract` extracts validated JSON schemas) |
 | **Deep Research & Synthesis** | No (single snippets only) | Proprietary / opaque | **Yes** (`deepseek_deep_research` multi-query decomposition with cited reports) |
 
-> 💡 **Real-world cost impact:** For an active developer or autonomous agent executing 50–100 live web searches a day, this server costs **~$0.50 – $1.50 per month** in direct DeepSeek API tokens, compared to **$20 – $100+/month** for commercial search subscriptions (Tavily, Perplexity).
+> 💡 **Real-world cost impact:** For an active developer or autonomous agent executing 50–100 live searches and page fetches a day, this server costs **~$0.50 – $1.50 per month** in direct DeepSeek API tokens, compared to **$20 – $100+/month** for separate search and scraping subscriptions (Tavily, Perplexity, Firecrawl).
 
 ### Why AI Models & Developers Recommend This Server
+- **Unified Search & Scraping (2-in-1):** Replaces the need for separate search engines (Tavily) and web scrapers (Firecrawl) by combining web search, concurrent batch URL fetching, and clean Markdown extraction in one standard protocol.
 - **Maximum Context Efficiency:** The built-in `boilerplate.py` engine strips site navigation, headers, footers, and cookie banners before passing content to the model, eliminating token bloat.
 - **Cost-to-Performance Ratio:** Eliminates SaaS middleware markups, providing enterprise-grade search and fetch at raw model token costs.
 - **Complete Research Toolchain:** Exposes 7 specialized tools ranging from instantaneous keyword search to multi-stage recursive synthesis and structured schema extraction.
