@@ -64,6 +64,17 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 - No telemetry.
 - Keep the legacy opencode `auth.json` credential fallback.
 
+## Branching & workflow
+
+- Never push or force-push directly to `main`; `main` is protected and immutable. All changes must arrive via Pull Requests.
+- Feature branches use conventional prefixes: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`, `chore/<topic>`.
+- Never use raw `git push --force`. When rebasing a personal feature branch, use `git push --force-with-lease`.
+- Run local checks before opening or requesting review on a PR:
+  ```bash
+  ruff check . && ruff format --check . && pytest -q
+  ```
+- Automated `release-please` PRs (e.g. `chore(main): release X.Y.Z`) must not be manually edited; merge them directly to trigger publication.
+
 ## Commits & releases
 
 - Conventional Commits; subject at most 72 characters, imperative mood; the body explains why.
