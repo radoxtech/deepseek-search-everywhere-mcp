@@ -1286,7 +1286,7 @@ async def deepseek_fetch(
 
     Retrieves Markdown for a known URL. Use when target URL is known. For multiple URLs
     use deepseek_fetch_many; for structured data use deepseek_extract; for search use
-    deepseek_search. Auto-resolves PDFs/Reddit via search index when direct fetch returns 404.
+    deepseek_search. Auto-resolves documents and protected pages via search index on 404.
 
     Args:
         url: Absolute http(s) URL, max 8192 chars.
@@ -1300,7 +1300,7 @@ async def deepseek_fetch(
         max_snippets: Max snippets when query is set (default 3, 1-5).
         refresh: Bypass cache (default False).
         strip_boilerplate: Remove site UI lines (default True).
-        fallback_to_search: Search fallback on 404 for PDF/Reddit (default True).
+        fallback_to_search: Search fallback on 404 for documents/protected pages (default True).
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
@@ -1323,8 +1323,8 @@ async def deepseek_fetch(
 
 
 _SEARCH_ADVICE = (
-    "PDFs and Reddit are not extractable by fetch: use deepseek_search instead, "
-    "which returns their content via the search index."
+    "Direct fetch is unavailable for this document: use deepseek_search instead, "
+    "which returns page content via the search index."
 )
 
 
@@ -1373,14 +1373,10 @@ async def _search_fallback_fetch(
     except ValueError:
         return None
 
-    clean_url = url.split("?", 1)[0].split("#", 1)[0]
-    if clean_url.startswith("https://"):
-        clean_url = clean_url[8:]
-    elif clean_url.startswith("http://"):
-        clean_url = clean_url[7:]
-    if clean_url.startswith("www."):
-        clean_url = clean_url[4:]
-    search_query = clean_url[:MAX_QUERY]
+    host_for_site = target_host[4:] if target_host.startswith("www.") else target_host
+    path_segments = [s for s in parts.path.split("/") if s and s not in ("pdf", "comments", "r")]
+    query_terms = " ".join(path_segments[-3:]) if path_segments else ""
+    search_query = f"site:{host_for_site} {query_terms}".strip()[:MAX_QUERY]
 
     search_res = await _search(
         search_query,
@@ -1543,7 +1539,7 @@ async def _fetch(
     else:
         cost = 0.0 if cached else COST_PER_REQUEST
     if fallback_used or record.get("fallback_from_search"):
-        notes.append("Content retrieved via DeepSeek search index (direct fetch unsupported for PDF/Reddit).")
+        notes.append("Content retrieved via DeepSeek search index (direct fetch unavailable).")
     envelope: dict[str, Any] = {
         "ok": True,
         "url": url,
@@ -1809,7 +1805,7 @@ async def deepseek_fetch_many(
         refresh: Bypass cache (default False).
         strip_boilerplate: Remove site UI lines (default True).
         deadline: Max seconds before cancelling fetches (default 120s).
-        fallback_to_search: Search fallback on 404 for PDF/Reddit (default True).
+        fallback_to_search: Search fallback on 404 for documents/protected pages (default True).
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:

@@ -91,7 +91,8 @@ async def test_fetch_pdf_fallback_success(fake_upstream: Any) -> None:
     assert len(upstream.calls) == 2
     assert upstream.calls[0]["path"] == server.FETCH_PATH
     assert upstream.calls[1]["path"] == server.SEARCH_PATH
-    assert "arxiv.org/pdf/1706.03762" in upstream.calls[1]["payload"]["query"]
+    assert "arxiv.org" in upstream.calls[1]["payload"]["query"]
+    assert "1706.03762" in upstream.calls[1]["payload"]["query"]
 
 
 async def test_fetch_reddit_fallback_success(fake_upstream: Any) -> None:
