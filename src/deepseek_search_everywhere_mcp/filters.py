@@ -1,7 +1,8 @@
-"""Domain and date filter compilation and budget guarding for search queries.
+"""Domain, keyword and date filter compilation and budget guarding for search queries.
 
-Validates and serializes ``include_domains``, ``exclude_domains``, ``after``, and ``before``
-into upstream search query operators without exceeding DeepSeek's 128-character limit.
+Validates and serializes ``include_domains``, ``exclude_domains``, ``exclude_terms``,
+``exact_phrases``, ``after``, and ``before`` into upstream search query operators
+without exceeding DeepSeek's 128-character limit.
 """
 
 from __future__ import annotations
@@ -63,6 +64,8 @@ def compile_filters(
     *,
     include_domains: list[str] | None = None,
     exclude_domains: list[str] | None = None,
+    exclude_terms: list[str] | None = None,
+    exact_phrases: list[str] | None = None,
     after: str | None = None,
     before: str | None = None,
 ) -> tuple[str, str | None, str | None]:
@@ -74,6 +77,7 @@ def compile_filters(
 
     if include_domains:
         seen_inc: set[str] = set()
+        site_clauses: list[str] = []
         for raw in include_domains:
             domain, err = normalize_domain(raw)
             if err:
@@ -81,7 +85,9 @@ def compile_filters(
             assert domain is not None
             if domain not in seen_inc:
                 seen_inc.add(domain)
-                ops.append(f"site:{domain}")
+                site_clauses.append(f"site:{domain}")
+        if site_clauses:
+            ops.append(" OR ".join(site_clauses))
 
     if exclude_domains:
         seen_exc: set[str] = set()
@@ -93,6 +99,39 @@ def compile_filters(
             if domain not in seen_exc:
                 seen_exc.add(domain)
                 ops.append(f"-site:{domain}")
+
+    if exclude_terms:
+        seen_terms: set[str] = set()
+        for raw in exclude_terms:
+            cleaned = (raw or "").strip()
+            if not cleaned:
+                return "", "bad_term", "Excluded term cannot be empty."
+            cleaned = cleaned.lstrip("-").strip()
+            if not cleaned or any(c.isspace() or c in "\"'" for c in cleaned):
+                return (
+                    "",
+                    "bad_term",
+                    f"Excluded term must be a single word without whitespace or quotes: {raw!r}.",
+                )
+            cleaned_lower = cleaned.lower()
+            if cleaned_lower not in seen_terms:
+                seen_terms.add(cleaned_lower)
+                ops.append(f"-{cleaned}")
+
+    if exact_phrases:
+        seen_phrases: set[str] = set()
+        for raw in exact_phrases:
+            cleaned = (raw or "").strip().strip('"').strip("'")
+            if not cleaned:
+                return "", "bad_phrase", "Exact phrase cannot be empty."
+            if "\n" in cleaned or "\r" in cleaned:
+                return "", "bad_phrase", f"Exact phrase cannot contain newlines: {raw!r}."
+            if '"' in cleaned:
+                return "", "bad_phrase", f"Exact phrase cannot contain internal quotes: {raw!r}."
+            cleaned_lower = cleaned.lower()
+            if cleaned_lower not in seen_phrases:
+                seen_phrases.add(cleaned_lower)
+                ops.append(f'"{cleaned}"')
 
     if after:
         date_str, err = normalize_date(after)

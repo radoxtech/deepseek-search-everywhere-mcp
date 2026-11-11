@@ -47,14 +47,58 @@ def test_normalize_date_rejections():
 
 def test_compile_filters_all_operators():
     ops, code, err = compile_filters(
-        include_domains=["arxiv.org", "https://nature.com"],
-        exclude_domains=["wikipedia.org"],
-        after="2024-01-01",
-        before="2025-01-01",
+        include_domains=["arxiv.org", "nature.com"],
+        exclude_domains=["wiki.org"],
+        exclude_terms=["ads"],
+        exact_phrases=["ai"],
+        after="2024",
+        before="2025",
     )
     assert code is None
     assert err is None
-    assert ops == "site:arxiv.org site:nature.com -site:wikipedia.org after:2024-01-01 before:2025-01-01"
+    assert ops == 'site:arxiv.org OR site:nature.com -site:wiki.org -ads "ai" after:2024 before:2025'
+
+
+def test_compile_filters_include_domains_single():
+    ops, code, err = compile_filters(include_domains=["arxiv.org"])
+    assert code is None
+    assert ops == "site:arxiv.org"
+
+
+def test_compile_filters_exclude_terms():
+    ops, code, err = compile_filters(exclude_terms=["ads", "-promo", "ads"])
+    assert code is None
+    assert ops == "-ads -promo"
+
+
+def test_compile_filters_exclude_terms_rejections():
+    _, code, err = compile_filters(exclude_terms=[""])
+    assert code == "bad_term"
+    assert "cannot be empty" in str(err)
+
+    _, code, err = compile_filters(exclude_terms=["has space"])
+    assert code == "bad_term"
+    assert "single word" in str(err)
+
+
+def test_compile_filters_exact_phrases():
+    ops, code, err = compile_filters(exact_phrases=['"quantum computing"', "deep research"])
+    assert code is None
+    assert ops == '"quantum computing" "deep research"'
+
+
+def test_compile_filters_exact_phrases_rejections():
+    _, code, err = compile_filters(exact_phrases=[""])
+    assert code == "bad_phrase"
+    assert "cannot be empty" in str(err)
+
+    _, code, err = compile_filters(exact_phrases=['foo "bar" baz'])
+    assert code == "bad_phrase"
+    assert "internal quotes" in str(err)
+
+    _, code, err = compile_filters(exact_phrases=["line1\nline2"])
+    assert code == "bad_phrase"
+    assert "newlines" in str(err)
 
 
 def test_compile_filters_deduplicates():
