@@ -217,8 +217,8 @@ The container runs as an unprivileged non-root user (`UID 10001`) with dependenc
 
 | Tool | Purpose | Parameters (defaults) |
 |---|---|---|
-| `deepseek_search` | Search the web; returns inline page text (default) or snippets and metadata | `query`, `count=5` (1-50), `ori_question`, `need_content=True`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
-| `deepseek_fetch` | Fetch one known URL as Markdown (supports lexical snippet extraction and sectional reading) | `url`, `clean=True`, `max_chars=20000`, `query`, `section`, `max_snippets=3`, `refresh=False`, `strip_boilerplate=True` |
+| `deepseek_search` | Search the web; returns inline page text (default) or snippets and metadata | `query`, `count=5` (1-50), `ori_question`, `need_content=True`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `localization=None`, `exclude_terms=None`, `exact_phrases=None`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
+| `deepseek_fetch` | Fetch one known URL as Markdown (supports lexical snippet extraction, sectional reading and windowed pagination) | `url`, `clean=True`, `max_chars=20000`, `offset=None`, `limit=None`, `find_text=None`, `query=None`, `section=None`, `max_snippets=3`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `query`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_research` | Single-pass source gathering: search with content and auto-fetch stub pages (< 200 chars). No iteration, no summary | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `after`, `before`, `include_domains`, `exclude_domains`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
 | `deepseek_deep_research` | Multi-angle research on a topic; decomposes subqueries, gathers sources, and synthesizes a cited report | `topic`, `max_queries=3` (2-4), `max_pages_per_query=3` (1-5), `lang`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
@@ -229,10 +229,14 @@ Notes on the parameters:
 
 - `query` and `question` are limited to 128 characters and support `site:`, `-site:`, `"phrase"`, `lang:`,
   `after:` and `before:`. `ori_question` (max 128 characters) is the natural-language question and improves ranking.
-- `after`, `before`, `include_domains` and `exclude_domains` are explicit filter parameters for search tools.
-  `include_domains` compiles to space-separated `site:` operators, `exclude_domains` to `-site:`, and dates to
+  `localization` is an optional IP address used by DeepSeek to localize search results.
+- `after`, `before`, `include_domains`, `exclude_domains`, `exclude_terms` and `exact_phrases` are explicit
+  filter parameters for search tools. Multiple `include_domains` are joined with `OR` (`site:a.com OR site:b.com`),
+  `exclude_domains` compiles to `-site:`, `exclude_terms` to `-term`, `exact_phrases` to `"phrase"`, and dates to
   `after:YYYY-MM-DD` / `before:YYYY-MM-DD`. Filters and query are budget-guarded together to stay within DeepSeek's
   128-character limit.
+- `offset` (0-based start index) and `limit` in `deepseek_fetch` enable character-level windowed pagination for long pages,
+  reporting `total_chars` and `has_more`. `find_text` locates a case-insensitive substring and sets `offset` to its position.
 - `query` in `deepseek_fetch` and `deepseek_fetch_many` extracts ranked relevant excerpts using a BM25-lite
   scoring engine without invoking an LLM. `section` (1-based index) enables sectional reading of long documents
   with `has_more` and `total_sections` pagination metadata. Both operate in-memory on cached pages.
@@ -319,6 +323,9 @@ Every tool returns a JSON object with `ok`.
 | `elapsed_ms` | all, including errors | wall time of the tool call in milliseconds (monotonic clock); a cache hit reports its own, near-zero time |
 | `notes` | all success envelopes | human-readable remarks: dedupe counts, rewrite applied or failed, `lang` applied, truncation ("Some page content was truncated to respect the character budget.") |
 | `error` | failures | `{ "code", "message", "status"? }`; `status` is the upstream HTTP status when there was one |
+| `cost_usd` | all retrieval tools | estimated upstream API cost in USD ($0.00075 per upstream call, $0.0 for cache hits) |
+| `untrusted_content` | all tools returning web content | `true`; marks fetched web data as untrusted to defend against prompt injection |
+| `_meta` | all retrieval tools | metadata object `{ "cost_usd": float, "untrusted_content": bool }` for MCP client telemetry |
 | `partial` | `deepseek_fetch_many`, `deepseek_research` | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
 | `failed_count` | `deepseek_fetch_many`, `deepseek_research` | number of failed items or sources |
 
@@ -342,6 +349,8 @@ requested fields or schema). `chars` is always the length of the `content` retur
 | `ssrf_blocked` | URL rejected locally: internal host, literal private/loopback address, or embedded credentials |
 | `bad_url`, `invalid_url`, `empty_url`, `url_too_long` | malformed or oversized URL |
 | `empty_query`, `query_too_long`, `bad_count`, `bad_lang`, `bad_request` | invalid arguments |
+| `bad_term`, `bad_phrase`, `bad_domain`, `bad_date`, `filters_too_long` | invalid or oversized search filter options |
+| `budget_exceeded` | local daily spend limit (`DEEPSEEK_DAILY_BUDGET_USD`) exceeded |
 | `rate_limited_local` | no local rate-limit token became available within the maximum wait |
 | `response_too_large` | upstream body exceeded the cap (8 MiB search, 32 MiB fetch) |
 | `deadline_exceeded` | batch item not finished within the shared batch deadline |
@@ -403,6 +412,8 @@ The cache and the limiter live in the server process and are not shared between 
 | `MCP_BEARER_TOKEN` | HTTP only | token clients must send as `Authorization: Bearer ...` |
 | `DEEPSEEK_MCP_CACHE` | no | `1` (default) or `0` to disable caching |
 | `DEEPSEEK_MCP_LOG_LEVEL` | no | stderr log level for the server, the MCP SDK and uvicorn: `DEBUG`, `INFO`, `WARNING` (default), `ERROR`, `CRITICAL` |
+| `DEEPSEEK_DAILY_BUDGET_USD` | no | optional daily spending limit in USD (e.g. `5.00`); blocks upstream queries with `budget_exceeded` once reached |
+| `DEEPSEEK_STATE_DIR` | no | directory to persist local state files (defaults to `~/.cache/deepseek-search-everywhere-mcp`) |
 | `DEEPSEEK_AUTH_JSON` | no | path to a JSON file used as the key fallback (see [Security](#security)) |
 
 `.env.example` lists the same variables. The server does not read `.env` files itself; export the variables or
