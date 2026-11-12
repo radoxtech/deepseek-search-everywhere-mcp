@@ -50,7 +50,11 @@ from .extract import (
 from .filters import compile_filters
 from .ratelimit import CHAT, FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
-from .sanitize import strip_hidden_unicode, strip_hidden_unicode_structure
+from .sanitize import (
+    sanitize_structure,
+    sanitize_untrusted_text,
+    strip_hidden_unicode,
+)
 from .settings import DEFAULT_LOG_LEVEL, get_pricing_period, get_settings
 from .snippets import extract_snippets, split_sections
 from .transport import _api_key, _base_url
@@ -746,9 +750,9 @@ def _strip_html_tags(text: str) -> str:
 
 
 def _clean_index_text(text: str) -> str:
-    """Decode JSON escapes in a search snippet or summary, then drop leftover simple HTML tags."""
+    """Decode JSON escapes in a search snippet or summary, drop HTML, and sanitize untrusted text."""
     cleaned = _strip_html_tags(_decode_json_escapes(text))
-    cleaned, _ = strip_hidden_unicode(cleaned)
+    cleaned, _ = sanitize_untrusted_text(cleaned)
     return cleaned
 
 
@@ -1159,7 +1163,7 @@ def _apply_char_budget(
         cleaned = _strip_html_tags(_decode_json_escapes(_unescape_markdown(capped_body)))
         if strip_boilerplate:
             cleaned = remove_boilerplate(cleaned, item.get("url"))
-        cleaned, _ = strip_hidden_unicode(cleaned)
+        cleaned, _ = sanitize_untrusted_text(cleaned)
         entry["content"], cut = _truncate(cleaned, budget_target)
         entry["chars"] = len(entry["content"])
         return remaining - len(entry["content"]), cut
@@ -1979,7 +1983,7 @@ async def _fetch(
         stripped = remove_boilerplate(content, url)
         only_boilerplate = bool(content.strip()) and not stripped
         content = stripped
-    content, u_count = strip_hidden_unicode(content)
+    content, sanitize_notes = sanitize_untrusted_text(content)
 
     total_sections: int | None = None
     section_has_more: bool | None = None
@@ -2006,8 +2010,7 @@ async def _fetch(
 
     total_chars = raw_len if content_capped else len(content)
     notes = _fetch_notes(content, only_boilerplate)
-    if u_count > 0:
-        notes.append(f"Sanitized {u_count} hidden Unicode character(s) from untrusted content.")
+    notes.extend(sanitize_notes)
     if content_capped:
         notes.append(
             f"Content was capped at {capped_limit} characters before processing "
@@ -2771,7 +2774,8 @@ async def deepseek_deep_research(
 
     report_text = synth_res.get("content", "")
     clean_report = sanitize_citations(report_text, max_id=len(synthesis_context))
-    clean_report, _ = strip_hidden_unicode(clean_report)
+    clean_report, s_notes = sanitize_untrusted_text(clean_report)
+    notes.extend(s_notes)
 
     return {
         "ok": True,
@@ -2783,7 +2787,9 @@ async def deepseek_deep_research(
             {
                 "id": s["id"],
                 "title": (
-                    strip_hidden_unicode(s["title"])[0] if isinstance(s.get("title"), str) else s.get("title")
+                    sanitize_untrusted_text(s["title"])[0]
+                    if isinstance(s.get("title"), str)
+                    else s.get("title")
                 ),
                 "url": s["url"],
             }
@@ -2905,9 +2911,8 @@ async def _extract_page(
         if schema_errors:
             notes.extend(schema_errors)
 
-    parsed, u_cnt = strip_hidden_unicode_structure(parsed)
-    if u_cnt > 0:
-        notes.append(f"Sanitized {u_cnt} hidden Unicode character(s) from extracted data.")
+    parsed, s_notes = sanitize_structure(parsed)
+    notes.extend(s_notes)
 
     return {
         "ok": True,
