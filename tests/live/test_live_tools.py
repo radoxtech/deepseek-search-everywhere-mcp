@@ -331,17 +331,22 @@ async def test_live_phase3_data_correctness() -> None:
     assert fetch_res["ok"] is False
     assert fetch_res["error"]["code"] == "not_found"
 
-    # 2. Query with lang + filters accepted and fits within 128 chars
+    # 2. Query with lang + two domains: len(query_used) <= 128, word-boundary cut, HTTP success
+    long_query = "machine learning models for natural language processing and transformer architectures in ai"
     search_res = await server.deepseek_search(
-        "quantum computing algorithms research",
+        long_query,
         count=2,
         lang="en",
-        include_domains=["arxiv.org"],
+        include_domains=["arxiv.org", "nature.com"],
+        refresh=True,
     )
     assert search_res["ok"] is True
     assert len(search_res["query_used"]) <= 128
     assert "lang:en" in search_res["query_used"]
-    assert "site:arxiv.org" in search_res["query_used"]
+    assert "site:arxiv.org OR site:nature.com" in search_res["query_used"]
+    retained_words = search_res["query_used"].replace("lang:en ", "").split(" site:")[0].split()
+    assert retained_words[-1] == "architectures"
+    assert any("trimmed" in note.lower() for note in search_res["notes"])
 
     # 3. IDN domain filter accepted and sent in Unicode form
     idn_res = await server.deepseek_search(
