@@ -323,3 +323,77 @@ async def test_held_file_lock_does_not_freeze_event_loop(tmp_path: Any) -> None:
     elapsed = time.monotonic() - t0
     assert elapsed < 0.8, f"Event loop was blocked by file lock! Elapsed: {elapsed:.2f}s"
     assert ticks >= 3, f"Event loop was blocked by file lock! Ticks: {ticks}"
+
+
+async def test_budget_json_state_stores_micro_usd_ints_and_usd_floats(tmp_path: Any) -> None:
+    state_file = tmp_path / "budget.json"
+    tracker = DailyBudgetTracker(limit_usd=0.01, state_path=state_file)
+    res = await tracker.reserve(0.002)
+    assert res is not None
+
+    raw = json.loads(state_file.read_text(encoding="utf-8"))
+    assert isinstance(raw["spent_micros"], int)
+    assert isinstance(raw["reserved_micros"], int)
+    assert raw["reserved_micros"] == 2000
+    assert raw["limit_micros"] == 10000
+    assert isinstance(raw["spent_usd"], float)
+    assert isinstance(raw["reserved_usd"], float)
+    assert raw["reserved_usd"] == 0.002
+
+    await res.commit(0.0015)
+    raw2 = json.loads(state_file.read_text(encoding="utf-8"))
+    assert raw2["spent_micros"] == 1500
+    assert raw2["reserved_micros"] == 0
+    assert raw2["spent_usd"] == 0.0015
+
+
+async def test_random_amount_reservations_property(tmp_path: Any) -> None:
+    """Property test: random amounts never exceed limit and never under-fill by > 1 reservation."""
+    import random
+
+    rng = random.Random(42)
+    for trial in range(15):
+        state_file = tmp_path / f"budget_prop_{trial}.json"
+        limit_usd = round(rng.uniform(0.01, 0.05), 4)
+        tracker = DailyBudgetTracker(limit_usd=limit_usd, state_path=state_file)
+
+        # Part A: Identical random amounts
+        chunk = round(rng.uniform(0.0008, 0.0035), 6)
+        chunk_micros = round(chunk * 1_000_000)
+        expected_count = tracker.limit_micros // chunk_micros
+        # Launch more tasks than can possibly fit
+        n_tasks = expected_count + 15
+        results = await asyncio.gather(*(tracker.reserve(chunk) for _ in range(n_tasks)))
+        successful = [r for r in results if r is not None]
+        status = await tracker.get_status()
+
+        # Never exceed limit
+        assert status["reserved_usd"] <= limit_usd + 1e-9
+        assert status["reserved_micros"] <= tracker.limit_micros
+
+        # Exactly expected_count succeeded and remaining is less than one chunk
+        assert len(successful) == expected_count
+        assert status["remaining_usd"] < chunk
+        assert status["remaining_micros"] < chunk_micros
+
+        # Part B: Settle and release all
+        for r in successful:
+            await r.release()
+
+        # Part C: Varied random amounts
+        state_file_var = tmp_path / f"budget_prop_var_{trial}.json"
+        tracker_var = DailyBudgetTracker(limit_usd=limit_usd, state_path=state_file_var)
+        amounts = [round(rng.uniform(0.0005, 0.0040), 6) for _ in range(40)]
+        results_var = await asyncio.gather(*(tracker_var.reserve(amt) for amt in amounts))
+
+        successful_var = [amt for amt, r in zip(amounts, results_var, strict=True) if r is not None]
+        rejected_var = [amt for amt, r in zip(amounts, results_var, strict=True) if r is None]
+
+        status_var = await tracker_var.get_status()
+        assert status_var["reserved_usd"] <= limit_usd + 1e-9
+        assert status_var["reserved_micros"] <= tracker_var.limit_micros
+        assert status_var["reserved_micros"] == sum(round(amt * 1_000_000) for amt in successful_var)
+
+        # If any was rejected, the remaining budget was less than what could accommodate all
+        if rejected_var:
+            assert status_var["remaining_usd"] < max(rejected_var)

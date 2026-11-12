@@ -24,6 +24,17 @@ logger = logging.getLogger(__name__)
 
 RESERVATION_TTL_SECONDS = 900.0  # 15 minutes
 
+
+def to_micros(usd: float) -> int:
+    """Convert a USD dollar float to integer micro-dollars ($1 = 1,000,000 micros)."""
+    return round(usd * 1_000_000)
+
+
+def to_usd(micros: int) -> float:
+    """Convert integer micro-dollars to a USD dollar float rounded to 6 decimal places."""
+    return round(micros / 1_000_000.0, 6)
+
+
 try:
     import fcntl
 except ImportError:
@@ -98,17 +109,28 @@ def _file_lock(lock_path: pathlib.Path) -> Iterator[None]:
 class Reservation:
     """An active spend reservation against a daily budget."""
 
-    __slots__ = ("_amount", "_reservation_id", "_settled", "_tracker")
+    __slots__ = ("_amount", "_amount_micros", "_reservation_id", "_settled", "_tracker")
 
-    def __init__(self, tracker: DailyBudgetTracker, amount: float, reservation_id: str) -> None:
+    def __init__(
+        self,
+        tracker: DailyBudgetTracker,
+        amount: float,
+        amount_micros: int,
+        reservation_id: str,
+    ) -> None:
         self._tracker = tracker
         self._amount = amount
+        self._amount_micros = amount_micros
         self._reservation_id = reservation_id
         self._settled = False
 
     @property
     def amount(self) -> float:
         return self._amount
+
+    @property
+    def amount_micros(self) -> int:
+        return self._amount_micros
 
     @property
     def reservation_id(self) -> str:
@@ -118,13 +140,14 @@ class Reservation:
         if self._settled:
             return
         self._settled = True
-        await self._tracker._commit_reservation(self._reservation_id, self._amount, actual_cost)
+        actual_micros = to_micros(actual_cost)
+        await self._tracker._commit_reservation(self._reservation_id, self._amount_micros, actual_micros)
 
     async def release(self) -> None:
         if self._settled:
             return
         self._settled = True
-        await self._tracker._release_reservation(self._reservation_id, self._amount)
+        await self._tracker._release_reservation(self._reservation_id, self._amount_micros)
 
     async def __aenter__(self) -> Reservation:
         return self
@@ -139,16 +162,25 @@ class DailyBudgetTracker:
 
     def __init__(self, limit_usd: float, state_path: pathlib.Path | None = None) -> None:
         self.limit_usd = limit_usd
+        self.limit_micros = to_micros(limit_usd)
         self.state_path = state_path or default_state_path()
         self.lock_path = self.state_path.with_suffix(self.state_path.suffix + ".lock")
         self._lock = asyncio.Lock()
         self._date = _utc_today()
-        self._spent_usd = 0.0
-        self._reserved_usd = 0.0
+        self._spent_micros = 0
+        self._reserved_micros = 0
         self._reservations: dict[str, dict[str, Any]] = {}
         self._requests = 0
         self._loaded = False
         self._disk_warning_logged = False
+
+    @property
+    def _spent_usd(self) -> float:
+        return to_usd(self._spent_micros)
+
+    @property
+    def _reserved_usd(self) -> float:
+        return to_usd(self._reserved_micros)
 
     def _prune_reservations_locked(self, now: float | None = None) -> None:
         """Drop stale reservations whose TTL expired or whose PID no longer exists."""
@@ -161,7 +193,10 @@ class DailyBudgetTracker:
             if (now - created_at) < RESERVATION_TTL_SECONDS and _is_pid_alive(pid):
                 pruned[res_id] = r
         self._reservations = pruned
-        self._reserved_usd = sum(float(r.get("amount", 0.0)) for r in self._reservations.values())
+        self._reserved_micros = sum(
+            int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
+            for r in self._reservations.values()
+        )
 
     def _load_locked(self) -> None:
         """Load state from disk if available, resetting if the date has changed."""
@@ -169,8 +204,8 @@ class DailyBudgetTracker:
         if not self.state_path.exists():
             if not self._loaded:
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
                 self._loaded = True
@@ -182,7 +217,10 @@ class DailyBudgetTracker:
             file_date = data.get("date")
             if file_date == today:
                 self._date = today
-                self._spent_usd = float(data.get("spent_usd", 0.0))
+                if "spent_micros" in data:
+                    self._spent_micros = int(data["spent_micros"])
+                else:
+                    self._spent_micros = to_micros(float(data.get("spent_usd", 0.0)))
                 raw_reservations = data.get("reservations")
                 if isinstance(raw_reservations, dict):
                     self._reservations = {k: v for k, v in raw_reservations.items() if isinstance(v, dict)}
@@ -192,8 +230,8 @@ class DailyBudgetTracker:
                 self._prune_reservations_locked()
             else:
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
             self._loaded = True
@@ -201,8 +239,8 @@ class DailyBudgetTracker:
             if not self._loaded:
                 logger.warning("Could not read budget file %s (%s); resetting tracker.", self.state_path, exc)
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
                 self._loaded = True
@@ -211,10 +249,13 @@ class DailyBudgetTracker:
         """Atomically persist state to disk; falls back to in-memory on error."""
         data = {
             "date": self._date,
-            "spent_usd": round(self._spent_usd, 6),
-            "reserved_usd": round(self._reserved_usd, 6),
+            "spent_micros": self._spent_micros,
+            "spent_usd": to_usd(self._spent_micros),
+            "reserved_micros": self._reserved_micros,
+            "reserved_usd": to_usd(self._reserved_micros),
             "reservations": self._reservations,
             "requests": self._requests,
+            "limit_micros": self.limit_micros,
             "limit_usd": self.limit_usd,
         }
         try:
@@ -231,30 +272,32 @@ class DailyBudgetTracker:
                 )
                 self._disk_warning_logged = True
 
-    def _sync_reserve(self, amount: float) -> str | None:
+    def _sync_reserve(self, amount: float) -> tuple[str, int] | None:
+        amount_micros = to_micros(amount)
         with _file_lock(self.lock_path):
             self._load_locked()
             today = _utc_today()
             if self._date != today:
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
                 self._save_locked()
 
-            if (self._spent_usd + self._reserved_usd + amount) > self.limit_usd:
+            if (self._spent_micros + self._reserved_micros + amount_micros) > self.limit_micros:
                 return None
 
             res_id = uuid.uuid4().hex
             self._reservations[res_id] = {
                 "pid": os.getpid(),
-                "amount": amount,
+                "amount_micros": amount_micros,
+                "amount": to_usd(amount_micros),
                 "created_at": time.time(),
             }
-            self._reserved_usd += amount
+            self._reserved_micros += amount_micros
             self._save_locked()
-            return res_id
+            return res_id, amount_micros
 
     async def reserve(self, amount: float) -> Reservation | None:
         """Atomically reserve ``amount`` USD against today's limit.
@@ -262,68 +305,77 @@ class DailyBudgetTracker:
         Returns a :class:`Reservation` on success, or ``None`` if the budget would be exceeded.
         """
         async with self._lock:
-            res_id = await asyncio.to_thread(self._sync_reserve, amount)
-            if res_id is None:
+            result = await asyncio.to_thread(self._sync_reserve, amount)
+            if result is None:
                 return None
-            return Reservation(self, amount, res_id)
+            res_id, amount_micros = result
+            return Reservation(self, amount, amount_micros, res_id)
 
-    def _sync_commit_reservation(self, res_id: str, reserved: float, actual: float) -> None:
+    def _sync_commit_reservation(self, res_id: str, reserved_micros: int, actual_micros: int) -> None:
         with _file_lock(self.lock_path):
             self._load_locked()
             today = _utc_today()
             if self._date != today:
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
 
             self._reservations.pop(res_id, None)
-            self._reserved_usd = sum(float(r.get("amount", 0.0)) for r in self._reservations.values())
-            self._spent_usd += actual
+            self._reserved_micros = sum(
+                int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
+                for r in self._reservations.values()
+            )
+            self._spent_micros += actual_micros
             self._requests += 1
             self._save_locked()
 
-    async def _commit_reservation(self, res_id: str, reserved: float, actual: float) -> None:
+    async def _commit_reservation(self, res_id: str, reserved_micros: int, actual_micros: int) -> None:
         """Settle a reservation, deducting reserved amount and adding actual incurred spend."""
         async with self._lock:
-            await asyncio.to_thread(self._sync_commit_reservation, res_id, reserved, actual)
+            await asyncio.to_thread(self._sync_commit_reservation, res_id, reserved_micros, actual_micros)
 
-    def _sync_release_reservation(self, res_id: str, reserved: float) -> None:
+    def _sync_release_reservation(self, res_id: str, reserved_micros: int) -> None:
         with _file_lock(self.lock_path):
             self._load_locked()
             today = _utc_today()
             if self._date != today:
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
 
             self._reservations.pop(res_id, None)
-            self._reserved_usd = sum(float(r.get("amount", 0.0)) for r in self._reservations.values())
+            self._reserved_micros = sum(
+                int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
+                for r in self._reservations.values()
+            )
             self._save_locked()
 
-    async def _release_reservation(self, res_id: str, reserved: float) -> None:
+    async def _release_reservation(self, res_id: str, reserved_micros: int) -> None:
         """Release an unused reservation, restoring available budget."""
         async with self._lock:
-            await asyncio.to_thread(self._sync_release_reservation, res_id, reserved)
+            await asyncio.to_thread(self._sync_release_reservation, res_id, reserved_micros)
 
     def _sync_check_budget(self, projected_cost: float) -> tuple[bool, float, float]:
+        projected_micros = to_micros(projected_cost)
         with _file_lock(self.lock_path):
             self._load_locked()
             today = _utc_today()
             if self._date != today:
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
                 self._save_locked()
 
-            if (self._spent_usd + self._reserved_usd + projected_cost) > self.limit_usd:
-                return False, self._spent_usd, self.limit_usd
-            return True, self._spent_usd, self.limit_usd
+            spent_usd = to_usd(self._spent_micros)
+            if (self._spent_micros + self._reserved_micros + projected_micros) > self.limit_micros:
+                return False, spent_usd, self.limit_usd
+            return True, spent_usd, self.limit_usd
 
     async def check_budget(self, projected_cost: float = 0.00075) -> tuple[bool, float, float]:
         """Check whether ``projected_cost`` fits within today's remaining budget.
@@ -334,17 +386,18 @@ class DailyBudgetTracker:
             return await asyncio.to_thread(self._sync_check_budget, projected_cost)
 
     def _sync_record_spend(self, cost: float) -> None:
+        cost_micros = to_micros(cost)
         with _file_lock(self.lock_path):
             self._load_locked()
             today = _utc_today()
             if self._date != today:
                 self._date = today
-                self._spent_usd = 0.0
-                self._reserved_usd = 0.0
+                self._spent_micros = 0
+                self._reserved_micros = 0
                 self._reservations = {}
                 self._requests = 0
 
-            self._spent_usd += cost
+            self._spent_micros += cost_micros
             self._requests += 1
             self._save_locked()
 
@@ -356,13 +409,20 @@ class DailyBudgetTracker:
     def _sync_get_status(self) -> dict[str, Any]:
         with _file_lock(self.lock_path):
             self._load_locked()
+            spent_usd = to_usd(self._spent_micros)
+            reserved_usd = to_usd(self._reserved_micros)
+            remaining_micros = max(0, self.limit_micros - self._spent_micros - self._reserved_micros)
             return {
                 "date": self._date,
                 "limit_usd": self.limit_usd,
-                "spent_usd": round(self._spent_usd, 6),
-                "reserved_usd": round(self._reserved_usd, 6),
+                "limit_micros": self.limit_micros,
+                "spent_usd": spent_usd,
+                "spent_micros": self._spent_micros,
+                "reserved_usd": reserved_usd,
+                "reserved_micros": self._reserved_micros,
                 "requests": self._requests,
-                "remaining_usd": max(0.0, round(self.limit_usd - self._spent_usd - self._reserved_usd, 6)),
+                "remaining_usd": to_usd(remaining_micros),
+                "remaining_micros": remaining_micros,
             }
 
     async def get_status(self) -> dict[str, Any]:
