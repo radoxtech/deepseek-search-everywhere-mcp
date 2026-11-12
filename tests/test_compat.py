@@ -68,9 +68,9 @@ def test_new_parameters_are_keyword_only(name):
     assert signature.parameters["refresh"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
-def test_clear_cache_parameter_is_keyword_only():
+def test_check_balance_has_no_parameters() -> None:
     signature = inspect.signature(server.deepseek_check_balance)
-    assert signature.parameters["clear_cache"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert len(signature.parameters) == 0
 
 
 def test_search_parameter_order_is_unchanged():

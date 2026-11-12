@@ -2980,24 +2980,13 @@ async def deepseek_extract_many(
 
 
 @_timed
-async def deepseek_check_balance(*, clear_cache: bool = False) -> dict[str, Any]:
-    """Check account balance (CNY/USD), session telemetry, and manage response cache.
+async def deepseek_check_balance() -> dict[str, Any]:
+    """Check account balance (CNY/USD) and session telemetry.
 
-    Verify funds, monitor session usage, or reset session caches (search, fetch, rewrite).
-    Use clear_cache=True to purge in-memory caches.
-
-    Args:
-        clear_cache: Clear all in-memory response caches when True (default False).
+    Verify funds and monitor session usage. Read-only.
     """
-    cleared_info: dict[str, int] | None = None
-    if clear_cache:
-        cleared_info = _clear_caches()
-
     result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
-        if clear_cache:
-            result["cache_cleared"] = True
-            result["cache_evicted"] = cleared_info
         return result
     data = result["data"]
     metrics = _get_session_metrics()
@@ -3017,20 +3006,13 @@ async def deepseek_check_balance(*, clear_cache: bool = False) -> dict[str, Any]
         "estimated_cache_savings_usd": savings_usd,
         "cache": _get_cache_stats(),
     }
-    if clear_cache:
-        session_data["cache_cleared"] = True
-        session_data["cache_evicted"] = cleared_info
 
-    resp: dict[str, Any] = {
+    return {
         "ok": True,
         "is_available": data.get("is_available"),
         "balances": data.get("balance_infos") or data.get("balances") or data,
         "session": session_data,
     }
-    if clear_cache:
-        resp["cache_cleared"] = True
-        resp["cache_evicted"] = cleared_info
-    return resp
 
 
 TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
