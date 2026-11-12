@@ -154,11 +154,11 @@ def test_search_many_invalid_count_and_caps(kwargs, expected_code):
     assert res["error"]["code"] == expected_code
 
 
-def test_search_many_need_content_true(fake_upstream):
+def test_search_many_content_full(fake_upstream):
     results_map = {"full": [{"title": "Full", "url": "https://f.test", "content": "Full markdown body"}]}
     _install_fake_search(fake_upstream, results_map)
 
-    res = asyncio.run(server.deepseek_search_many(["full"], need_content=True))
+    res = asyncio.run(server.deepseek_search_many(["full"], content="full"))
     assert res["ok"] is True
     assert res["results"][0]["results"][0]["content"] == "Full markdown body"
 

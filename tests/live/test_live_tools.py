@@ -206,7 +206,7 @@ async def test_fetch_of_loopback_is_blocked_without_network(upstream_calls: list
 
 async def test_search_live_v2() -> None:
     query = "Rust async channel bounded vs unbounded"
-    envelope = await server.deepseek_search(query, count=3, need_content=True)
+    envelope = await server.deepseek_search(query, count=3, content="full")
     results = _assert_results(envelope, 2)
     assert any(item.get("content") for item in results)
 

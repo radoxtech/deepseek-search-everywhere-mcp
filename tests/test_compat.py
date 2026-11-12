@@ -67,7 +67,7 @@ def test_search_parameter_order_is_unchanged():
         "query",
         "count",
         "ori_question",
-        "need_content",
+        "content",
         "lang",
         "max_chars_per_result",
         "max_total_chars",

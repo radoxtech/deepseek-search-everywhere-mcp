@@ -23,7 +23,7 @@ import urllib.parse
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, ParamSpec
+from typing import Any, Literal, ParamSpec
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -1238,7 +1238,7 @@ async def _search(
     query: str,
     count: int,
     ori_question: str | None,
-    need_content: bool,
+    content: Literal["snippets", "full"] | bool,
     lang: str | None,
     max_chars_per_result: int,
     max_total_chars: int,
@@ -1267,6 +1267,12 @@ async def _search(
             return _fail("bad_request", "localization must be a string.")
         if len(localization.strip()) > 64:
             return _fail("bad_request", "localization exceeds maximum length of 64 characters.")
+
+    if isinstance(content, bool):
+        content = "full" if content else "snippets"
+    if content not in ("snippets", "full"):
+        return _fail("bad_request", "content must be 'snippets' or 'full'.")
+    need_content = content == "full"
 
     query = (query or "").strip()
     ops_string, filter_code, filter_err = compile_filters(
@@ -1323,9 +1329,11 @@ async def _search(
         "ok": True,
         "query_used": used,
         "count": len(shaped),
+        "content": content,
         "need_content": need_content,
         "deduped": removed,
         "cached": cached,
+        "requests_used": 0 if cached else 1,
         "cost_usd": cost,
         "untrusted_content": True,
         "results": shaped,
@@ -1334,6 +1342,9 @@ async def _search(
         ),
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }
+    if query_original is not None:
+        envelope["query_original"] = query_original
+    return envelope
     if query_original is not None:
         envelope["query_original"] = query_original
     return envelope
@@ -1382,7 +1393,7 @@ async def deepseek_search(
     count: int = 5,
     ori_question: str | None = None,
     *,
-    need_content: bool = True,
+    content: Literal["snippets", "full"] = "snippets",
     lang: str | None = None,
     max_chars_per_result: int = 4000,
     max_total_chars: int = 30000,
@@ -1401,13 +1412,13 @@ async def deepseek_search(
 ) -> dict[str, Any]:
     """Search the web with DeepSeek index and return page text, snippets, and metadata.
 
-    Primary search and retrieval tool. Returns snippets (need_content=False) or full text.
+    Primary search and retrieval tool. Returns snippets (default) or full text with gap-fill.
 
     Args:
         query: Query, max 128 chars (site:, -site:, "phrase", after:, before:).
         count: Results count, 1-50 (default 5).
         ori_question: Natural question improving ranking (max 128 chars).
-        need_content: Inline full text (default True; False for snippets).
+        content: Result mode: 'snippets' (default) or 'full' (with gap-fill).
         lang: Language filter (e.g. 'en', 'es').
         max_chars_per_result: Cap per result (default 4000).
         max_total_chars: Total content cap (default 30000).
@@ -1424,11 +1435,11 @@ async def deepseek_search(
         summary_chars: Summary cap without content.
         strip_boilerplate: Remove site UI lines (default True).
     """
-    return await _search(
+    res = await _search(
         query,
         count,
         ori_question,
-        need_content,
+        content,
         lang,
         max_chars_per_result,
         max_total_chars,
@@ -1445,6 +1456,20 @@ async def deepseek_search(
         summary_chars=summary_chars,
         strip_boilerplate=strip_boilerplate,
     )
+    if res.get("ok") and (content == "full" or content is True):
+        fill = await _fill_gaps(
+            res.get("results") or [], max_chars_per_result, max_total_chars, refresh, strip_boilerplate
+        )
+        if fill.requests_used:
+            res["requests_used"] = (0 if res.get("cached") else 1) + fill.requests_used
+            res["cost_usd"] = round(
+                (0.0 if res.get("cached") else COST_PER_REQUEST) + fill.requests_used * COST_PER_REQUEST, 6
+            )
+            if fill.fetched:
+                res["notes"].append(f"fetched {fill.fetched} page(s) with missing or short search content")
+            if fill.failed:
+                res["notes"].append(f"{fill.failed} fetch(es) failed; see the source's error")
+    return res
 
 
 @_timed
@@ -1452,7 +1477,7 @@ async def deepseek_search_many(
     queries: list[str],
     *,
     count: int = 5,
-    need_content: bool = False,
+    content: Literal["snippets", "full"] = "snippets",
     lang: str | None = None,
     max_chars_per_result: int = 4000,
     max_total_chars: int = 30000,
@@ -1478,7 +1503,7 @@ async def deepseek_search_many(
     Args:
         queries: 1-5 search queries, max 128 chars each.
         count: Results count per query, 1-50 (default 5).
-        need_content: Inline full text (default False for snippets).
+        content: Result mode: 'snippets' (default) or 'full' (with gap-fill).
         lang: Language filter (e.g. 'en', 'es').
         max_chars_per_result: Cap per result (default 4000).
         max_total_chars: Total content cap across queries (default 30000).
@@ -1496,6 +1521,10 @@ async def deepseek_search_many(
         strip_boilerplate: Remove site UI lines (default True).
         deadline: Timeout in seconds for all queries.
     """
+    if isinstance(content, bool):
+        content = "full" if content else "snippets"
+    if content not in ("snippets", "full"):
+        return _fail("bad_request", "content must be 'snippets' or 'full'.")
     if not isinstance(queries, list) or not queries:
         return _fail("bad_request", "queries must be a non-empty list of strings.")
     if len(queries) > 5:
@@ -1526,11 +1555,11 @@ async def deepseek_search_many(
     per_query_chars = max(1000, max_total_chars // len(unique_queries))
 
     async def _run_one(q: str) -> dict[str, Any]:
-        return await _search(
+        return await deepseek_search(
             q,
             count=count,
             ori_question=None,
-            need_content=need_content,
+            content=content,
             lang=lang,
             max_chars_per_result=max_chars_per_result,
             max_total_chars=per_query_chars,
@@ -1616,6 +1645,7 @@ async def deepseek_search_many(
         "ok": True,
         "count": len(results),
         "total_results": sum(r["count"] for r in results),
+        "content": content,
         "requests_used": requests_used,
         "cached": _all_cached(requests_used, cached_count),
         "cached_count": cached_count,
@@ -1657,7 +1687,7 @@ async def deepseek_web_search(
         query,
         count=count,
         ori_question=ori_question,
-        need_content=need_content,
+        content="full" if need_content else "snippets",
         lang=lang,
         max_chars_per_result=max_chars_per_result,
         max_total_chars=max_total_chars,
@@ -1699,7 +1729,7 @@ async def deepseek_search_and_read(
         query,
         count=count,
         ori_question=ori_question,
-        need_content=True,
+        content="full",
         lang=lang,
         max_chars_per_result=max_chars_per_result,
         max_total_chars=max_total_chars,
@@ -1899,7 +1929,7 @@ async def _search_fallback_fetch(
         search_query,
         count=2,
         ori_question=None,
-        need_content=True,
+        content="full",
         lang=None,
         max_chars_per_result=40000,
         max_total_chars=40000,
@@ -2389,9 +2419,10 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
 
 def _gap_check(source: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
     """Classify a source: ``(url, None)`` to fetch, ``(None, error)`` if unfetchable, else no gap."""
-    if len(source["content"]) >= RESEARCH_GAP_CHARS:
+    content = source.get("content") or ""
+    if len(content) >= RESEARCH_GAP_CHARS:
         return None, None
-    url = source["url"].strip() if isinstance(source["url"], str) else ""
+    url = source["url"].strip() if isinstance(source.get("url"), str) else ""
     rejection = _check_fetch_url(url)
     if rejection is not None:
         return None, rejection["error"]
@@ -2459,7 +2490,7 @@ async def _fill_gaps(
                 source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
             source["origin"] = "fetch"
             source["cached"] = item["cached"]
-            if source["date"] is None and (found := _content_date(None, item["content"])):
+            if source.get("date") is None and (found := _content_date(None, item["content"])):
                 source["date"], source["date_source"] = found, "content"
             fill.fetched += 1
     return fill

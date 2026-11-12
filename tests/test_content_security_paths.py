@@ -72,7 +72,7 @@ async def test_search_path_sanitization(monkeypatch: pytest.MonkeyPatch, injecti
         }
 
     monkeypatch.setattr("deepseek_search_everywhere_mcp.server._request", fake_request)
-    res = await deepseek_search("test query", need_content=True, refresh=True)
+    res = await deepseek_search("test query", content="full", refresh=True)
     assert res["ok"] is True
     first = res["results"][0]
     _assert_content_is_sanitized(first["content"])
@@ -104,7 +104,7 @@ async def test_search_many_path_sanitization(monkeypatch: pytest.MonkeyPatch, in
         }
 
     monkeypatch.setattr("deepseek_search_everywhere_mcp.server._request", fake_request)
-    res = await deepseek_search_many(["test query 1"], need_content=True, refresh=True)
+    res = await deepseek_search_many(["test query 1"], content="full", refresh=True)
     assert res["ok"] is True
     first = res["results"][0]["results"][0]
     _assert_content_is_sanitized(first["content"])

@@ -177,7 +177,7 @@ def _run_search(fake_upstream, results, **kwargs):
             kwargs.pop("query", "test query"),
             5,
             kwargs.pop("ori_question", None),
-            kwargs.pop("need_content", False),
+            kwargs.pop("content", kwargs.pop("need_content", "snippets")),
             kwargs.pop("lang", None),
             1000,
             4000,
