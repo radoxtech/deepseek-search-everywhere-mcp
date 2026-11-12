@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
   schedule:
     - cron: "17 2 * * *"
@@ -12,11 +13,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Label-triggered e2e runs get their own group so they neither cancel nor get cancelled by PR runs.
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event.action == 'labeled' && 'label' || 'main' }}
   cancel-in-progress: true
 
 jobs:
   test:
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -61,6 +64,7 @@ jobs:
 
   docker:
     name: Docker smoke test
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -71,7 +75,7 @@ jobs:
 
   live-tests:
     name: Live LLM tests
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: (github.event_name == 'pull_request' && github.event.action != 'labeled') || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -118,7 +122,10 @@ jobs:
 
   live-e2e:
     name: Live end-to-end tests
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    # Manual/nightly runs, or adding the `e2e` label to a PR (workflow_dispatch only works once this file is on main).
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'e2e')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
