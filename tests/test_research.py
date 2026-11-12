@@ -7,6 +7,7 @@ import json
 import re
 import uuid
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -1146,3 +1147,51 @@ async def test_lean_envelope_contains_no_page_content_on_all_fallbacks(
         assert "snippet" in s
         assert len(s["snippet"]) <= 400
     assert len(json.dumps(res2)) < 50_000
+
+
+async def test_research_progress_reporting_with_context(fake_upstream: Any) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    ctx = MagicMock()
+    ctx.report_progress = AsyncMock()
+
+    res = await server.deepseek_research("quantum computing scaling", depth="low", ctx=ctx)
+    assert res["ok"] is True
+    assert ctx.report_progress.await_count == 4
+    calls = ctx.report_progress.await_args_list
+    assert calls[0].args == (1.0, 4.0)
+    assert calls[1].args == (2.0, 4.0)
+    assert calls[2].args == (3.0, 4.0)
+    assert calls[3].args == (4.0, 4.0)
+
+
+async def test_research_progress_reporting_with_context_max_depth(fake_upstream: Any) -> None:
+    upstream = DeepResearchUpstream(subqueries=["subq1", "subq2", "subq3", "subq4"])
+    fake_upstream(upstream)
+
+    ctx = MagicMock()
+    ctx.report_progress = AsyncMock()
+
+    res = await server.deepseek_research("quantum max topic", depth="max", ctx=ctx)
+    assert res["ok"] is True
+    assert ctx.report_progress.await_count == 5
+    calls = ctx.report_progress.await_args_list
+    phases = [c.kwargs.get("message") for c in calls]
+    assert any("Decomposing" in p for p in phases)
+    assert any("Searching" in p for p in phases)
+    assert any("Analyzing gaps" in p for p in phases)
+    assert any("Fetching gap pages" in p for p in phases)
+    assert any("Synthesizing" in p for p in phases)
+
+
+async def test_research_progress_reporting_resilient_to_context_exceptions(fake_upstream: Any) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    ctx = MagicMock()
+    ctx.report_progress = AsyncMock(side_effect=RuntimeError("Client stream closed"))
+
+    res = await server.deepseek_research("quantum resilient progress", depth="low", ctx=ctx)
+    assert res["ok"] is True
+    assert res["synthesized"] is True

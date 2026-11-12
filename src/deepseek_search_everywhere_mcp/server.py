@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal, ParamSpec
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
@@ -2504,6 +2504,7 @@ async def deepseek_research(
         bool,
         Field(description="Remove boilerplate from fetched source pages before synthesis (default True)"),
     ] = True,
+    ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Execute multi-angle research on a topic and generate a cited briefing report.
 
@@ -2533,6 +2534,8 @@ async def deepseek_research(
     existing = store.find_active_match(clean_topic, depth, lang)
     if existing is not None and existing.task is not None and not existing.task.done():
         job = existing
+        if ctx is not None:
+            job.ctx = ctx
     else:
         if store.count_active() >= settings.research_max_jobs:
             return _fail(
@@ -2546,6 +2549,7 @@ async def deepseek_research(
             depth=depth,
             lang=lang,
             created_at=_clock(),
+            ctx=ctx,
         )
         job.task = asyncio.create_task(
             _run_research_job(
@@ -2592,6 +2596,8 @@ async def deepseek_check_research(
         str,
         Field(description="Unique UUID identifier of the research job to poll (from deepseek_research)"),
     ],
+    *,
+    ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Poll a long-running research job until completion or timeout.
 
@@ -2618,6 +2624,8 @@ async def deepseek_check_research(
             "job_not_found",
             "Research job not found or expired. Restart the research with deepseek_research.",
         )
+    if ctx is not None:
+        job.ctx = ctx
 
     if job.task is not None and job.task.done():
         if job.exception is not None:
@@ -2654,6 +2662,24 @@ async def deepseek_check_research(
         "progress": job.progress,
         "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
     }
+
+
+async def _report_job_progress(
+    job: ResearchJob,
+    phase: str,
+    step: int,
+    total_steps: int,
+    message: str | None = None,
+) -> None:
+    """Update job progress state and emit FastMCP progress notification if context is attached."""
+    event = {"phase": phase, "step": step, "of": total_steps}
+    job.progress = event
+    job.progress_history.append(event)
+    if job.ctx is not None and hasattr(job.ctx, "report_progress"):
+        try:
+            await job.ctx.report_progress(float(step), float(total_steps), message=message or phase)
+        except Exception as exc:
+            logger.debug("Failed to report progress to context for job %s: %s", job.job_id, exc)
 
 
 async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
@@ -2696,9 +2722,10 @@ async def _execute_research_pipeline(
     }.get(depth, 30.0)
 
     dedupe = True
+    total_steps = 5 if depth == "max" else 4
 
     # Step 1: Decompose topic into subqueries
-    job.progress = {"phase": "decomposition", "step": 1, "of": 4}
+    await _report_job_progress(job, "decomposition", 1, total_steps, "Decomposing topic into subqueries")
     rem1 = deadline_at - _clock()
     dec_timeout = min(20.0, max(5.0, rem1 - synthesis_reserve))
     dec_messages = build_decomposition_messages(clean_topic, max_queries=max_queries)
@@ -2721,7 +2748,7 @@ async def _execute_research_pipeline(
         subqueries = [fallback_subq]
 
     # Step 2: Concurrently execute search across subqueries
-    job.progress = {"phase": "retrieval", "step": 2, "of": 4}
+    await _report_job_progress(job, "retrieval", 2, total_steps, "Searching across subqueries")
     rem2 = deadline_at - _clock()
     search_timeout = min(30.0, max(5.0, rem2 - synthesis_reserve))
     search_coros = [
@@ -2757,6 +2784,9 @@ async def _execute_research_pipeline(
 
     # Round 2: Gap analysis for 'max' depth
     if depth == "max":
+        await _report_job_progress(
+            job, "round_2_retrieval", 3, total_steps, "Analyzing gaps and searching additional angles"
+        )
         rem_r2 = deadline_at - _clock()
         if rem_r2 - synthesis_reserve < 10.0:
             r2_notes.append("Round 2 skipped due to deadline budget.")
@@ -2842,7 +2872,8 @@ async def _execute_research_pipeline(
     ]
 
     # Step 4: Gap-fill stub pages
-    job.progress = {"phase": "gap_fill", "step": 3, "of": 4}
+    gap_step = 4 if depth == "max" else 3
+    await _report_job_progress(job, "gap_fill", gap_step, total_steps, "Fetching gap pages for top sources")
     rem4 = deadline_at - _clock()
     gap_timeout = min(30.0, max(5.0, rem4 - synthesis_reserve))
     fill = await _fill_gaps(
@@ -2865,7 +2896,10 @@ async def _execute_research_pipeline(
         notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
 
     # Step 5: Select synthesis context and guard token limits
-    job.progress = {"phase": "synthesis", "step": 4, "of": 4}
+    synth_step = 5 if depth == "max" else 4
+    await _report_job_progress(
+        job, "synthesis", synth_step, total_steps, "Synthesizing cited research report"
+    )
     synthesis_context = select_synthesis_context(sources, depth=depth)
     synthesis_context, guard_notes = apply_token_guard(synthesis_context)
     notes.extend(guard_notes)
