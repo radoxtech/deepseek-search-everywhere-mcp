@@ -227,6 +227,7 @@ def split_sections(text: str, target_size: int = 1500) -> list[dict[str, Any]]:
 
 EXCERPT_WINDOW = 600
 EXCERPT_CAP = 1500
+MAX_SNIPPETS = 5  # most excerpts extract_snippets returns, whatever max_snippets asks for
 _TOKEN_RE = re.compile(r"\b[a-zA-Z0-9_\u0080-\uffff]{2,}\b")
 _MIN_PARTIAL_EXCERPT = 200
 
@@ -285,7 +286,7 @@ def extract_snippets(
     if not sections:
         return "", 0
 
-    max_snippets = max(1, min(max_snippets, 5))
+    max_snippets = max(1, min(max_snippets, MAX_SNIPPETS))
     q_terms = set(_tokenize(query))
     if not q_terms:
         capped = [{**s, "content": _cut(s["content"], 0, excerpt_cap)} for s in sections[:max_snippets]]

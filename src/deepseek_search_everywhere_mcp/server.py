@@ -81,7 +81,7 @@ from .settings import (
     get_pricing_period,
     get_settings,
 )
-from .snippets import extract_snippets, split_sections
+from .snippets import MAX_SNIPPETS, extract_snippets, split_sections
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
 from .urls import (
@@ -116,6 +116,7 @@ SYSTEM_PROMPT = (
 MIN_TITLE_SITE_CHARS = 20
 MIN_TITLE_SITE_WORDS = 3
 MAX_COUNT = 50  # largest ``count`` accepted from callers and by the upstream search API
+MAX_QUERIES = 5  # most queries accepted by deepseek_search_many
 # With dedupe on, the upstream is asked for up to max(OVERFETCH_MIN, ceil(count * OVERFETCH_RATIO))
 # extra results (capped at MAX_COUNT) so that removing duplicates still leaves ``count`` results.
 OVERFETCH_MIN = 2
@@ -1326,10 +1327,15 @@ async def deepseek_search(
         Field(description="Search terms or question; operators like site: or lang: supported (<= 128 chars)"),
     ],
     *,
-    count: Annotated[int, Field(description="Number of ranked results to return (1-20, default 5)")] = 5,
+    count: Annotated[
+        int, Field(description=f"Number of ranked results to return (1-{MAX_COUNT}, default 5)")
+    ] = 5,
     content: Annotated[
         Literal["snippets", "full"],
-        Field(description="Result format: 'snippets' (default, 400 chars) or 'full' (gap-filled page text)"),
+        Field(
+            description="Result format: 'snippets' (default: snippet, else summary capped at 400 chars) "
+            "or 'full' (gap-filled text)"
+        ),
     ] = "snippets",
     lang: Annotated[
         str | None,
@@ -1427,13 +1433,20 @@ async def deepseek_search(
 async def deepseek_search_many(
     queries: Annotated[
         list[str],
-        Field(description="Search queries to execute concurrently (max 10 queries, each <= 128 chars)"),
+        Field(
+            description=f"Search queries to execute concurrently (1-{MAX_QUERIES} queries, each <= 128 chars)"
+        ),
     ],
     *,
-    count: Annotated[int, Field(description="Number of ranked results to return (1-20, default 5)")] = 5,
+    count: Annotated[
+        int, Field(description=f"Number of ranked results to return (1-{MAX_COUNT}, default 5)")
+    ] = 5,
     content: Annotated[
         Literal["snippets", "full"],
-        Field(description="Result format: 'snippets' (default, 400 chars) or 'full' (gap-filled page text)"),
+        Field(
+            description="Result format: 'snippets' (default: snippet, else summary capped at 400 chars) "
+            "or 'full' (gap-filled text)"
+        ),
     ] = "snippets",
     lang: Annotated[
         str | None,
@@ -1498,8 +1511,8 @@ async def deepseek_search_many(
         return _fail("bad_request", "content must be 'snippets' or 'full'.")
     if not isinstance(queries, list) or not queries:
         return _fail("bad_request", "queries must be a non-empty list of strings.")
-    if len(queries) > 5:
-        return _fail("bad_request", "queries must contain between 1 and 5 entries.")
+    if len(queries) > MAX_QUERIES:
+        return _fail("bad_request", f"queries must contain between 1 and {MAX_QUERIES} entries.")
     if not all(isinstance(q, str) for q in queries):
         return _fail("bad_request", "all items in queries must be strings.")
     if count < 1 or count > MAX_COUNT:
@@ -1665,7 +1678,7 @@ async def deepseek_fetch(
     *,
     clean: Annotated[
         bool,
-        Field(description="Clean HTML into structured markdown text (default True)"),
+        Field(description="Remove Markdown backslash escapes from the page text (default True)"),
     ] = True,
     max_chars: Annotated[
         int,
@@ -1693,7 +1706,7 @@ async def deepseek_fetch(
     ] = None,
     max_snippets: Annotated[
         int,
-        Field(description="Max snippets to return when using query selector (1-10, default 3)"),
+        Field(description=f"Max snippets to return when using query selector (1-{MAX_SNIPPETS}, default 3)"),
     ] = 3,
     refresh: Annotated[
         bool,
@@ -2293,7 +2306,7 @@ async def deepseek_fetch_many(
     ] = 20000,
     clean: Annotated[
         bool,
-        Field(description="Clean HTML into structured markdown text (default True)"),
+        Field(description="Remove Markdown backslash escapes from the page text (default True)"),
     ] = True,
     query: Annotated[
         str | None,
@@ -3465,7 +3478,9 @@ async def deepseek_extract(
     ] = None,
     clean: Annotated[
         bool,
-        Field(description="Clean HTML into structured markdown before extraction (default True)"),
+        Field(
+            description="Remove Markdown backslash escapes from page text before extraction (default True)"
+        ),
     ] = True,
     max_chars: Annotated[
         int,
@@ -3560,7 +3575,9 @@ async def deepseek_extract_many(
     ] = None,
     clean: Annotated[
         bool,
-        Field(description="Clean HTML into structured markdown text before extraction (default True)"),
+        Field(
+            description="Remove Markdown backslash escapes from page text before extraction (default True)"
+        ),
     ] = True,
     max_chars_per_url: Annotated[
         int,
