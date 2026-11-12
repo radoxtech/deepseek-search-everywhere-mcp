@@ -85,9 +85,138 @@ def test_map_http_error_redacts_credentials_in_message() -> None:
     assert envelope["error"]["code"] == "auth_failed"
 
 
-def test_fail_enforces_closed_code_set() -> None:
+def test_fail_enforces_closed_code_set(caplog: pytest.LogCaptureFixture) -> None:
     valid = _fail("auth_failed", "msg")
     assert valid["error"]["code"] == "auth_failed"
 
-    with pytest.raises(ValueError, match="is not in the closed error code set"):
-        _fail("arbitrary_unknown_code", "msg")
+    # In production, _fail must NOT raise for an unknown code: log at WARNING and return internal_error
+    with caplog.at_level("WARNING"):
+        envelope = _fail("arbitrary_unknown_code", "msg")
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "internal_error"
+    assert "arbitrary_unknown_code" in caplog.text
+
+
+def test_src_error_codes_belong_to_closed_set() -> None:
+    import ast
+    import pathlib
+
+    src_dir = pathlib.Path(__file__).parent.parent / "src" / "deepseek_search_everywhere_mcp"
+    found_codes: set[str] = set()
+
+    for p in src_dir.glob("*.py"):
+        tree = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == "_fail":
+                    if (
+                        node.args
+                        and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)
+                    ):
+                        found_codes.add(node.args[0].value)
+            if isinstance(node, ast.Dict):
+                for k, v in zip(node.keys, node.values, strict=False):
+                    if isinstance(k, ast.Constant) and k.value == "code":
+                        if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                            found_codes.add(v.value)
+
+    # Filter return error codes from filters.py
+    filters_file = src_dir / "filters.py"
+    if filters_file.exists():
+        tree = ast.parse(filters_file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple):
+                for elt in node.value.elts:
+                    if (
+                        isinstance(elt, ast.Constant)
+                        and isinstance(elt.value, str)
+                        and elt.value.startswith("bad_")
+                    ):
+                        found_codes.add(elt.value)
+                    if isinstance(elt, ast.Constant) and elt.value == "filters_too_long":
+                        found_codes.add(elt.value)
+
+    missing = found_codes - CLOSED_ERROR_CODES
+    assert not missing, f"Found codes in src/ not in CLOSED_ERROR_CODES: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_filter_validation_errors_produce_valid_envelopes() -> None:
+    from deepseek_search_everywhere_mcp import server
+
+    # 1. exclude_terms with whitespace -> bad_term
+    r1 = await server.deepseek_search("test", exclude_terms=["two words"])
+    assert r1["ok"] is False
+    assert r1["error"]["code"] == "bad_term"
+
+    # 2. exact_phrases with internal quotes -> bad_phrase
+    r2 = await server.deepseek_search("test", exact_phrases=['a"b'])
+    assert r2["ok"] is False
+    assert r2["error"]["code"] == "bad_phrase"
+
+    # 3. oversized filters -> filters_too_long
+    many_domains = [f"domain{i}.com" for i in range(20)]
+    r3 = await server.deepseek_search("test", include_domains=many_domains)
+    assert r3["ok"] is False
+    assert r3["error"]["code"] == "filters_too_long"
+
+    # 4. bad date -> bad_date
+    r4 = await server.deepseek_search("test", after="invalid-date")
+    assert r4["ok"] is False
+    assert r4["error"]["code"] == "bad_date"
+
+
+@pytest.mark.asyncio
+async def test_all_tools_validation_errors_return_error_envelopes() -> None:
+    from deepseek_search_everywhere_mcp import server
+
+    # deepseek_search with invalid arguments
+    res = await server.deepseek_search("")
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    res = await server.deepseek_search("hello", count=0)
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    # deepseek_search_many with invalid arguments
+    res = await server.deepseek_search_many([])
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    res = await server.deepseek_search_many(["test"], count=999)
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    # deepseek_fetch with invalid arguments
+    res = await server.deepseek_fetch("")
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    res = await server.deepseek_fetch("ftp://example.com")
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    res = await server.deepseek_fetch("http://example.com", offset=-1)
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    # deepseek_fetch_many with invalid arguments
+    res = await server.deepseek_fetch_many([])
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    # deepseek_extract with invalid arguments
+    res = await server.deepseek_extract("http://example.com")  # missing fields and schema
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    res = await server.deepseek_extract("http://example.com", fields=["a"], schema={"type": "object"})
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+    # deepseek_extract_many with invalid arguments
+    res = await server.deepseek_extract_many([], fields=["a"])
+    assert res["ok"] is False
+    assert res["error"]["code"] in CLOSED_ERROR_CODES

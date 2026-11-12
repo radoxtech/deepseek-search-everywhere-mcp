@@ -3024,7 +3024,7 @@ async def deepseek_extract_many(
                 {
                     "ok": False,
                     "url": url,
-                    "error": env.get("error", {"code": "fetch_failed", "message": "Failed to fetch page."}),
+                    "error": env.get("error", _fail("request_failed", "Failed to fetch page.")["error"]),
                 }
             )
 

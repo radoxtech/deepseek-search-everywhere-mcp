@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from .redact import redact
+
+logger = logging.getLogger(__name__)
 
 CLOSED_ERROR_CODES: frozenset[str] = frozenset(
     {
@@ -40,6 +43,9 @@ CLOSED_ERROR_CODES: frozenset[str] = frozenset(
         "topic_too_long",
         "bad_domain",
         "bad_date",
+        "bad_term",
+        "bad_phrase",
+        "filters_too_long",
         # Security and URL validation codes
         "ssrf_blocked",
         "disallowed_url",
@@ -75,7 +81,8 @@ def _fail(
 ) -> dict[str, Any]:
     """Build the ``{"ok": False, "error": {...}}`` envelope returned by every tool."""
     if code not in CLOSED_ERROR_CODES:
-        raise ValueError(f"Error code {code!r} is not in the closed error code set.")
+        logger.warning("Unknown error code %r encountered; returning internal_error", code)
+        code = "internal_error"
 
     err: dict[str, Any] = {"code": code, "message": message}
     if status is not None:
