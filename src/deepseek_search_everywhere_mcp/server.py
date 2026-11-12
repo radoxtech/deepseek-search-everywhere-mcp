@@ -68,7 +68,7 @@ from .extract import (
     validate_schema,
     verify_evidence,
 )
-from .filters import MAX_QUERY, compile_filters, fit_query
+from .filters import MAX_QUERY, compile_filters, filter_results_by_domain, fit_query
 from .ratelimit import CHAT, FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
 from .sanitize import (
@@ -1128,6 +1128,7 @@ def _search_notes(
     lang: str | None,
     truncated: bool,
     filter_ops: str | None = None,
+    domain_dropped: int = 0,
 ) -> list[str]:
     """Assemble the (redacted) notes of a search envelope, in their fixed order."""
     notes: list[str] = []
@@ -1143,6 +1144,11 @@ def _search_notes(
         notes.append(f"Language operator lang:{lang} applied.")
     if filter_ops:
         notes.append(f"Filters applied: {filter_ops}")
+    if domain_dropped:
+        notes.append(
+            f"Dropped {domain_dropped} result(s) not matching the include_domains/exclude_domains "
+            "domain filter (the search ignored it)."
+        )
     if truncated:
         notes.append(TRUNCATED_NOTE)
     return [redact(note) for note in notes]
@@ -1229,6 +1235,7 @@ async def _search(
         return record
 
     raw = record["data"].get("results") or []
+    raw, domain_dropped = filter_results_by_domain(raw, include_domains, exclude_domains)
     removed = 0
     if dedupe:
         raw, removed = _dedupe_results(raw)
@@ -1252,7 +1259,15 @@ async def _search(
         "untrusted_content": True,
         "results": shaped,
         "notes": _search_notes(
-            used, query_original, rewrite_failed, removed, trimmed, lang, truncated, filter_ops=ops_string
+            used,
+            query_original,
+            rewrite_failed,
+            removed,
+            trimmed,
+            lang,
+            truncated,
+            filter_ops=ops_string,
+            domain_dropped=domain_dropped,
         ),
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }

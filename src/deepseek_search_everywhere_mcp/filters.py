@@ -78,6 +78,70 @@ def normalize_date(raw: str) -> tuple[str | None, str | None]:
     return cleaned, None
 
 
+def _name_forms(name: str) -> set[str]:
+    """Return the lowercase ASCII (punycode) and Unicode spellings of a host or domain name."""
+    lowered = name.strip().lower().rstrip(".")
+    forms = {lowered}
+    try:
+        ascii_form = lowered.encode("idna").decode("ascii")
+        forms.add(ascii_form)
+        forms.add(ascii_form.encode("ascii").decode("idna"))
+    except (UnicodeError, ValueError):
+        pass
+    return forms
+
+
+def _result_host(item: dict[str, object]) -> str | None:
+    url = item.get("url")
+    if not isinstance(url, str):
+        return None
+    try:
+        host = urlparse(url.strip()).hostname
+    except ValueError:
+        return None
+    return host or None
+
+
+def _host_matches(host_forms: set[str], domain_forms: set[str]) -> bool:
+    return any(h == d or h.endswith(f".{d}") for h in host_forms for d in domain_forms)
+
+
+def _normalized_domain_forms(domains: list[str] | None) -> list[set[str]]:
+    forms: list[set[str]] = []
+    for raw in domains or []:
+        domain, err = normalize_domain(raw)
+        if err is None and domain:
+            forms.append(_name_forms(domain))
+    return forms
+
+
+def filter_results_by_domain(
+    items: list[dict],
+    include_domains: list[str] | None,
+    exclude_domains: list[str] | None,
+) -> tuple[list[dict], int]:
+    """Enforce ``include_domains`` / ``exclude_domains`` on upstream results (the upstream may ignore them).
+
+    A host matches a domain when it equals it or is a subdomain of it; IDN names compare in both their
+    Unicode and punycode spellings. With ``include_domains`` set, results without a parsable host are
+    dropped. Returns ``(kept, dropped_count)``.
+    """
+    includes = _normalized_domain_forms(include_domains)
+    excludes = _normalized_domain_forms(exclude_domains)
+    if not includes and not excludes:
+        return list(items), 0
+    kept: list[dict] = []
+    for item in items:
+        host = _result_host(item)
+        host_forms = _name_forms(host) if host else set()
+        if includes and not any(_host_matches(host_forms, d) for d in includes):
+            continue
+        if excludes and host_forms and any(_host_matches(host_forms, d) for d in excludes):
+            continue
+        kept.append(item)
+    return kept, len(items) - len(kept)
+
+
 def compile_filters(
     *,
     include_domains: list[str] | None = None,
