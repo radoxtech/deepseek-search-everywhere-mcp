@@ -357,3 +357,56 @@ async def test_live_phase3_data_correctness() -> None:
     )
     assert idn_res["ok"] is True
     assert "site:źródło.pl" in idn_res["query_used"]
+
+
+@pytest.mark.live_llm
+async def test_live_llm_extract_30_field_schema_with_evidence() -> None:
+    topic_fields = [
+        "module_name",
+        "primary_paradigm",
+        "event_loop",
+        "coroutines",
+        "tasks",
+        "streams",
+        "subprocesses",
+        "queues",
+        "synchronization_primitives",
+        "transports",
+        "protocols",
+        "task_groups",
+        "timeouts",
+        "runners",
+        "futures",
+        "threads",
+        "executors",
+        "signals",
+        "selectors",
+        "exceptions",
+        "cancellation",
+        "sleeping",
+        "gathering",
+        "shielding",
+        "waiting",
+        "running_loop",
+        "current_task",
+        "all_tasks",
+        "debug_mode",
+        "python_version_support",
+    ]
+    schema = {
+        "type": "object",
+        "properties": {field: {"type": "string"} for field in topic_fields},
+    }
+    url = "https://docs.python.org/3/library/asyncio.html"
+    envelope = await server.deepseek_extract(
+        url,
+        schema=schema,
+        instruction="Extract key concepts described on the page into the matching schema fields.",
+    )
+    _assert_ok(envelope)
+    assert envelope["ok"] is True
+    data = envelope["data"]
+    assert isinstance(data, dict)
+    assert len(data) == 30
+    assert isinstance(envelope["evidence"], dict)
+    assert envelope["extraction_truncated"] is False

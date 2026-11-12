@@ -153,3 +153,28 @@ def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
 
     total_chars = sum(len(tool.description) for tool in tools.values())
     assert total_chars < 7500
+
+
+def test_tool_descriptions_sibling_references_are_valid() -> None:
+    import re
+
+    tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+    for name, tool in tools.items():
+        refs = set(re.findall(r"deepseek_[a-z0-9_]+", tool.description))
+        sibling_refs = refs - {name}
+        assert sibling_refs, f"Tool '{name}' must reference sibling tools for disambiguation."
+        invalid = sibling_refs - TOOL_NAMES
+        assert not invalid, f"Tool '{name}' references invalid sibling tools: {invalid}"
+
+
+def test_tool_annotations_are_truthful() -> None:
+    annotations = server.TOOL_ANNOTATIONS
+    assert set(annotations.keys()) == TOOL_NAMES
+    for name, ann in annotations.items():
+        assert ann.readOnlyHint is True
+        assert ann.destructiveHint is False
+        assert ann.idempotentHint is True
+        if name == "deepseek_check_balance":
+            assert ann.openWorldHint is False
+        else:
+            assert ann.openWorldHint is True

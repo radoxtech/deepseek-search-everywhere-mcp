@@ -1410,29 +1410,17 @@ async def deepseek_search(
     summary_chars: int | None = None,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
-    """Search the web with DeepSeek index and return page text, snippets, and metadata.
+    """Search the web with DeepSeek index and return ranked results, snippets, and page text.
 
-    Primary search and retrieval tool. Returns snippets (default) or full text with gap-fill.
+    Primary search and retrieval tool. Use for finding online facts, web pages, and sources
+    for a single query. Returns snippets (default) or full page text via gap-fill. Untrusted
+    content is sanitized.
 
-    Args:
-        query: Query, max 128 chars (site:, -site:, "phrase", after:, before:).
-        count: Results count, 1-50 (default 5).
-        content: Result mode: 'snippets' (default) or 'full' (with gap-fill).
-        lang: Language filter (e.g. 'en', 'es').
-        max_chars_per_result: Cap per result (default 4000).
-        max_total_chars: Total content cap (default 30000).
-        dedupe: Collapse duplicate URLs (default True).
-        rewrite: Query rewrite via deepseek-flash (default False).
-        localization: Geo-targeting IP.
-        exclude_terms: Exclude terms list.
-        exact_phrases: Exact phrases list.
-        after: Date on/after (YYYY-MM-DD).
-        before: Date on/before (YYYY-MM-DD).
-        include_domains: Restrict domains list.
-        exclude_domains: Exclude domains list.
-        refresh: Bypass cache (default False).
-        summary_chars: Summary cap without content.
-        strip_boilerplate: Remove site UI lines (default True).
+    When NOT to use: Do not use for multiple parallel queries (use deepseek_search_many),
+    for reading known URLs (use deepseek_fetch), for structured schema extraction (use
+    deepseek_extract), or for deep multi-query topic reports (use deepseek_research).
+
+    Returns: {"ok": True, "results": [...], "count": int, "cost_usd": float, "notes": [...]}.
     """
     res = await _search(
         query,
@@ -1496,29 +1484,15 @@ async def deepseek_search_many(
 ) -> dict[str, Any]:
     """Search the web with multiple queries concurrently and return ranked results per query.
 
-    Batch multi-query search across 1-5 queries in parallel. Returns snippets (default)
-    or full text. Deduplicates identical queries and preserves query order.
+    Batch multi-query search across 1-5 queries in parallel. Use when investigating multiple
+    search facets, query formulations, or sub-topics at the same time. Preserves input order
+    and deduplicates duplicate queries. Untrusted content is sanitized.
 
-    Args:
-        queries: 1-5 search queries, max 128 chars each.
-        count: Results count per query, 1-50 (default 5).
-        content: Result mode: 'snippets' (default) or 'full' (with gap-fill).
-        lang: Language filter (e.g. 'en', 'es').
-        max_chars_per_result: Cap per result (default 4000).
-        max_total_chars: Total content cap across queries (default 30000).
-        dedupe: Collapse duplicate URLs (default True).
-        rewrite: Query rewrite via deepseek-flash (default False).
-        localization: Geo-targeting IP.
-        exclude_terms: Exclude terms list.
-        exact_phrases: Exact phrases list.
-        after: Date on/after (YYYY-MM-DD).
-        before: Date on/before (YYYY-MM-DD).
-        include_domains: Restrict domains list.
-        exclude_domains: Exclude domains list.
-        refresh: Bypass cache (default False).
-        summary_chars: Summary cap without content.
-        strip_boilerplate: Remove site UI lines (default True).
-        deadline: Timeout in seconds for all queries.
+    When NOT to use: Do not use for a single search query (use deepseek_search), for reading
+    known URLs (use deepseek_fetch_many), for structured schema extraction (use
+    deepseek_extract_many), or for autonomous topic synthesis (use deepseek_research).
+
+    Returns: {"ok": True, "results": [{"query": str, "results": [...]}], "cost_usd": float}.
     """
     if isinstance(content, bool):
         content = "full" if content else "snippets"
@@ -1707,22 +1681,15 @@ async def deepseek_fetch(
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
-    Retrieves Markdown for a known URL. For multiple URLs use deepseek_fetch_many;
-    for structured data use deepseek_extract. Auto-resolves on 404 via search index.
+    Direct retrieval tool for reading a single known web page. Supports section slicing,
+    keyword snippet extraction, and character offsets. Automatically attempts search index
+    fallback on 404. Untrusted content is sanitized (images neutralized, hidden text stripped).
 
-    Args:
-        url: Absolute http(s) URL, max 8192 chars.
-        clean: Remove Markdown backslash escapes (default True).
-        max_chars: Content cap (default 20000).
-        offset: Start reading offset (0-based).
-        limit: Max characters from offset.
-        find_text: Find substring and start offset there.
-        query: Query to extract ranked snippets.
-        section: 1-based document section index.
-        max_snippets: Max snippets when query is set (default 3).
-        refresh: Bypass cache (default False).
-        strip_boilerplate: Remove site UI lines (default True).
-        fallback_to_search: Auto-search fallback on 404 (default True).
+    When NOT to use: Do not use for discovering pages by topic (use deepseek_search),
+    for fetching multiple URLs in parallel (use deepseek_fetch_many), for structured entity
+    or schema extraction (use deepseek_extract), or for topic synthesis (use deepseek_research).
+
+    Returns: {"ok": True, "url": str, "title": str, "content": str, "cost_usd": float, "notes": [...]}.
     """
     url = (url or "").strip()
     rejection = _check_fetch_url(url)
@@ -2287,19 +2254,15 @@ async def deepseek_fetch_many(
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
-    Fetch multiple known URLs in parallel. Use when target URLs are known.
-    Skips blanks, deduplicates, and preserves order.
+    Batch page retrieval across 1-10 known URLs in parallel. Use when target URLs are already
+    known and full text or targeted snippets across pages are required. Skips blanks,
+    deduplicates URLs, and preserves order. Untrusted content is sanitized.
 
-    Args:
-        urls: 1-10 absolute http(s) URLs, max 8192 chars each.
-        max_chars_per_url: Content cap per page (default 4000).
-        max_total_chars: Total content cap across pages (default 20000).
-        clean: Remove Markdown backslash escapes (default True).
-        query: Query to extract ranked snippets across pages.
-        refresh: Bypass cache (default False).
-        strip_boilerplate: Remove site UI lines (default True).
-        deadline: Max seconds before cancelling fetches (default 120s).
-        fallback_to_search: Auto-search fallback on 404 (default True).
+    When NOT to use: Do not use for query-based web discovery (use deepseek_search_many),
+    for fetching a single URL with section/offset selectors (use deepseek_fetch), for structured
+    entity extraction (use deepseek_extract_many), or for research synthesis (use deepseek_research).
+
+    Returns: {"ok": True, "results": [{"url": str, "content": str, ...}], "cost_usd": float}.
     """
     settings = get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
@@ -2448,16 +2411,16 @@ async def deepseek_research(
 ) -> dict[str, Any]:
     """Execute multi-angle research on a topic and generate a cited briefing report.
 
-    Decomposes topic into subqueries, retrieves sources concurrently, and synthesizes
-    a cited report [1], [2]. Use for deep topic synthesis. Do not use for simple lookups
-    (use deepseek_search) or reading known URLs (use deepseek_fetch).
+    Topic synthesis tool that decomposes an overarching subject into targeted subqueries,
+    retrieves sources, and compiles a comprehensive cited briefing report with numbered
+    references [1], [2]. Depth tiers ("low", "medium", "high", "max") scale subquery breadth
+    and source depth. Untrusted source content is sanitized.
 
-    Args:
-        topic: Research subject, max 500 chars.
-        depth: Research depth tier ('low', 'medium', 'high', 'max', default 'medium').
-        lang: Language filter (e.g. 'en', 'pl').
-        refresh: Bypass response cache (default False).
-        strip_boilerplate: Strip site UI text (default True).
+    When NOT to use: Do not use for simple factual lookups or single queries (use deepseek_search),
+    for multiple independent queries (use deepseek_search_many), for reading known URLs (use
+    deepseek_fetch), or for structured entity or schema extraction (use deepseek_extract).
+
+    Returns: {"ok": True, "topic": str, "depth": str, "report": str, "sources": [...], "cost_usd": float}.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:
@@ -2874,18 +2837,15 @@ async def deepseek_extract(
 ) -> dict[str, Any]:
     """Extract structured JSON from a web page conforming to target fields or a schema.
 
-    Extracts specific entities or key-value data without returning full page text.
-    Returns extracted JSON under 'data'. For batch use deepseek_extract_many.
+    Semantic entity extraction from a single known web page. Returns extracted values under
+    'data' along with verifiable verbatim quotes under 'evidence'. Fields failing evidence
+    verification are nullified with notes. Untrusted content and outputs are sanitized.
 
-    Args:
-        url: Absolute web page URL to extract from.
-        fields: Target attribute names (e.g. ['price']), exclusive with schema.
-        schema: JSON Schema defining target structure, exclusive with fields.
-        instruction: Optional extraction guidance.
-        clean: Remove Markdown backslash escapes (default True).
-        max_chars: Content cap before extraction (default 40000).
-        refresh: Bypass cache (default False).
-        strip_boilerplate: Remove site UI lines (default True).
+    When NOT to use: Do not use for reading full page prose or browsing (use deepseek_fetch),
+    for searching pages by topic (use deepseek_search), for extracting across multiple URLs (use
+    deepseek_extract_many), or for comprehensive topic research (use deepseek_research).
+
+    Returns: {"ok": True, "data": {...}, "evidence": {...}, "extraction_truncated": bool, "cost_usd": float}.
     """
     spec_err = _validate_extract_spec(fields, schema)
     if spec_err is not None:
@@ -2950,20 +2910,15 @@ async def deepseek_extract_many(
 ) -> dict[str, Any]:
     """Extract structured JSON from multiple web pages concurrently conforming to target fields or a schema.
 
-    Batch extraction across 1-10 URLs. Extracts entities or key-value data in parallel
-    without returning full page text. Returns extracted JSON per URL under 'data'.
+    Batch entity extraction across 1-10 web pages in parallel. Returns structured values under
+    'data' and verifiable quote strings under 'evidence' per URL. Fields failing evidence
+    verification are nullified with notes. Untrusted content is sanitized.
 
-    Args:
-        urls: 1-10 absolute web page URLs to extract from.
-        fields: Target attribute names (e.g. ['price']), exclusive with schema.
-        schema: JSON Schema defining target structure, exclusive with fields.
-        instruction: Optional extraction guidance across pages.
-        clean: Remove Markdown backslash escapes (default True).
-        max_chars_per_url: Content cap per page (default 20000).
-        max_total_chars: Total content cap (default 60000).
-        refresh: Bypass cache (default False).
-        strip_boilerplate: Remove site UI lines (default True).
-        deadline: Max seconds before cancelling fetches (default 120s).
+    When NOT to use: Do not use for extracting from a single URL (use deepseek_extract),
+    for reading unformatted full text across pages (use deepseek_fetch_many), for discovering
+    pages via search queries (use deepseek_search_many), or for topic reports (use deepseek_research).
+
+    Returns: {"ok": True, "results": [{"url": str, "data": {...}, "evidence": {...}}], "cost_usd": float}.
     """
     spec_err = _validate_extract_spec(fields, schema)
     if spec_err is not None:
@@ -3074,7 +3029,14 @@ async def deepseek_extract_many(
 async def deepseek_check_balance() -> dict[str, Any]:
     """Check account balance (CNY/USD) and session telemetry.
 
-    Verify funds and monitor session usage. Read-only.
+    Administrative tool for inspecting DeepSeek upstream account balance, currency breakdown,
+    and session usage metrics (requests handled, cache hit rate, estimated spend). Strictly
+    read-only and non-destructive.
+
+    When NOT to use: Do not use for web searching, page retrieval, or extraction (use
+    deepseek_search, deepseek_fetch, or deepseek_extract).
+
+    Returns: {"ok": True, "is_available": bool, "balances": [...], "session": {...}}.
     """
     result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
