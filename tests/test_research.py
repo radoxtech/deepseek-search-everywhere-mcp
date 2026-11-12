@@ -1503,3 +1503,101 @@ async def test_research_job_drops_ctx_when_call_returns(fake_upstream: Any) -> N
     assert res["ok"] is True
     jobs = list(get_job_store(ttl=1800.0, max_active=3)._jobs.values())
     assert jobs and all(job.ctx is None for job in jobs)
+
+
+def _chat_ok(content: str, cost: float = 0.0, finish: str = "stop") -> dict[str, Any]:
+    return {
+        "ok": True,
+        "content": content,
+        "reasoning_content": None,
+        "finish_reason": finish,
+        "usage": {},
+        "cost_usd": cost,
+        "pricing_period": "peak",
+        "notes": [],
+        "raw": {},
+    }
+
+
+def _install_condense_chat(
+    monkeypatch: pytest.MonkeyPatch, long_report: str, condense_result: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Fake chat: decomposition, then synthesis (``long_report``), then the condense call."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake_chat_request(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        if kwargs.get("max_tokens") == 1024:
+            return _chat_ok(json.dumps({"queries": ["q1"]}))
+        if len(calls) == 2:
+            return _chat_ok(long_report, cost=0.01)
+        assert condense_result is not None, "unexpected extra chat call"
+        return condense_result
+
+    monkeypatch.setattr(server, "_chat_request", fake_chat_request)
+    return calls
+
+
+def _long_report(words: int) -> str:
+    return "## Findings\n\n" + ("alpha beta gamma delta " * (words // 4)).strip() + " [1][2]."
+
+
+async def test_overlength_report_is_condensed(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_upstream(DeepResearchUpstream())
+    short = "## Findings\n\nShort and dense [1][2]."
+    calls = _install_condense_chat(monkeypatch, _long_report(600), _chat_ok(short, cost=0.003))
+    res = await server.deepseek_research("condense topic", depth="low")  # ceiling 480 words
+    assert res["ok"] is True and res["synthesized"] is True
+    assert "Short and dense [1][2]." in res["report"]
+    assert len(calls) == 3
+    cond = calls[2]
+    assert cond["thinking"] == {"type": "disabled"}
+    assert cond["temperature"] == 0.0
+    assert "response_format" not in cond
+    system = cond["messages"][0]["content"]
+    assert "400" in system and "[n]" in system
+    assert any("condensed" in n.lower() for n in res["notes"])
+    assert res["cost_breakdown"]["llm"] == pytest.approx(0.013, abs=1e-6)
+
+
+async def test_report_within_ceiling_is_not_condensed(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_upstream(DeepResearchUpstream())
+    calls = _install_condense_chat(monkeypatch, _long_report(440), None)
+    res = await server.deepseek_research("no condense topic", depth="low")
+    assert res["synthesized"] is True
+    assert len(calls) == 2
+    assert not any("condensed" in n.lower() for n in res["notes"])
+
+
+async def test_condense_failure_keeps_original_with_note(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_upstream(DeepResearchUpstream())
+    failed = {"ok": False, "error": {"code": "internal_error", "message": "boom"}, "cost_usd": 0.0}
+    _install_condense_chat(monkeypatch, _long_report(600), failed)
+    res = await server.deepseek_research("condense fail topic", depth="low")
+    assert res["synthesized"] is True
+    assert "alpha beta gamma" in res["report"]
+    assert any("condens" in n.lower() and "kept" in n.lower() for n in res["notes"])
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        _chat_ok("", cost=0.002),
+        _chat_ok("Invented a new citation [7].", cost=0.002),
+        _chat_ok(_long_report(700), cost=0.002),
+    ],
+    ids=["empty", "new-citation-id", "not-shorter"],
+)
+async def test_condense_rejected_results_keep_original_and_bill_cost(
+    bad: dict[str, Any], fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_upstream(DeepResearchUpstream())
+    _install_condense_chat(monkeypatch, _long_report(600), bad)
+    res = await server.deepseek_research("condense reject topic", depth="low")
+    assert "alpha beta gamma" in res["report"]
+    assert any("kept" in n.lower() for n in res["notes"])
+    assert res["cost_breakdown"]["llm"] == pytest.approx(0.012, abs=1e-6)

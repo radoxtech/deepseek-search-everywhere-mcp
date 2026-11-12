@@ -39,14 +39,18 @@ from .deep_research import (
     DEPTH_CONFIG,
     ResearchJob,
     apply_token_guard,
+    build_condense_messages,
     build_decomposition_messages,
     build_r2_gap_messages,
+    build_references_section,
     build_synthesis_messages,
+    citation_ids,
     filter_synthesis_output,
     get_job_store,
     normalize_citations,
     parse_subqueries,
     rank_and_diversify_sources,
+    report_body_words,
     select_synthesis_context,
     validate_r2_queries,
 )
@@ -2725,6 +2729,60 @@ async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
         return job.result
 
 
+async def _condense_report(
+    report: str,
+    *,
+    depth: str,
+    allowed_urls: set[str],
+    max_id: int,
+    deadline_at: float,
+) -> tuple[str, float, bool, list[str]]:
+    """Shorten an over-length report once; return (report, cost, call_made, notes).
+
+    The condensed text goes through the same output filter and citation normalization as the original
+    and is accepted only when it is non-empty, shorter and cites no id the original did not cite.
+    """
+    cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
+    words = report_body_words(report)
+    if words <= cfg.max_words:
+        return report, 0.0, False, []
+    remaining = deadline_at - _clock()
+    if remaining < 8.0:
+        return report, 0.0, False, ["Report exceeds the word ceiling; condensing skipped (deadline)."]
+    res = await _chat_request(
+        messages=build_condense_messages(report, depth),
+        thinking={"type": "disabled"},
+        model=REWRITE_MODEL,
+        temperature=0.0,
+        max_tokens=min(cfg.max_tokens, cfg.target_words * 4),
+        timeout=max(5.0, remaining - 2.0),
+        deadline=max(5.0, remaining - 2.0),
+        attempts=1,
+    )
+    cost = float(res.get("cost_usd", 0.0) or 0.0)
+    kept = f"Report had {words} words (ceiling {cfg.max_words}); condensing was not usable, original kept."
+    if not res.get("ok") or not (res.get("content") or "").strip():
+        return report, cost, True, [kept]
+    candidate, _, _ = filter_synthesis_output(res["content"], allowed_urls)
+    candidate = normalize_citations(candidate, max_id=max_id)
+    if (
+        not candidate.strip()
+        or report_body_words(candidate) >= words
+        or not citation_ids(res["content"]) <= citation_ids(report)
+        or not citation_ids(candidate) <= citation_ids(report)
+    ):
+        return report, cost, True, [kept]
+    return (
+        candidate,
+        cost,
+        True,
+        [
+            f"Report condensed from {words} to {report_body_words(candidate)} words "
+            f"(target {cfg.target_words})."
+        ],
+    )
+
+
 async def _execute_research_pipeline(
     *,
     job: ResearchJob,
@@ -3131,12 +3189,23 @@ async def _execute_research_pipeline(
         s["url"].strip() for s in synthesis_context if isinstance(s.get("url"), str) and s["url"].strip()
     }
     filtered_report, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
-    clean_report = normalize_citations(
-        filtered_report, max_id=len(synthesis_context), sources=synthesis_context
+    clean_report = normalize_citations(filtered_report, max_id=len(synthesis_context))
+    clean_report, condense_cost, condense_called, condense_notes = await _condense_report(
+        clean_report,
+        depth=depth,
+        allowed_urls=allowed_urls,
+        max_id=len(synthesis_context),
+        deadline_at=deadline_at,
     )
+    clean_report = f"{clean_report.rstrip()}\n\n{build_references_section(synthesis_context)}"
     clean_report, s_notes = sanitize_untrusted_text(clean_report)
     notes.extend(filter_notes)
+    notes.extend(condense_notes)
     notes.extend(s_notes)
+    if condense_called:
+        requests_used += 1
+    total_llm_cost = round(total_llm_cost + condense_cost, 6)
+    total_cost = round(total_cost + condense_cost, 6)
 
     return {
         "ok": True,
