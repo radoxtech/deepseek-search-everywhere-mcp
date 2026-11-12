@@ -1653,7 +1653,7 @@ async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_deny
     from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
     results = [
-        {"title": "Feed", "url": "https://feedly.com/i/entry/1", "content": "Feed aggregator text. " * 20},
+        {"title": "Feed", "url": "https://lib.ezproxy.uni.edu/entry/1", "content": "Proxy text. " * 20},
         {"title": "Real", "url": "https://physics.org/qec", "content": "Surface codes text. " * 20},
     ]
     fake_upstream(DeepResearchUpstream(search_results=results))
@@ -1664,7 +1664,10 @@ async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_deny
     set_settings(Settings(source_denylist=()))
     fake_upstream(DeepResearchUpstream(search_results=results))
     res = await server.deepseek_research("denylist topic two", depth="low")
-    assert {s["url"] for s in res["sources"]} == {"https://feedly.com/i/entry/1", "https://physics.org/qec"}
+    assert {s["url"] for s in res["sources"]} == {
+        "https://lib.ezproxy.uni.edu/entry/1",
+        "https://physics.org/qec",
+    }
 
 
 async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: pytest.MonkeyPatch) -> None:

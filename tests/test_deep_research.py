@@ -240,23 +240,20 @@ def test_rank_drops_denylisted_hosts_with_note():
 
     results = [
         [
-            {"url": "https://feedly.com/i/entry/1", "title": "feedly"},
-            {"url": "https://www.hn.nuxt.dev/item", "title": "hn"},
-            {"url": "https://sub.docketalarm.com/x", "title": "docket"},
             {"url": "https://lib.ezproxy.uni.edu/login?url=x", "title": "ezproxy"},
-            {"url": "https://notfeedly.com/p", "title": "keep1"},
+            {"url": "https://feedly.com/i/entry/1", "title": "keep1"},
             {"url": "https://good.example/p", "title": "keep2"},
         ]
     ]
     selected, notes = rank_and_diversify_sources(results, k_sources=10, denylist=DEFAULT_SOURCE_DENYLIST)
     assert [s["title"] for s in selected] == ["keep1", "keep2"]
-    assert any("4" in n and "denylist" in n.lower() for n in notes)
+    assert any("1" in n and "denylist" in n.lower() for n in notes)
 
 
 def test_rank_denylist_configurable_to_empty():
     from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
 
-    results = [[{"url": "https://feedly.com/i/1", "title": "feedly"}]]
+    results = [[{"url": "https://lib.ezproxy.uni.edu/i/1", "title": "ezproxy"}]]
     selected, notes = rank_and_diversify_sources(results, k_sources=3, denylist=())
-    assert [s["title"] for s in selected] == ["feedly"]
+    assert [s["title"] for s in selected] == ["ezproxy"]
     assert notes == []

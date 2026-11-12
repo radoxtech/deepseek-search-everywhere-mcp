@@ -23,9 +23,9 @@ ENV_FETCH_DENY_DOMAINS = "DEEPSEEK_FETCH_DENY_DOMAINS"
 ENV_EGRESS_ENTROPY_CHECK = "DEEPSEEK_EGRESS_ENTROPY_CHECK"
 ENV_SOURCE_DENYLIST = "DEEPSEEK_SOURCE_DENYLIST"
 
-# Research never uses these hosts as sources (aggregators, mirrors, library proxies). An entry matches
+# Research never uses these hosts as sources (structural rules only: library proxies). An entry matches
 # the host itself and its subdomains; an entry containing "*" is a glob matched against the whole host.
-DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ("feedly.com", "hn.nuxt.dev", "docketalarm.com", "*.ezproxy.*")
+DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ("*.ezproxy.*",)
 
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"

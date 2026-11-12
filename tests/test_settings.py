@@ -113,7 +113,7 @@ def test_source_denylist_default_and_override():
     from deepseek_search_everywhere_mcp.settings import DEFAULT_SOURCE_DENYLIST, Settings
 
     assert Settings().source_denylist == DEFAULT_SOURCE_DENYLIST
-    assert {"feedly.com", "hn.nuxt.dev", "docketalarm.com"} <= set(DEFAULT_SOURCE_DENYLIST)
+    assert DEFAULT_SOURCE_DENYLIST == ("*.ezproxy.*",)
     assert any("ezproxy" in d for d in DEFAULT_SOURCE_DENYLIST)
     assert Settings(source_denylist=()).source_denylist == ()
     assert Settings(source_denylist=["a.com"]).source_denylist == ("a.com",)  # type: ignore[arg-type]
