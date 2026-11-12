@@ -333,3 +333,17 @@ async def test_deadline_bounds_total_budget_and_prevents_retry(upstream, sleeps,
     assert result["ok"] is False
     assert len(seen) == 1
     assert sleeps == []
+
+
+async def test_slow_drip_stream_times_out(upstream) -> None:
+    async def slow_stream():
+        for _ in range(10):
+            await asyncio.sleep(0.05)
+            yield b'{"chunk": 1}'
+
+    upstream(lambda request: httpx.Response(200, content=slow_stream()))
+
+    # Total timeout 0.1s. Each chunk is 0.05s (< 0.1s), but 10 chunks = 0.5s total.
+    result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=0.1, attempts=1)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "timeout"

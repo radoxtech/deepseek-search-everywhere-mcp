@@ -241,14 +241,15 @@ async def request(
 
         delay = DEFAULT_RETRY_DELAY
         try:
-            result, retry_delay = await _attempt(
-                method, url, path, payload=payload, headers=headers, timeout=current_timeout
-            )
+            async with asyncio.timeout(current_timeout):
+                result, retry_delay = await _attempt(
+                    method, url, path, payload=payload, headers=headers, timeout=current_timeout
+                )
             if retry_delay is None:
                 return _scrub(result, key)
             last, delay = result, retry_delay
-        except httpx.TimeoutException:
-            last = _fail("timeout", f"Request to {path} timed out after {timeout:.0f}s.")
+        except (httpx.TimeoutException, TimeoutError):
+            last = _fail("timeout", f"Request to {path} timed out after {current_timeout:.0f}s.")
         except httpx.RequestError as exc:
             last = _fail("network_error", f"{type(exc).__name__}: {exc}")
 
