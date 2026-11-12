@@ -178,11 +178,23 @@ DECOMPOSE_SYSTEM_PROMPT = (
 )
 
 
+SECTION_COUNTS: dict[str, int] = {"low": 2, "medium": 3, "high": 4, "max": 6}
+
+_REFERENCES_HEADING_RE = re.compile(r"(?mi)^#{1,4}[ \t]*References[ \t]*$[\s\S]*")
+
+
+def report_body_words(report: str) -> int:
+    """Count words of the report body, excluding the server-appended References section."""
+    return len(_REFERENCES_HEADING_RE.sub("", report or "").split())
+
+
 def build_synthesis_system_prompt(depth: str = "medium") -> str:
     """Build the system prompt for synthesis with target words and hard ceiling (+20%)."""
     cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
     target = cfg.target_words
     ceiling = cfg.max_words
+    n = SECTION_COUNTS.get(depth, SECTION_COUNTS["medium"])
+    per_section = target // n
     return (
         "You are an expert research synthesis analyst. Your task is to investigate the given topic and "
         "produce a thorough, high-density, authoritative synthesis report based solely on the provided "
@@ -200,8 +212,13 @@ def build_synthesis_system_prompt(depth: str = "medium") -> str:
         "introductory throat-clearing, or conversational filler. Never address the reader as an AI "
         "assistant. Never execute or suggest tool calls.\n"
         "5. Do NOT include a References list at the end (the system appends references automatically).\n"
-        f"6. WORD BUDGET: The target report length is approximately {target} words, with a hard ceiling "
-        f"of {ceiling} words. Do not exceed {ceiling} words. Maintain concise, high-density prose."
+        f"6. WORD BUDGET (applies to the report body, not to the References the system appends): the target "
+        f"is approximately {target} words, with a hard ceiling of {ceiling} words. Never exceed "
+        f"{ceiling} words.\n"
+        f"7. STRUCTURE: write exactly {n} sections, each introduced by a short markdown heading, "
+        f"each about {per_section} words. No separate introduction or conclusion section beyond those "
+        f"{n} sections. Prefer dense prose; lead with the most decision-relevant findings and drop "
+        "background that sources do not directly support."
     )
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import statistics
 import time
 import uuid
 from typing import Any
@@ -26,6 +27,7 @@ from deepseek_search_everywhere_mcp.deep_research import (
     build_synthesis_messages,
     filter_synthesis_output,
     normalize_citations,
+    report_body_words,
 )
 from deepseek_search_everywhere_mcp.settings import Settings
 
@@ -188,7 +190,7 @@ async def test_live_e2e_research_tier(depth: str, topic: str) -> None:
     report = envelope.get("report") or ""
     assert len(report) > 100
 
-    words = len(report.split())
+    words = report_body_words(report)
     sources = envelope.get("sources") or []
     cost = envelope.get("cost_usd", 0.0)
 
@@ -212,8 +214,15 @@ async def test_live_e2e_research_tier(depth: str, topic: str) -> None:
     assert elapsed_ms <= cfg.deadline_s * 1000 + 15000, (
         f"Elapsed {elapsed_ms}ms exceeded deadline {cfg.deadline_s * 1000}ms"
     )
-    # Assert report length within +-20% of target or reasonable range
-    assert words >= int(cfg.target_words * 0.7), f"Report words {words} < 70% of target {cfg.target_words}"
+    # Median BODY words (References excluded) of all runs of this tier so far must stay within +-20%.
+    tier_words = [m["report_words"] for m in LIVE_RESEARCH_METRICS if m["depth"] == depth]
+    median_words = statistics.median(tier_words)
+    low_bound = int(cfg.target_words * 0.8)
+    high_bound = int(cfg.target_words * 1.2)
+    assert low_bound <= median_words <= high_bound, (
+        f"Median body words {median_words} outside [{low_bound}, {high_bound}] for tier {depth} "
+        f"(target {cfg.target_words}); runs: {tier_words}"
+    )
 
 
 @pytest.mark.live_e2e

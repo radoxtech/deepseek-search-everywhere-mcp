@@ -8,6 +8,7 @@ from deepseek_search_everywhere_mcp.deep_research import (
     build_synthesis_messages,
     build_synthesis_system_prompt,
     parse_subqueries,
+    report_body_words,
     sanitize_citations,
     select_synthesis_context,
 )
@@ -74,3 +75,29 @@ def test_synthesis_prompt_carries_tier_targets_and_ceilings():
         assert str(cfg.target_words) in prompt
         assert str(cfg.max_words) in prompt
         assert cfg.max_words == int(cfg.target_words * 1.2)
+
+
+def test_synthesis_prompt_has_section_budgets_and_ceiling_for_every_tier():
+    from deepseek_search_everywhere_mcp.deep_research import SECTION_COUNTS
+
+    assert SECTION_COUNTS["low"] < SECTION_COUNTS["max"]
+    assert SECTION_COUNTS["low"] <= SECTION_COUNTS["medium"] <= SECTION_COUNTS["high"]
+    for depth in ("low", "medium", "high", "max"):
+        cfg = DEPTH_CONFIG[depth]
+        prompt = build_synthesis_system_prompt(depth)
+        n = SECTION_COUNTS[depth]
+        per_section = cfg.target_words // n
+        assert f"{n} sections" in prompt
+        assert f"about {per_section} words" in prompt
+        assert f"hard ceiling of {cfg.max_words} words" in prompt
+        assert "References" in prompt
+
+
+def test_report_body_words_ignores_references_section():
+    body = "word " * 10
+    report = (
+        f"## Findings\n\n{body}\n\n## References\n\n[1] A very long title with many words - https://a.com"
+    )
+    assert report_body_words(report) == len(f"## Findings\n\n{body}".split())
+    assert report_body_words(body) == 10
+    assert report_body_words("") == 0
