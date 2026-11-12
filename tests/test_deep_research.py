@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from deepseek_search_everywhere_mcp.deep_research import (
     DEPTH_CONFIG,
     build_decomposition_messages,
@@ -101,3 +103,99 @@ def test_report_body_words_ignores_references_section():
     assert report_body_words(report) == len(f"## Findings\n\n{body}".split())
     assert report_body_words(body) == 10
     assert report_body_words("") == 0
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            "https://www.cl.cam.ac.uk/teaching/2021/ConcDisSys/DistributedSystems-1B-L8a.pdf#1#1#1",
+            "https://www.cl.cam.ac.uk/teaching/2021/ConcDisSys/DistributedSystems-1B-L8a.pdf",
+        ),
+        (
+            "https://browse-export.arxiv.org/pdf/2509.07157#4#11#4",
+            "https://browse-export.arxiv.org/pdf/2509.07157",
+        ),
+        (
+            "https://dl.acm.org/doi/pdf/10.1145/3600006.3613150?download=true&__cf_chl_tk=cQafXY.-1&x=1#5#6#5",
+            "https://dl.acm.org/doi/pdf/10.1145/3600006.3613150?download=true&x=1",
+        ),
+        (
+            "https://lists.debian.org/debian-wnpp/2026/07/msg00302.html?pow_referer=",
+            "https://lists.debian.org/debian-wnpp/2026/07/msg00302.html",
+        ),
+        (
+            "https://a.example/p?id=7&utm_source=x&fbclid=1&gclid=2&_x_tr_sl=en&__cf_chl_rt_tk=z&UTM_medium=m",
+            "https://a.example/p?id=7",
+        ),
+        ("https://a.example/p?a=1&b=%20x", "https://a.example/p?a=1&b=%20x"),
+    ],
+)
+def test_clean_source_url(raw: str, expected: str) -> None:
+    from deepseek_search_everywhere_mcp.deep_research import clean_source_url
+
+    assert clean_source_url(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "url", "expected"),
+    [
+        (
+            "<table><tr><td>Target</td><td>Properties</td></tr></table>",
+            "https://www.host.example/x",
+            "host.example",
+        ),
+        (
+            "> ⚠️ **Historischer Auditbericht** – Befunde ohne Bezug",
+            "https://audit.example/r",
+            "audit.example",
+        ),
+        ("**Refinement based safety proofs", "https://a.example/p", "Refinement based safety proofs"),
+        ("  Plain   title \n with\tspaces ", "https://a.example/p", "Plain title with spaces"),
+        (
+            "A [link text](https://x.test) and `code` and <b>bold</b>",
+            "https://a.example/p",
+            "A link text and code and bold",
+        ),
+        ("", "https://www.empty.example/p", "empty.example"),
+        (None, "https://www.none.example/p", "none.example"),
+        ("   ", "https://blank.example/p", "blank.example"),
+    ],
+)
+def test_clean_source_title(raw: str | None, url: str, expected: str) -> None:
+    from deepseek_search_everywhere_mcp.deep_research import clean_source_title
+
+    assert clean_source_title(raw, url) == expected
+
+
+def test_clean_source_title_truncates_long_snippet_like_titles() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import clean_source_title
+
+    raw = "This is a very long snippet-like title that keeps going " * 6
+    out = clean_source_title(raw, "https://a.example/p")
+    assert len(out) <= 100
+    assert out.endswith("…")
+    assert out.startswith("This is a very long snippet-like title")
+
+
+def test_select_synthesis_context_propagates_date() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import select_synthesis_context
+
+    sources = [
+        {"title": "A", "url": "https://a.example/1", "content": "text", "date": "2026-03-04"},
+        {"title": "B", "url": "https://b.example/1", "content": "text"},
+    ]
+    ctx = select_synthesis_context(sources, "low")
+    dates = {s["title"]: s["date"] for s in ctx}
+    assert dates == {"A": "2026-03-04", "B": None}
+
+
+def test_rank_dedupes_urls_that_differ_only_by_fragment_or_challenge_params() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    results = [
+        [{"url": "https://dl.example/x.pdf#1#1"}],
+        [{"url": "https://dl.example/x.pdf?__cf_chl_tk=abc#2"}, {"url": "https://other.example/y"}],
+    ]
+    selected, _ = rank_and_diversify_sources(results, k_sources=5)
+    assert [i["url"] for i in selected] == ["https://dl.example/x.pdf#1#1", "https://other.example/y"]

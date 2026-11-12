@@ -44,6 +44,8 @@ from .deep_research import (
     build_r2_gap_messages,
     build_synthesis_messages,
     citation_ids,
+    clean_source_title,
+    clean_source_url,
     filter_synthesis_output,
     get_job_store,
     normalize_citations,
@@ -2363,10 +2365,11 @@ RESEARCH_TOTAL_CHARS = 30000
 
 def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str, Any]:
     """Turn one shaped search result into a research source (``origin`` = ``search``)."""
+    url = clean_source_url(item["url"]) if isinstance(item.get("url"), str) else item.get("url")
     return {
         "id": index,
-        "title": item.get("title"),
-        "url": item.get("url"),
+        "title": clean_source_title(item.get("title"), url or ""),
+        "url": url,
         "date": item.get("date"),
         "date_source": item.get("date_source"),
         "site": item.get("site"),

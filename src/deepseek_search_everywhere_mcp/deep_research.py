@@ -10,7 +10,7 @@ import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 from .extract import sanitize_json
 from .filters import fit_query
@@ -423,7 +423,7 @@ def rank_and_diversify_sources(
     deduped: list[dict[str, Any]] = []
     seen_canons: set[str] = set()
     for item in interleaved:
-        url = item.get("url") or ""
+        url = clean_source_url(item.get("url") or "")
         canon = _canonical_url(url) or url.strip().lower()
         if canon not in seen_canons:
             seen_canons.add(canon)
@@ -456,6 +456,64 @@ def rank_and_diversify_sources(
     return selected, notes
 
 
+_TRACKING_QUERY_EXACT = frozenset(
+    {"fbclid", "gclid", "yclid", "mc_cid", "mc_eid", "pow_referer", "msclkid", "dclid"}
+)
+_TRACKING_QUERY_PREFIXES = ("utm_", "__cf_chl", "_x_tr_")
+SOURCE_TITLE_MAX = 100
+_TITLE_BLOCK_MARKUP_STARTS = ("<", ">", "|")
+_TITLE_TAG_RE = re.compile(r"<[^>]*>")
+_TITLE_MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_TITLE_MD_MARKERS_RE = re.compile(r"(?<!\w)(\*{1,3}|_{1,3})|(\*{1,3}|_{1,3})(?!\w)|`+|~~")
+_TITLE_LEADING_MD_RE = re.compile(r"^[\s>#|\-*+]+")
+
+
+def _is_tracking_query_name(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in _TRACKING_QUERY_EXACT or lowered.startswith(_TRACKING_QUERY_PREFIXES)
+
+
+def clean_source_url(url: str) -> str:
+    """Strip the fragment and challenge/tracking query parameters from a source URL.
+
+    Remaining query parameters keep their original order and encoding.
+    """
+    raw = (url or "").strip()
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return raw.split("#", 1)[0]
+    kept = [
+        segment
+        for segment in parts.query.split("&")
+        if segment and not _is_tracking_query_name(segment.split("=", 1)[0])
+    ]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "&".join(kept), ""))
+
+
+def clean_source_title(title: Any, url: str = "") -> str:
+    """Return a plain one-line source title of at most ``SOURCE_TITLE_MAX`` characters.
+
+    Markup is stripped and whitespace collapsed. An empty title, or one that begins with block markup
+    (HTML, a blockquote or a table), falls back to the URL host.
+    """
+    host = _url_host(url)
+    if not isinstance(title, str) or not title.strip():
+        return host
+    if title.lstrip().startswith(_TITLE_BLOCK_MARKUP_STARTS):
+        return host
+    text = _TITLE_MD_LINK_RE.sub(r"\1", title)
+    text = _TITLE_TAG_RE.sub("", text)
+    text = _TITLE_MD_MARKERS_RE.sub("", text)
+    text = _TITLE_LEADING_MD_RE.sub("", " ".join(text.split()))
+    text = " ".join(text.split())
+    if not text:
+        return host
+    if len(text) > SOURCE_TITLE_MAX:
+        text = text[: SOURCE_TITLE_MAX - 1].rstrip() + "…"
+    return text
+
+
 def select_synthesis_context(
     sources: list[dict[str, Any]],
     depth: str = "medium",
@@ -483,6 +541,7 @@ def select_synthesis_context(
                 "id": idx,
                 "title": s.get("title") or "Untitled",
                 "url": s.get("url"),
+                "date": s.get("date"),
                 "content": cut_content,
             }
         )

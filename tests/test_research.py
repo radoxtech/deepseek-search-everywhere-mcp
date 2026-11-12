@@ -1616,3 +1616,32 @@ async def test_condense_rejected_results_keep_original_and_bill_cost(
     assert "alpha beta gamma" in res["report"]
     assert any("kept" in n.lower() for n in res["notes"])
     assert res["cost_breakdown"]["llm"] == pytest.approx(0.012, abs=1e-6)
+
+
+async def test_research_sources_have_clean_urls_titles_and_dates(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "<table><tr><td>Target</td><td>Properties</td></tr></table>",
+            "url": "https://dl.acm.org/doi/pdf/10.1145/1?download=true&__cf_chl_tk=abc&x=1#5#6#5",
+            "content": "Surface codes provide fault tolerance in quantum computing. " * 5,
+            "date": "2026-02-03",
+        },
+        {
+            "title": "**Refinement based safety proofs",
+            "url": "https://browse-export.arxiv.org/pdf/2509.07157#4#11#4",
+            "content": "Two-qubit gate fidelities exceed 99.9% in recent trials. " * 5,
+            "date": "2026-01-10",
+        },
+    ]
+    fake_upstream(DeepResearchUpstream(search_results=results))
+    res = await server.deepseek_research("clean sources topic", depth="low")
+    assert res["synthesized"] is True
+    by_id = {s["id"]: s for s in res["sources"]}
+    urls = {s["url"] for s in by_id.values()}
+    assert urls == {
+        "https://dl.acm.org/doi/pdf/10.1145/1?download=true&x=1",
+        "https://browse-export.arxiv.org/pdf/2509.07157",
+    }
+    titles = {s["title"] for s in by_id.values()}
+    assert titles == {"dl.acm.org", "Refinement based safety proofs"}
+    assert {s["date"] for s in by_id.values()} == {"2026-02-03", "2026-01-10"}
