@@ -86,3 +86,94 @@ def test_search_content_full_gap_fills_stub(fake_upstream: Any, monkeypatch: pyt
     first = res["results"][0]
     assert "Full fetched page content" in first["content"]
     assert any("fetched 1 page(s)" in n for n in res["notes"])
+
+
+def test_snippets_mode_omits_summary_when_snippet_exists(fake_upstream: Any) -> None:
+    fake_upstream(
+        default={
+            "ok": True,
+            "data": {
+                "results": [
+                    {
+                        "title": "Lean Result",
+                        "url": "https://example.com/lean",
+                        "snippet": "Short snippet",
+                        "summary": "A longer upstream summary that must not be returned",
+                    }
+                ]
+            },
+        }
+    )
+    res = asyncio.run(server.deepseek_search("python", content="snippets", refresh=True))
+    first = res["results"][0]
+    assert first["snippet"] == "Short snippet"
+    assert "summary" not in first
+    assert "need_content" not in res
+
+
+def test_snippets_mode_keeps_summary_as_fallback_without_snippet(fake_upstream: Any) -> None:
+    fake_upstream(
+        default={
+            "ok": True,
+            "data": {
+                "results": [
+                    {
+                        "title": "Fallback Result",
+                        "url": "https://example.com/fallback",
+                        "snippet": "",
+                        "summary": "Upstream summary used because there is no snippet",
+                    }
+                ]
+            },
+        }
+    )
+    res = asyncio.run(server.deepseek_search("python", content="snippets", refresh=True))
+    first = res["results"][0]
+    assert first["summary"] == "Upstream summary used because there is no snippet"
+    assert "snippet" not in first
+
+
+def test_snippets_mode_has_no_truncation_note(fake_upstream: Any) -> None:
+    fake_upstream(
+        default={
+            "ok": True,
+            "data": {
+                "results": [
+                    {
+                        "title": "Long Summary",
+                        "url": "https://example.com/long",
+                        "snippet": "",
+                        "summary": "Long upstream summary sentence. " * 200,
+                    }
+                ]
+            },
+        }
+    )
+    res = asyncio.run(server.deepseek_search("python", content="snippets", refresh=True))
+    assert len(res["results"][0]["summary"]) <= server.SEARCH_SUMMARY_CHARS + 20
+    assert server.TRUNCATED_NOTE not in res["notes"]
+
+
+def test_search_many_snippets_are_lean(fake_upstream: Any) -> None:
+    fake_upstream(
+        default={
+            "ok": True,
+            "data": {
+                "results": [
+                    {
+                        "title": "Many Result",
+                        "url": "https://example.com/many",
+                        "snippet": "Snippet for many",
+                        "summary": "Summary that must be dropped",
+                    }
+                ]
+            },
+        }
+    )
+    res = asyncio.run(server.deepseek_search_many(["python one", "python two"], content="snippets"))
+    assert res["ok"] is True
+    for block in res["results"]:
+        for item in block["results"]:
+            assert item["snippet"] == "Snippet for many"
+            assert "summary" not in item
+            assert "need_content" not in item

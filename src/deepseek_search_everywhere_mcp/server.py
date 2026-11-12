@@ -1070,7 +1070,8 @@ def _apply_char_budget(
     Content is unescaped (Markdown escapes, then any JSON escapes left by the search index), rid of
     leftover simple HTML tags outside code and, with ``strip_boilerplate``, of known site-UI lines before it
     is capped at ``per_result``; a summary, used when there is no content, is capped at
-    ``summary_cap`` and is left out entirely when that cap is 0. With content, ``chars`` is the
+    ``summary_cap`` and is left out entirely when that cap is 0. Without content (snippets mode), a
+    summary is only a fallback for results that have no snippet. With content, ``chars`` is the
     length returned.
     Returns ``(remaining, truncated)``: the budget left afterwards and whether any text was cut.
     """
@@ -1085,6 +1086,9 @@ def _apply_char_budget(
         entry["content"], cut = _truncate(cleaned, budget_target)
         entry["chars"] = len(entry["content"])
         return remaining - len(entry["content"]), cut
+    if not need_content and entry.get("snippet"):
+        # Snippets mode: the snippet is the result text, so the upstream summary is left out.
+        return remaining, False
     summary = _clean_index_text(item.get("summary") or "")
     if summary and summary_cap > 0:
         entry["summary"], cut = _truncate(summary, max(0, min(summary_cap, remaining)))
@@ -1251,7 +1255,6 @@ async def _search(
         "query_used": used,
         "count": len(shaped),
         "content": content,
-        "need_content": need_content,
         "deduped": removed,
         "cached": cached,
         "requests_used": 0 if cached else 1,
@@ -1265,7 +1268,7 @@ async def _search(
             removed,
             trimmed,
             lang,
-            truncated,
+            truncated and need_content,
             filter_ops=ops_string,
             domain_dropped=domain_dropped,
         ),

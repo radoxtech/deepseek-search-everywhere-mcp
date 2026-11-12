@@ -36,9 +36,18 @@ def _size(envelope: dict[str, Any]) -> int:
     return len(json.dumps(envelope, ensure_ascii=False).encode("utf-8"))
 
 
-def test_default_summary_is_short_without_content(fake_upstream):
+def test_snippet_replaces_summary_without_content(fake_upstream):
     envelope = _search(fake_upstream)
     assert envelope["ok"] is True
+    assert all("summary" not in item for item in envelope["results"])
+    assert all(item["snippet"] for item in envelope["results"])
+    assert _size(envelope) <= 4096
+
+
+def test_default_summary_is_short_without_snippet(fake_upstream):
+    results = [dict(item, snippet="") for item in _realistic_results()]
+    fake_upstream(default={"ok": True, "data": {"results": results}})
+    envelope = asyncio.run(server.deepseek_search("asyncio tasks", count=3))
     assert all(len(item["summary"]) <= server.SEARCH_SUMMARY_CHARS + 20 for item in envelope["results"])
     assert _size(envelope) <= 4096
 
