@@ -705,6 +705,9 @@ def normalize_citations(
     # Step 4: Parse bracket citations and filter element-wise
     def _parse_and_filter_citation(match: re.Match[str]) -> str:
         raw_inner = match.group(1).strip()
+        # Bracketed numbers of four or more digits are years or other literal values, not source IDs.
+        if raw_inner.isdigit() and int(raw_inner) >= 1000:
+            return match.group(0)
         parsed_ids: list[int] = []
         for part in raw_inner.split(","):
             part_str = part.strip()

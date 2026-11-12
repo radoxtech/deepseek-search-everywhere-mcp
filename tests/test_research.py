@@ -1376,3 +1376,13 @@ async def test_research_finished_result_not_reused_after_ttl(monkeypatch: pytest
     fresh = await server.deepseek_research("ttl topic", depth="low")
     assert len(calls) == 2
     assert fresh["report"] == "report 2"
+
+
+def test_normalize_citations_keeps_bracketed_years() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import normalize_citations
+
+    res = normalize_citations("Year [2024] fact [2].", max_id=3)
+    assert "[2024]" in res
+    assert "[2]" in res
+    res = normalize_citations("Out of range [9] stays out.", max_id=3)
+    assert "[9]" not in res
