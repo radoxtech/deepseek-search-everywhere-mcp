@@ -42,7 +42,6 @@ from .deep_research import (
     build_condense_messages,
     build_decomposition_messages,
     build_r2_gap_messages,
-    build_references_section,
     build_synthesis_messages,
     citation_ids,
     filter_synthesis_output,
@@ -2513,15 +2512,16 @@ async def deepseek_research(
     """Execute multi-angle research on a topic and generate a cited briefing report.
 
     Topic synthesis tool that decomposes an overarching subject into targeted subqueries,
-    retrieves sources, and compiles a comprehensive cited briefing report with numbered
-    references [1], [2]. Depth tiers ("low", "medium", "high", "max") scale subquery breadth
-    and source depth. Untrusted source content is sanitized.
+    retrieves sources, and compiles a comprehensive cited briefing report whose numbered
+    citations [1], [2] match the ids in the returned sources array. Depth tiers ("low", "medium",
+    "high", "max") scale subquery breadth and source depth. Untrusted source content is sanitized.
 
     When NOT to use: Do not use for simple factual lookups or single queries (use deepseek_search),
     for multiple independent queries (use deepseek_search_many), for reading known URLs (use
     deepseek_fetch), or for structured entity or schema extraction (use deepseek_extract).
 
-    Returns: {"ok": True, "topic": str, "depth": str, "report": str, "sources": [...], "cost_usd": float}.
+    Returns: {"ok": True, "topic": str, "depth": str, "report": str (no references list),
+    "sources": [{id, title, url, date}] (ids match the [n] citations), "cost_usd": float}.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:
@@ -3197,7 +3197,6 @@ async def _execute_research_pipeline(
         max_id=len(synthesis_context),
         deadline_at=deadline_at,
     )
-    clean_report = f"{clean_report.rstrip()}\n\n{build_references_section(synthesis_context)}"
     clean_report, s_notes = sanitize_untrusted_text(clean_report)
     notes.extend(filter_notes)
     notes.extend(condense_notes)

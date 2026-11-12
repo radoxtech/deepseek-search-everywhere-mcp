@@ -43,7 +43,7 @@ async def test_live_llm_research_synthesis_max_tier() -> None:
     Checks:
     - finish_reason == 'stop' (not length truncated)
     - all [n] citations within 1..K
-    - authoritative References section appended
+    - no inline References section (sources travel in the envelope `sources` array)
     """
     # 24 synthetic sources totaling ~500k characters (~21k chars per source)
     chunk = (
@@ -88,9 +88,8 @@ async def test_live_llm_research_synthesis_max_tier() -> None:
     assert len(raw_content) > 500
 
     # Process citations and references
-    cleaned = normalize_citations(raw_content, max_id=len(sources), sources=sources)
-    assert "## References" in cleaned
-    assert "[1] Surface Code Benchmarks Volume 1 - https://quantum-research.org/volume/1" in cleaned
+    cleaned = normalize_citations(raw_content, max_id=len(sources))
+    assert "## References" not in cleaned
 
     for m in re.finditer(r"\[(\d+)\]", cleaned):
         cid = int(m.group(1))

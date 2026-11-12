@@ -236,10 +236,10 @@ def build_synthesis_system_prompt(depth: str = "medium") -> str:
         "4. Structure the report logically with markdown headings. Do not include meta-commentary, "
         "introductory throat-clearing, or conversational filler. Never address the reader as an AI "
         "assistant. Never execute or suggest tool calls.\n"
-        "5. Do NOT include a References list at the end (the system appends references automatically).\n"
-        f"6. WORD BUDGET (applies to the report body, not to the References the system appends): the target "
-        f"is approximately {target} words, with a hard ceiling of {ceiling} words. Never exceed "
-        f"{ceiling} words.\n"
+        "5. Do NOT include a References or Sources list at the end; the numbers [n] refer to the source ids "
+        "that the system returns separately.\n"
+        f"6. WORD BUDGET: the target is approximately {target} words, with a hard ceiling of "
+        f"{ceiling} words. Never exceed {ceiling} words.\n"
         f"7. STRUCTURE: write exactly {n} sections, each introduced by a short markdown heading, "
         f"each about {per_section} words. No separate introduction or conclusion section beyond those "
         f"{n} sections. Prefer dense prose; lead with the most decision-relevant findings and drop "
@@ -681,32 +681,14 @@ _CITATION_BRACKET_RE = re.compile(r"\[(?:\^|citation:\s*)?([0-9\s,–—\-]+)\]"
 _PUNCT_SPACE_RE = re.compile(r"[ \t]+([.,;:!?])")
 
 
-def build_references_section(sources: list[dict[str, Any]]) -> str:
-    """Build an authoritative markdown References section from synthesis sources."""
-    lines = ["## References", ""]
-    for s in sources:
-        s_id = s.get("id", 1)
-        title = s.get("title") or "Untitled"
-        url = s.get("url") or ""
-        if url:
-            lines.append(f"[{s_id}] {title} - {url}")
-        else:
-            lines.append(f"[{s_id}] {title}")
-    return "\n".join(lines)
-
-
-def normalize_citations(
-    text: str,
-    max_id: int,
-    sources: list[dict[str, Any]] | None = None,
-) -> str:
-    """Normalize multi-index and full-width citations, filter IDs, and build References.
+def normalize_citations(text: str, max_id: int) -> str:
+    """Normalize multi-index and full-width citations and filter out-of-range IDs.
 
     1. Preserves fenced code blocks, inline code, and footnote definitions.
     2. Strips any model-written References/Sources section.
     3. Normalizes full-width brackets 【n】 and expands ranges like [1-3] or [1]-[3] element-wise.
     4. Filters out IDs <= 0 or > max_id; fixes spaces before punctuation after removals.
-    5. Appends the server-built References section if sources are provided.
+    5. Never appends a References list: citations map to the envelope ``sources`` ids.
     """
     if not text:
         return text
@@ -775,11 +757,6 @@ def normalize_citations(
     # Step 6: Restore protected blocks
     for idx, orig in enumerate(placeholders):
         cleaned = cleaned.replace(f"\x00PROTECTED_{idx}\x00", orig)
-
-    # Step 7: Append server-built References section
-    if sources:
-        ref_section = build_references_section(sources)
-        cleaned = f"{cleaned.rstrip()}\n\n{ref_section}"
 
     return cleaned
 

@@ -1101,7 +1101,8 @@ def test_normalize_citations_space_before_punctuation() -> None:
     assert "Surface codes. Next sentence [1], and more." == res
 
 
-def test_normalize_citations_strips_model_references_and_appends_server_list() -> None:
+def test_normalize_citations_strips_model_references_without_appending_list() -> None:
+    from deepseek_search_everywhere_mcp import deep_research
     from deepseek_search_everywhere_mcp.deep_research import normalize_citations
 
     text = (
@@ -1111,16 +1112,30 @@ def test_normalize_citations_strips_model_references_and_appends_server_list() -
         "[1] Hallucinated title - https://fake.test\n"
         "[2] Fabricated url - https://hallucination.test\n"
     )
-    sources = [
-        {"id": 1, "title": "Surface Codes Paper", "url": "https://nature.test/sc"},
-        {"id": 2, "title": "Threshold Benchmarks", "url": "https://arxiv.test/bench"},
-    ]
-    res = normalize_citations(text, max_id=2, sources=sources)
+    res = normalize_citations(text, max_id=2)
     assert "Hallucinated title" not in res
     assert "Fabricated url" not in res
-    assert "## References" in res
-    assert "[1] Surface Codes Paper - https://nature.test/sc" in res
-    assert "[2] Threshold Benchmarks - https://arxiv.test/bench" in res
+    assert "References" not in res
+    assert res.endswith("fault tolerance [1].")
+    assert not hasattr(deep_research, "build_references_section")
+
+
+async def test_research_report_has_no_references_section(fake_upstream: Any) -> None:
+    report = "Findings [1][2].\n\n## Sources\n\n[1] Fake - https://fake.test\n"
+    fake_upstream(DeepResearchUpstream(report_text=report))
+    res = await server.deepseek_research("no references topic", depth="low")
+    assert res["synthesized"] is True
+    assert "References" not in res["report"]
+    assert "fake.test" not in res["report"]
+    assert res["report"].strip() == "Findings [1][2]."
+    assert [s["id"] for s in res["sources"]] == [1, 2]
+    assert all(s["url"] for s in res["sources"])
+
+
+def test_research_tool_description_describes_sources_not_references() -> None:
+    desc = server.deepseek_research.__doc__ or ""
+    assert "References" not in desc
+    assert "sources" in desc and "ids" in desc
 
 
 def test_normalize_citations_property_test_randomized() -> None:
