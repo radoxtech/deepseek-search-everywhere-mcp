@@ -1390,9 +1390,8 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
 @_timed
 async def deepseek_search(
     query: str,
-    count: int = 5,
-    ori_question: str | None = None,
     *,
+    count: int = 5,
     content: Literal["snippets", "full"] = "snippets",
     lang: str | None = None,
     max_chars_per_result: int = 4000,
@@ -1417,7 +1416,6 @@ async def deepseek_search(
     Args:
         query: Query, max 128 chars (site:, -site:, "phrase", after:, before:).
         count: Results count, 1-50 (default 5).
-        ori_question: Natural question improving ranking (max 128 chars).
         content: Result mode: 'snippets' (default) or 'full' (with gap-fill).
         lang: Language filter (e.g. 'en', 'es').
         max_chars_per_result: Cap per result (default 4000).
@@ -1438,7 +1436,7 @@ async def deepseek_search(
     res = await _search(
         query,
         count,
-        ori_question,
+        None,
         content,
         lang,
         max_chars_per_result,
@@ -1558,7 +1556,6 @@ async def deepseek_search_many(
         return await deepseek_search(
             q,
             count=count,
-            ori_question=None,
             content=content,
             lang=lang,
             max_chars_per_result=max_chars_per_result,
@@ -1694,9 +1691,9 @@ def _check_fetch_url(url: str) -> dict[str, Any] | None:
 @_timed
 async def deepseek_fetch(
     url: str,
+    *,
     clean: bool = True,
     max_chars: int = 20000,
-    *,
     offset: int | None = None,
     limit: int | None = None,
     find_text: str | None = None,
@@ -2257,10 +2254,10 @@ def _assemble_batch(
 @_timed
 async def deepseek_fetch_many(
     urls: list[str],
+    *,
     max_chars_per_url: int = 4000,
     max_total_chars: int = 20000,
     clean: bool = True,
-    *,
     query: str | None = None,
     refresh: bool = False,
     strip_boilerplate: bool = True,

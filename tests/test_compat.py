@@ -36,6 +36,21 @@ def test_tool_names_are_stable():
     assert {tool.name for tool in tools} == TOOL_NAMES
 
 
+@pytest.mark.parametrize("tool_name", sorted(TOOL_NAMES))
+def test_all_tool_parameters_after_primary_are_keyword_only(tool_name: str) -> None:
+    tool_func = getattr(server, tool_name)
+    params = list(inspect.signature(tool_func).parameters.values())
+    if tool_name == "deepseek_check_balance":
+        assert all(p.kind == inspect.Parameter.KEYWORD_ONLY for p in params)
+    else:
+        assert params[0].kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.POSITIONAL_ONLY)
+        assert all(p.kind == inspect.Parameter.KEYWORD_ONLY for p in params[1:])
+
+
+def test_ori_question_dropped_from_public_search() -> None:
+    assert "ori_question" not in inspect.signature(server.deepseek_search).parameters
+
+
 @pytest.mark.parametrize(
     "name",
     [
