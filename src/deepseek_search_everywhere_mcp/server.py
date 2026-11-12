@@ -72,7 +72,6 @@ from .sanitize import (
     strip_hidden_unicode,
 )
 from .settings import (
-    DEFAULT_LLM_PRICING,
     DEFAULT_LOG_LEVEL,
     get_pricing_period,
     get_settings,
@@ -2568,32 +2567,35 @@ async def deepseek_research(
         )
         store.add(job)
 
-    inline_wait = settings.research_inline_wait
-    assert job.task is not None
     try:
-        done, _ = await asyncio.wait([job.task], timeout=inline_wait)
-    except asyncio.CancelledError:
-        raise
+        inline_wait = settings.research_inline_wait
+        assert job.task is not None
+        try:
+            done, _ = await asyncio.wait([job.task], timeout=inline_wait)
+        except asyncio.CancelledError:
+            raise
 
-    if job.task in done:
-        if job.exception is not None:
-            return _fail("internal_error", f"Research job failed: {job.exception}")
-        res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
-        if res.get("ok"):
-            res["status"] = "done"
-            res["delivery"] = "inline"
-        return res
+        if job.task in done:
+            if job.exception is not None:
+                return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
+            res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+            if res.get("ok"):
+                res["status"] = "done"
+                res["delivery"] = "inline"
+            return res
 
-    elapsed_ms = int((_clock() - job.created_at) * 1000)
-    return {
-        "ok": True,
-        "status": "running",
-        "job_id": job.job_id,
-        "depth": depth,
-        "elapsed_ms": elapsed_ms,
-        "progress": job.progress,
-        "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
-    }
+        elapsed_ms = int((_clock() - job.created_at) * 1000)
+        return {
+            "ok": True,
+            "status": "running",
+            "job_id": job.job_id,
+            "depth": depth,
+            "elapsed_ms": elapsed_ms,
+            "progress": job.progress,
+            "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
+        }
+    finally:
+        job.ctx = None
 
 
 def _reuse_finished_result(stored: dict[str, Any]) -> dict[str, Any]:
@@ -2649,41 +2651,44 @@ async def deepseek_check_research(
     if ctx is not None:
         job.ctx = ctx
 
-    if job.task is not None and job.task.done():
-        if job.exception is not None:
-            return _fail("internal_error", f"Research job failed: {job.exception}")
-        res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
-        if res.get("ok"):
-            res["status"] = "done"
-            res["delivery"] = "polled"
-        return res
-
-    inline_wait = settings.research_inline_wait
-    assert job.task is not None
     try:
-        done, _ = await asyncio.wait([job.task], timeout=inline_wait)
-    except asyncio.CancelledError:
-        raise
+        if job.task is not None and job.task.done():
+            if job.exception is not None:
+                return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
+            res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+            if res.get("ok"):
+                res["status"] = "done"
+                res["delivery"] = "polled"
+            return res
 
-    if job.task in done:
-        if job.exception is not None:
-            return _fail("internal_error", f"Research job failed: {job.exception}")
-        res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
-        if res.get("ok"):
-            res["status"] = "done"
-            res["delivery"] = "polled"
-        return res
+        inline_wait = settings.research_inline_wait
+        assert job.task is not None
+        try:
+            done, _ = await asyncio.wait([job.task], timeout=inline_wait)
+        except asyncio.CancelledError:
+            raise
 
-    elapsed_ms = int((_clock() - job.created_at) * 1000)
-    return {
-        "ok": True,
-        "status": "running",
-        "job_id": job.job_id,
-        "depth": job.depth,
-        "elapsed_ms": elapsed_ms,
-        "progress": job.progress,
-        "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
-    }
+        if job.task in done:
+            if job.exception is not None:
+                return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
+            res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+            if res.get("ok"):
+                res["status"] = "done"
+                res["delivery"] = "polled"
+            return res
+
+        elapsed_ms = int((_clock() - job.created_at) * 1000)
+        return {
+            "ok": True,
+            "status": "running",
+            "job_id": job.job_id,
+            "depth": job.depth,
+            "elapsed_ms": elapsed_ms,
+            "progress": job.progress,
+            "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
+        }
+    finally:
+        job.ctx = None
 
 
 async def _report_job_progress(
@@ -2716,7 +2721,7 @@ async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
     except Exception as exc:
         job.exception = exc
         job.completed_at = _clock()
-        job.result = _fail("internal_error", str(exc))
+        job.result = _fail("internal_error", redact(str(exc)))
         return job.result
 
 
@@ -2958,7 +2963,7 @@ async def _execute_research_pipeline(
     # S7: Cost ceiling guard
     total_source_chars = sum(len(s.get("content") or "") for s in synthesis_context)
     est_input_tokens = total_source_chars // 2
-    pricing = DEFAULT_LLM_PRICING.peak
+    pricing = get_settings().llm_pricing.peak
     est_synth_cost = (est_input_tokens / 1_000_000) * pricing.cache_miss_per_1m + (
         cfg.max_tokens / 1_000_000
     ) * pricing.output_per_1m

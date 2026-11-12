@@ -13,7 +13,7 @@ import pytest
 
 from deepseek_search_everywhere_mcp import server
 from deepseek_search_everywhere_mcp.deep_research import get_job_store
-from deepseek_search_everywhere_mcp.settings import Settings
+from deepseek_search_everywhere_mcp.settings import LLMPricing, LLMRates, Settings
 
 
 class DeepResearchUpstream:
@@ -1461,3 +1461,45 @@ def test_topic_key_normalization_joins_same_job() -> None:
     finished.result = {"ok": True, "synthesized": True}
     store.add(finished)
     assert store.find_finished_match("topic  two?", "low", None, now=2.0) is finished
+
+
+async def test_research_job_error_is_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+    secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+
+    async def failing_pipeline(**kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError(f"upstream rejected key {secret}")
+
+    monkeypatch.setattr(server, "_execute_research_pipeline", failing_pipeline)
+    res = await server.deepseek_research("redaction topic", depth="low")
+    assert res["ok"] is False
+    assert secret not in json.dumps(res)
+
+
+async def test_research_cost_ceiling_uses_configured_pricing(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expensive = LLMRates(cache_hit_per_1m=0.0, cache_miss_per_1m=1_000_000.0, output_per_1m=1_000_000.0)
+    settings = Settings(
+        research_cost_ceiling_usd=1.0,
+        llm_pricing=LLMPricing(peak=expensive, off_peak=expensive),
+    )
+    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    fake_upstream(DeepResearchUpstream())
+
+    res = await server.deepseek_research("configured pricing topic", depth="low")
+    assert res["ok"] is True
+    assert res["synthesized"] is False
+    assert any("exceeds ceiling" in n for n in res["notes"])
+
+
+async def test_research_job_drops_ctx_when_call_returns(fake_upstream: Any) -> None:
+    fake_upstream(DeepResearchUpstream())
+
+    class FakeCtx:
+        async def report_progress(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    res = await server.deepseek_research("ctx release topic", depth="low", ctx=FakeCtx())
+    assert res["ok"] is True
+    jobs = list(get_job_store(ttl=1800.0, max_active=3)._jobs.values())
+    assert jobs and all(job.ctx is None for job in jobs)
