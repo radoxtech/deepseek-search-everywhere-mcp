@@ -1293,3 +1293,86 @@ async def test_fake_clock_46s_running_for_every_depth(
     job = get_job_store().get(res["job_id"])
     assert job is not None and job.task is not None
     await job.task
+
+
+def _install_counting_pipeline(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_pipeline(*, job: Any, clean_topic: str, depth: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append({"topic": clean_topic, "depth": depth, **kwargs})
+        return {
+            "ok": True,
+            "status": "done",
+            "topic": clean_topic,
+            "depth": depth,
+            "report": f"report {len(calls)}",
+            "synthesized": True,
+            "sources": [],
+            "cached": False,
+            "cost_usd": 0.0123,
+            "cost_breakdown": {"search": 0.001, "fetch": 0.001, "llm": 0.0103},
+            "_meta": {"cost_usd": 0.0123, "untrusted_content": True},
+        }
+
+    monkeypatch.setattr(server, "_execute_research_pipeline", fake_pipeline)
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=5.0))
+    return calls
+
+
+async def test_research_finished_reuse_returns_cached_zero_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _install_counting_pipeline(monkeypatch)
+
+    first = await server.deepseek_research("Reuse topic", depth="low")
+    assert first["status"] == "done"
+    assert first["cost_usd"] == 0.0123
+    assert first.get("cached") is False
+
+    second = await server.deepseek_research("reuse topic ", depth="low")
+    assert len(calls) == 1
+    assert second["ok"] is True
+    assert second["status"] == "done"
+    assert second["delivery"] == "inline"
+    assert second["cached"] is True
+    assert second["cost_usd"] == 0
+    assert second["cost_breakdown"] == {"search": 0, "fetch": 0, "llm": 0}
+    assert second["_meta"]["cost_usd"] == 0
+    assert second["report"] == first["report"]
+    # the stored result itself is untouched
+    assert first["cost_usd"] == 0.0123
+
+    other_depth = await server.deepseek_research("reuse topic", depth="medium")
+    assert other_depth["report"] == "report 2"
+    assert len(calls) == 2
+
+
+async def test_research_refresh_true_starts_new_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _install_counting_pipeline(monkeypatch)
+
+    first = await server.deepseek_research("refresh topic", depth="low")
+    refreshed = await server.deepseek_research("refresh topic", depth="low", refresh=True)
+    assert len(calls) == 2
+    assert calls[1]["refresh"] is True
+    assert refreshed["report"] == "report 2"
+    assert refreshed["cost_usd"] == 0.0123
+    assert refreshed.get("cached") is False
+    assert first["report"] == "report 1"
+
+
+async def test_research_finished_result_not_reused_after_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _install_counting_pipeline(monkeypatch)
+    monkeypatch.setattr(
+        server, "get_settings", lambda: Settings(research_inline_wait=5.0, research_job_ttl=100.0)
+    )
+    now = [1000.0]
+    monkeypatch.setattr(server, "_clock", lambda: now[0])
+
+    await server.deepseek_research("ttl topic", depth="low")
+    now[0] += 99.0
+    reused = await server.deepseek_research("ttl topic", depth="low")
+    assert reused["cached"] is True
+    assert len(calls) == 1
+
+    now[0] += 200.0
+    fresh = await server.deepseek_research("ttl topic", depth="low")
+    assert len(calls) == 2
+    assert fresh["report"] == "report 2"

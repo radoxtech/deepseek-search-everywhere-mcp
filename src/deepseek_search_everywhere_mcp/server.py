@@ -11,6 +11,7 @@ The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
 from __future__ import annotations
 
 import asyncio
+import copy
 import functools
 import hashlib
 import inspect
@@ -2532,6 +2533,10 @@ async def deepseek_research(
     store.prune_expired(_clock())
 
     existing = store.find_active_match(clean_topic, depth, lang)
+    if existing is None and not refresh:
+        finished = store.find_finished_match(clean_topic, depth, lang, _clock())
+        if finished is not None and finished.result is not None:
+            return _reuse_finished_result(finished.result)
     if existing is not None and existing.task is not None and not existing.task.done():
         job = existing
         if ctx is not None:
@@ -2589,6 +2594,23 @@ async def deepseek_research(
         "progress": job.progress,
         "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
     }
+
+
+def _reuse_finished_result(stored: dict[str, Any]) -> dict[str, Any]:
+    """Copy a stored finished research result, marked as served from the job store at zero cost."""
+    res = copy.deepcopy(stored)
+    res["status"] = "done"
+    res["delivery"] = "inline"
+    res["cached"] = True
+    res["cost_usd"] = 0
+    if isinstance(res.get("cost_breakdown"), dict):
+        res["cost_breakdown"] = {k: 0 for k in res["cost_breakdown"]}
+    if isinstance(res.get("_meta"), dict):
+        res["_meta"] = {**res["_meta"], "cost_usd": 0}
+    notes = list(res.get("notes") or [])
+    notes.append("Reused finished research result from this session (no new cost).")
+    res["notes"] = notes
+    return res
 
 
 async def deepseek_check_research(

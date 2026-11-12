@@ -64,6 +64,21 @@ class ResearchJobStore:
                     return job
         return None
 
+    def find_finished_match(self, topic: str, depth: str, lang: str | None, now: float) -> ResearchJob | None:
+        """Return the newest successfully finished job for the key that is still within the TTL."""
+        target_key = (topic.strip().lower(), depth, lang)
+        best: ResearchJob | None = None
+        for job in self._jobs.values():
+            if job.completed_at is None or (now - job.completed_at) > self.ttl:
+                continue
+            if job.exception is not None or not job.result or not job.result.get("ok"):
+                continue
+            if not job.result.get("synthesized") or job.normalize_key() != target_key:
+                continue
+            if best is None or (best.completed_at or 0.0) < job.completed_at:
+                best = job
+        return best
+
     def add(self, job: ResearchJob) -> None:
         self._jobs[job.job_id] = job
 
