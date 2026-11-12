@@ -248,3 +248,78 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
 
     set_settings(None)
     server.reset_state()
+
+
+async def test_stale_reservations_from_dead_pid_and_ttl_are_recovered(tmp_path: Any) -> None:
+    import os
+    import time
+
+    state_file = tmp_path / "budget.json"
+    limit = 0.002
+    today = (datetime.now(UTC)).strftime("%Y-%m-%d")
+
+    # Write a budget file with $0.002 reserved by a dead PID and an expired TTL
+    stale_data = {
+        "date": today,
+        "spent_usd": 0.0,
+        "reserved_usd": 0.002,
+        "reservations": {
+            "stale_pid": {"pid": 99999999, "amount": 0.001, "created_at": time.time()},
+            "stale_ttl": {"pid": os.getpid(), "amount": 0.001, "created_at": time.time() - 1000},
+        },
+        "requests": 0,
+        "limit_usd": limit,
+    }
+    state_file.write_text(json.dumps(stale_data), encoding="utf-8")
+
+    tracker = DailyBudgetTracker(limit_usd=limit, state_path=state_file)
+
+    # If stale reservations are not pruned, reserve(0.001) would fail (0.002 + 0.001 > 0.002)
+    res = await tracker.reserve(0.001)
+    assert res is not None, "Failed to recover budget from stale reservations"
+
+    status = await tracker.get_status()
+    assert status["spent_usd"] == 0.0
+    assert round(status["reserved_usd"], 6) == 0.001
+
+
+async def test_held_file_lock_does_not_freeze_event_loop(tmp_path: Any) -> None:
+    import threading
+    import time
+
+    from deepseek_search_everywhere_mcp.budget import _file_lock
+
+    state_file = tmp_path / "budget.json"
+    lock_file = state_file.with_suffix(".json.lock")
+    tracker = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
+
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_lock_worker():
+        with _file_lock(lock_file):
+            lock_acquired.set()
+            release_lock.wait(timeout=2.0)
+
+    t = threading.Thread(target=hold_lock_worker, daemon=True)
+    t.start()
+    assert lock_acquired.wait(timeout=1.0) is True
+
+    ticks = 0
+
+    async def heartbeat():
+        nonlocal ticks
+        for _ in range(5):
+            await asyncio.sleep(0.02)
+            ticks += 1
+        release_lock.set()
+
+    # While tracker.reserve waits for the lock, heartbeat must be able to advance
+    t0 = time.monotonic()
+    hb_task = asyncio.create_task(heartbeat())
+    res_task = asyncio.create_task(tracker.reserve(0.001))
+
+    await asyncio.gather(hb_task, res_task)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 0.8, f"Event loop was blocked by file lock! Elapsed: {elapsed:.2f}s"
+    assert ticks >= 3, f"Event loop was blocked by file lock! Ticks: {ticks}"
