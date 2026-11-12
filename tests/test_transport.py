@@ -347,3 +347,18 @@ async def test_slow_drip_stream_times_out(upstream) -> None:
     result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=0.1, attempts=1)
     assert result["ok"] is False
     assert result["error"]["code"] == "timeout"
+
+
+async def test_transport_reset_state_maintains_task_reference() -> None:
+    # Trigger client creation
+    client = transport._get_client()
+    assert client is not None
+    assert transport._client is client
+
+    # Reset state should schedule closing task and track reference
+    transport.reset_state()
+    assert transport._client is None
+    # Let event loop run to complete the close task
+    await asyncio.sleep(0.01)
+    assert len(transport._close_tasks) == 0
+    assert client.is_closed

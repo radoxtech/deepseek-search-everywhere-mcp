@@ -126,6 +126,19 @@ def test_search_many_cache_and_refresh(fake_upstream):
     assert r3["requests_used"] == 1
 
 
+def test_search_many_exception_redacts_secrets(monkeypatch):
+    async def mock_search(*args, **kwargs):
+        raise RuntimeError("failed with secret sk-ant-api03-verysecretkey123456")
+
+    monkeypatch.setattr(server, "_search", mock_search)
+    res = asyncio.run(server.deepseek_search_many(["test"]))
+    assert res["ok"] is True
+    assert res["failed_count"] == 1
+    err_msg = res["results"][0]["error"]["message"]
+    assert "verysecretkey" not in err_msg
+    assert "[REDACTED]" in err_msg
+
+
 @pytest.mark.parametrize(
     ("kwargs", "expected_code"),
     [

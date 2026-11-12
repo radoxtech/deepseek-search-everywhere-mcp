@@ -380,6 +380,9 @@ async def _chat_request(
     if reasoning_effort is not None:
         payload["reasoning_effort"] = reasoning_effort
 
+    period = get_pricing_period()
+    rates = settings.llm_pricing.peak if period == "peak" else settings.llm_pricing.off_peak
+
     try:
         result = await _request(
             "POST",
@@ -409,8 +412,6 @@ async def _chat_request(
     finish_reason = choice.get("finish_reason")
     usage = data.get("usage") or {}
 
-    period = get_pricing_period()
-    rates = settings.llm_pricing.peak if period == "peak" else settings.llm_pricing.off_peak
     notes: list[str] = []
 
     if usage and ("prompt_tokens" in usage or "completion_tokens" in usage):
@@ -1555,7 +1556,7 @@ async def deepseek_search_many(
         if task.cancelled():
             res = deadline_error
         elif task.exception() is not None:
-            res = _fail("network_error", str(task.exception()))
+            res = _fail("network_error", redact(str(task.exception())))
         else:
             res = task.result()
 

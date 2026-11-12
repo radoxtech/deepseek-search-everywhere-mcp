@@ -59,6 +59,9 @@ async def close_client() -> None:
         await client.aclose()
 
 
+_close_tasks: set[asyncio.Task[Any]] = set()
+
+
 def reset_state() -> None:
     """Reset shared transport state and close any open client."""
     global _client, _client_loop
@@ -71,10 +74,9 @@ def reset_state() -> None:
             return
         try:
             loop = asyncio.get_running_loop()
-            if loop.is_running():
-                loop.create_task(client.aclose())
-            else:
-                loop.run_until_complete(client.aclose())
+            task = loop.create_task(client.aclose())
+            _close_tasks.add(task)
+            task.add_done_callback(_close_tasks.discard)
         except RuntimeError:
             try:
                 asyncio.run(client.aclose())
