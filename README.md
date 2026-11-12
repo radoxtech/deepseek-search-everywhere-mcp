@@ -22,6 +22,8 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 
 > Not affiliated with DeepSeek. This is an independent, community-maintained project.
 
+## Demo
+
 <p align="center">
   <img src="assets/demo.gif" alt="OpenCode terminal session calling deepseek_search, deepseek_fetch_many, deepseek_extract and deepseek_research" width="100%">
 </p>
@@ -416,20 +418,34 @@ The consuming agent must still treat returned content as untrusted: no filter ca
 
 The server reads configuration from environment variables. It does not read `.env` files itself; export the variables or set them in your MCP client's `env` block.
 
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `DEEPSEEK_API_KEY` | yes | none | DeepSeek platform key |
-| `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com` | API base URL |
-| `DEEPSEEK_AUTH_JSON` | no | `~/.local/share/opencode/auth.json` | Legacy key fallback: path to an opencode credentials file (`{"deepseek": {"key": "..."}}`), used only when `DEEPSEEK_API_KEY` is unset |
-| `MCP_BEARER_TOKEN` | HTTP only | none | Token clients must send as `Authorization: Bearer ...`; the HTTP transport refuses to start without it |
-| `DEEPSEEK_MCP_CACHE` | no | `1` | `1` keeps in-memory response caches on, `0` disables all caches |
-| `DEEPSEEK_MCP_LOG_LEVEL` | no | `WARNING` | stderr log level of the server, the MCP SDK and uvicorn: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `DEEPSEEK_DAILY_BUDGET_USD` | no | unlimited | Daily spend limit in USD (for example `5.00`), covering Search, Fetch and LLM costs; once reached, calls fail with `budget_exceeded` |
-| `DEEPSEEK_STATE_DIR` | no | `~/.cache/deepseek-search-everywhere-mcp` | Directory for the budget state file (`budget.json`) |
-| `DEEPSEEK_SOURCE_DENYLIST` | no | `*.ezproxy.*` | Comma-separated hosts that research never uses as sources. An entry matches the host and its subdomains; an entry containing `*` is a glob matched against the whole host; `none` disables the list |
-| `DEEPSEEK_FETCH_ALLOW_DOMAINS` | no | unset | Comma-separated domains; when set, fetch tools only accept URLs on these domains (and subdomains) |
-| `DEEPSEEK_FETCH_DENY_DOMAINS` | no | unset | Comma-separated domains the fetch tools refuse (and their subdomains) |
-| `DEEPSEEK_EGRESS_ENTROPY_CHECK` | no | off | `1`, `true` or `yes` also rejects queries and URL paths that contain a token longer than 32 characters with high entropy |
+**Required**
+
+| Variable | Purpose |
+|---|---|
+| `DEEPSEEK_API_KEY` | Your DeepSeek platform key |
+| `MCP_BEARER_TOKEN` | HTTP transport only: token clients send as `Authorization: Bearer ...`; the server refuses to start HTTP without it |
+
+**Optional**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | API base URL |
+| `DEEPSEEK_MCP_CACHE` | `1` | `0` disables the in-memory response caches |
+| `DEEPSEEK_MCP_LOG_LEVEL` | `WARNING` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `DEEPSEEK_DAILY_BUDGET_USD` | unlimited | Daily spend cap in USD, e.g. `5.00` |
+| `DEEPSEEK_STATE_DIR` | see below | Directory of the budget state file |
+| `DEEPSEEK_SOURCE_DENYLIST` | `*.ezproxy.*` | Hosts research never uses as sources; `none` disables |
+| `DEEPSEEK_FETCH_ALLOW_DOMAINS` | unset | Fetch only these domains |
+| `DEEPSEEK_FETCH_DENY_DOMAINS` | unset | Never fetch these domains |
+| `DEEPSEEK_EGRESS_ENTROPY_CHECK` | off | `1` also blocks long high-entropy tokens |
+| `DEEPSEEK_AUTH_JSON` | see below | Legacy key file, used only without `DEEPSEEK_API_KEY` |
+
+Details:
+
+- **Daily budget** covers Search, Fetch and LLM costs and resets per UTC day; once reached, calls fail with `budget_exceeded`. The state lives in `budget.json` under `DEEPSEEK_STATE_DIR` (default `~/.cache/deepseek-search-everywhere-mcp`).
+- **Domain lists** (`DEEPSEEK_SOURCE_DENYLIST`, `DEEPSEEK_FETCH_ALLOW_DOMAINS`, `DEEPSEEK_FETCH_DENY_DOMAINS`) are comma-separated; an entry matches the host and its subdomains, and an entry containing `*` is a glob matched against the whole host.
+- **Entropy check** (`1`, `true` or `yes`) rejects queries and URL paths that contain a token longer than 32 characters with high entropy.
+- **Legacy key file**: `DEEPSEEK_AUTH_JSON` points to an opencode credentials file (`{"deepseek": {"key": "..."}}`); without it the server tries `~/.local/share/opencode/auth.json`.
 
 Command-line options of `deepseek-search-everywhere-mcp`: `--transport {stdio,streamable-http}` (default `stdio`), `--host` (default `127.0.0.1`), `--port` (default `8000`), `--path` (default `/mcp`), `--check` (verify credentials and print the balance; stdio only) and `--version`.
 
