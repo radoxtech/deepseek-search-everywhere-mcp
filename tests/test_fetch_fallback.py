@@ -227,3 +227,16 @@ async def test_extract_pdf_uses_fallback(fake_upstream: Any) -> None:
     assert res["cost_breakdown"]["fetch"] == round(2 * server.COST_PER_REQUEST, 6)
     assert res["cost_breakdown"]["llm"] > 0.0
     assert res["cost_usd"] == round(res["cost_breakdown"]["fetch"] + res["cost_breakdown"]["llm"], 6)
+
+
+async def test_fetch_fallback_survives_oversized_host(fake_upstream: Any) -> None:
+    oversized_host = "a" * 50 + "." + "b" * 50 + "." + "c" * 20 + ".org"
+    url = f"https://{oversized_host}/document.pdf"
+    upstream = FallbackUpstream(fetch_status=404)
+    fake_upstream(upstream)
+
+    # Must survive without raising ValueError and return the 404 envelope
+    res = await server.deepseek_fetch(url)
+    assert res["ok"] is False
+    assert res["error"]["code"] == "not_found"
+    assert res["error"]["status"] == 404

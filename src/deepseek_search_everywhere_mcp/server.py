@@ -1844,7 +1844,10 @@ async def _search_fallback_fetch(
     host_for_site = target_host[4:] if target_host.startswith("www.") else target_host
     path_segments = [s for s in parts.path.split("/") if s and s not in ("pdf", "comments", "r")]
     query_terms = " ".join(path_segments[-3:]) if path_segments else ""
-    search_query, _ = fit_query(query_terms, filter_ops=f"site:{host_for_site}")
+    try:
+        search_query, _ = fit_query(query_terms, filter_ops=f"site:{host_for_site}")
+    except ValueError:
+        return None
 
     search_res = await _search(
         search_query,
