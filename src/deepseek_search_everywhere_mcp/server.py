@@ -47,6 +47,7 @@ from .extract import (
     sanitize_json,
     validate_fields,
     validate_schema,
+    verify_evidence,
 )
 from .filters import compile_filters
 from .ratelimit import CHAT, FETCH, SEARCH, RateLimiter, RateLimitExceeded
@@ -2698,6 +2699,29 @@ def _validate_extract_spec(fields: list[str] | None, schema: dict[str, Any] | No
     return None
 
 
+def _calculate_extract_budget(
+    fields: list[str] | None,
+    schema: dict[str, Any] | None,
+    content_len: int,
+) -> tuple[int, float]:
+    """Calculate adaptive max_tokens and timeout for extraction.
+
+    Tokens: 4096 base, scales up to 16384 with large field sets or complex schemas.
+    Timeout: 20s to 90s based on page content length.
+    """
+    field_count = len(fields) if fields else 0
+    if schema:
+        props = schema.get("properties")
+        if isinstance(props, dict):
+            field_count = max(field_count, len(props))
+        else:
+            field_count = max(field_count, 10)
+
+    tokens = min(16384, max(4096, 4096 + max(0, field_count - 5) * 256))
+    timeout = min(90.0, max(20.0, 20.0 + (content_len / 5000.0) * 1.0))
+    return tokens, timeout
+
+
 async def _extract_page(
     clean_url: str,
     fetch_res: dict[str, Any],
@@ -2722,6 +2746,7 @@ async def _extract_page(
     page_title = fetch_res.get("title") or "Untitled"
     user_content = f"URL: {clean_url}\nTitle: {page_title}\n\nPage Content:\n{content}"
 
+    max_tokens, timeout = _calculate_extract_budget(fields, schema, len(content))
     chat_res = await _chat_request(
         messages=[
             {"role": "system", "content": system_prompt},
@@ -2730,8 +2755,9 @@ async def _extract_page(
         thinking={"type": "disabled"},
         model=REWRITE_MODEL,
         temperature=0,
-        max_tokens=2048,
-        timeout=EXTRACT_TIMEOUT,
+        max_tokens=max_tokens,
+        response_format={"type": "json_object"},
+        timeout=timeout,
         attempts=2,
     )
     if not chat_res.get("ok"):
@@ -2743,50 +2769,91 @@ async def _extract_page(
             "llm_cost_usd": 0.0,
         }, 1
 
+    finish_reason = chat_res.get("finish_reason")
+    extraction_truncated = finish_reason == "length"
+
     raw_text = chat_res.get("content")
     llm_cost = chat_res.get("cost_usd", 0.0)
     if not isinstance(raw_text, str) or not raw_text.strip():
+        err_code = "extraction_truncated" if extraction_truncated else "extraction_failed"
+        err_msg = (
+            "Extraction response was truncated before valid JSON could be completed."
+            if extraction_truncated
+            else "Invalid response payload from extraction model."
+        )
         return {
             "ok": False,
             "url": clean_url,
             "error": {
-                "code": "extraction_failed",
-                "message": "Invalid response payload from extraction model.",
+                "code": err_code,
+                "message": err_msg,
             },
             "llm_cost_usd": llm_cost,
         }, 1
 
     parsed, err = sanitize_json(raw_text)
     if err or parsed is None:
+        err_code = "extraction_truncated" if extraction_truncated else "extraction_failed"
+        err_msg = (
+            "Extraction response was truncated before valid JSON could be completed."
+            if extraction_truncated
+            else (err or "Failed to parse extraction response as JSON.")
+        )
         return {
             "ok": False,
             "url": clean_url,
             "error": {
-                "code": "extraction_failed",
-                "message": err or "Failed to parse extraction response as JSON.",
+                "code": err_code,
+                "message": err_msg,
             },
             "llm_cost_usd": llm_cost,
         }, 1
 
     notes: list[str] = []
+    if extraction_truncated:
+        notes.append("Extraction output was truncated by token limit.")
     if fetch_res.get("cached"):
         notes.append("Page fetched from local cache.")
 
-    if fields is not None:
-        parsed = validate_fields(parsed, fields)
-    elif schema is not None:
-        schema_errors = validate_schema(parsed, schema)
+    if isinstance(parsed, dict) and "data" in parsed:
+        raw_data = parsed["data"]
+        raw_evidence = parsed.get("evidence")
+        if isinstance(raw_data, dict):
+            verified_data, verified_evidence, ev_notes = verify_evidence(
+                raw_data, raw_evidence if isinstance(raw_evidence, dict) else {}, content
+            )
+            notes.extend(ev_notes)
+        else:
+            verified_data = raw_data
+            verified_evidence = {}
+    elif isinstance(parsed, dict):
+        verified_data = parsed
+        verified_evidence = {}
+    else:
+        verified_data = {}
+        verified_evidence = {}
+
+    if fields is not None and isinstance(verified_data, dict):
+        verified_data = validate_fields(verified_data, fields)
+    elif schema is not None and isinstance(verified_data, dict):
+        schema_errors = validate_schema(verified_data, schema)
         if schema_errors:
             notes.extend(schema_errors)
 
-    parsed, s_notes = sanitize_structure(parsed)
-    notes.extend(s_notes)
+    if isinstance(verified_data, dict):
+        verified_data, s_notes = sanitize_structure(verified_data)
+        notes.extend(s_notes)
+    if verified_evidence:
+        verified_evidence, ev_s_notes = sanitize_structure(verified_evidence)
+        notes.extend(ev_s_notes)
 
     return {
         "ok": True,
         "url": clean_url,
         "title": fetch_res.get("title"),
-        "data": parsed,
+        "data": verified_data,
+        "evidence": verified_evidence,
+        "extraction_truncated": extraction_truncated,
         "cached": fetch_res.get("cached", False),
         "notes": notes,
         "llm_cost_usd": llm_cost,
@@ -2852,6 +2919,8 @@ async def deepseek_extract(
         "url": clean_url,
         "title": item.get("title"),
         "data": item.get("data"),
+        "evidence": item.get("evidence", {}),
+        "extraction_truncated": item.get("extraction_truncated", False),
         "cached": fetch_res.get("cached", False),
         "cost_usd": total_cost,
         "cost_breakdown": {
@@ -2971,6 +3040,8 @@ async def deepseek_extract_many(
     notes: list[str] = []
     if duplicates:
         notes.append(f"deduped {duplicates} duplicate URL(s)")
+    if any(item.get("extraction_truncated") for item in results):
+        notes.append("One or more extractions were truncated by token limit.")
 
     failed_count = sum(not item.get("ok", False) for item in results)
     cached_count = sum(item.get("cached", False) for item in results)
