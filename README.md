@@ -16,7 +16,7 @@
 
 **DeepSeek Search Everywhere** is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that gives AI agents web search, page fetch (web scraping to clean Markdown), structured data extraction and deep research with numbered citations, all through the DeepSeek Search & Fetch API. It runs over stdio or authenticated HTTP and works with Claude Code, Claude Desktop, Cursor, Cline, Windsurf, Zed, OpenCode and any other MCP client.
 
-You need one credential, a DeepSeek API key, and you pay DeepSeek directly per request: there is no separate subscription. It is a lower-cost alternative to Tavily, Perplexity, Firecrawl and Exa for agents that need live web access; see [Comparison](#comparison-with-tavily) for the numbers.
+You need one credential, a DeepSeek API key, and you pay DeepSeek directly per request: there is no separate subscription. It is an alternative to Tavily, Perplexity, Firecrawl and Exa for agents that need live web access, and about 10x cheaper than Tavily for basic search; see [Comparison](#comparison-with-tavily) for the numbers.
 
 <!-- mcp-name: io.github.radoxtech/deepseek-search-everywhere-mcp -->
 
@@ -405,7 +405,7 @@ Web pages, search snippets and titles are attacker-controlled. The server treats
 - **Untrusted-content handling.** Hidden Unicode (tag characters, bidi controls, zero-width characters) is stripped from content, snippets, titles, reports and extracted values. Markdown images are rewritten to plain `[image: alt](url)` text and links with non-http(s) targets are dropped. Every response that carries web data sets `untrusted_content: true`; research and extraction output, which is model-written from untrusted pages, also sets `derived_from_untrusted: true`.
 - **Injection-resistant synthesis.** The server's own LLM calls have no tool calling and no secrets in their prompts. Sources are wrapped in per-call random delimiters and declared to be data, and the report is filtered afterwards: links that are not in the source list, images, raw HTML and sentences addressed to an AI agent are removed (counted in `injection_suspected`).
 - **Egress guard.** Outgoing search queries and fetch URLs that contain secret-like data (`sk-` keys, bearer tokens, JWTs, AWS access keys, `api_key=`/`token=`/`password=` pairs, URL credentials) are rejected with `egress_blocked`. Optional domain allow and deny lists and a high-entropy check are available through [environment variables](#configuration).
-- **Static SSRF filter.** Non-http(s) schemes, internal hostnames, private and loopback addresses and URLs with embedded credentials return `ssrf_blocked`. The server never resolves DNS locally; DeepSeek performs the fetch, so this is a filter and not network isolation.
+- **Static SSRF filter.** Non-http(s) URLs return `bad_url`; internal hostnames, private and loopback addresses and URLs with embedded credentials return `ssrf_blocked`. The server never resolves DNS locally; DeepSeek performs the fetch, so this is a filter and not network isolation.
 - **No telemetry.** The server does not phone home or collect usage data.
 - **Data flow.** Search queries, URLs you ask it to fetch, and page content selected for extraction or research are sent to the DeepSeek API; nothing else leaves the machine, and the API key is only sent in the `Authorization` header to the configured base URL. Do not put secrets in queries or URLs.
 - **HTTP transport.** Every request needs the bearer token (constant-time comparison, never logged). Bind to loopback or put TLS in front of the server.
@@ -540,7 +540,7 @@ Version 3.0 is a breaking release: tool names, parameters, envelope fields and e
 | HTTP 504 | `upstream_timeout` |
 | `invalid_url` | `bad_url` |
 | `budget_exceeded` with status 429 | `budget_exceeded` with status 402 |
-| none | `egress_blocked`, `extraction_truncated`, `job_not_found`, `topic_too_long` |
+| none | `egress_blocked`, `extraction_truncated`, `job_not_found` |
 
 Behavior changes: extracted values without a verifiable evidence quote are returned as `null`; fetch no longer substitutes a different page when a URL returns 404 (only a result for the same page is accepted); research and extraction output is sanitized and flagged as derived from untrusted content.
 
@@ -584,7 +584,7 @@ Search queries, the URLs you fetch and the page content used for extraction or r
 
 ### How do I limit spending?
 
-Set `DEEPSEEK_DAILY_BUDGET_USD` (for example `5.00`) in the server's environment. Once the day's spend reaches the limit, calls return `budget_exceeded` until the next day. Use `depth="low"` for research when speed and cost matter, and check `deepseek_check_balance` for the account balance.
+Set `DEEPSEEK_DAILY_BUDGET_USD` (for example `5.00`) in the server's environment. Once the day's spend reaches the limit, calls return `budget_exceeded` until the next UTC day. Use `depth="low"` for research when speed and cost matter, and check `deepseek_check_balance` for the account balance.
 
 ### Can the server run remotely, for example in Docker or n8n?
 
