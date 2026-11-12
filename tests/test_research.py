@@ -28,13 +28,13 @@ class DeepResearchUpstream:
         self.search_results = search_results or [
             {
                 "title": "Quantum Error Correction Guide",
-                "url": "https://physics.test/qec",
-                "content": "Surface codes provide fault tolerance in quantum computing.",
+                "url": "https://physics.org/qec",
+                "content": "Surface codes provide fault tolerance in quantum computing. " * 5,
             },
             {
                 "title": "Qubit Fidelity Benchmarks",
-                "url": "https://physics.test/benchmarks",
-                "content": "Two-qubit gate fidelities exceed 99.9% in recent trials.",
+                "url": "https://physics.org/benchmarks",
+                "content": "Two-qubit gate fidelities exceed 99.9% in recent trials. " * 5,
             },
         ]
         self.report_text = report_text or (
@@ -1091,3 +1091,58 @@ def test_normalize_citations_property_test_randomized() -> None:
         for m in re.finditer(r"\[(\d+)\]", cleaned):
             val = int(m.group(1))
             assert 1 <= val <= max_id, f"Extracted invalid id {val} > max_id {max_id}"
+
+
+async def test_lean_envelope_contains_no_page_content_on_success(fake_upstream: Any) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research("quantum computing scaling", depth="low")
+    assert res["ok"] is True
+    assert res["synthesized"] is True
+    assert "raw_sources" not in res
+    assert res["partial"] is False
+    assert len(res["sources"]) > 0
+    for s in res["sources"]:
+        assert "content" not in s
+        assert "snippet" not in s
+        assert set(s.keys()) == {"id", "title", "url", "date"}
+
+    serialized = json.dumps(res)
+    assert len(serialized) < 50_000
+
+
+async def test_lean_envelope_contains_no_page_content_on_all_fallbacks(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 1. Synthesis model call failure fallback
+    upstream = DeepResearchUpstream(fail_synthesis=True)
+    fake_upstream(upstream)
+
+    res1 = await server.deepseek_research("quantum topic", depth="low")
+    assert res1["ok"] is True
+    assert res1["synthesized"] is False
+    assert res1["partial"] is True
+    assert "raw_sources" not in res1
+    for s in res1["sources"]:
+        assert "content" not in s
+        assert "snippet" in s
+        assert len(s["snippet"]) <= 400
+    assert len(json.dumps(res1)) < 50_000
+
+    # 2. Cost ceiling exceeded fallback
+    settings = Settings(research_cost_ceiling_usd=0.0005)
+    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    upstream2 = DeepResearchUpstream()
+    fake_upstream(upstream2)
+
+    res2 = await server.deepseek_research("quantum ceiling topic", depth="low")
+    assert res2["ok"] is True
+    assert res2["synthesized"] is False
+    assert res2["partial"] is True
+    assert "raw_sources" not in res2
+    for s in res2["sources"]:
+        assert "content" not in s
+        assert "snippet" in s
+        assert len(s["snippet"]) <= 400
+    assert len(json.dumps(res2)) < 50_000

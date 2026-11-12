@@ -2320,6 +2320,37 @@ async def deepseek_fetch_many(
     return _assemble_batch(items, tasks, duplicates, max_total_chars, deadline=deadline)
 
 
+def _format_public_sources(
+    sources: list[dict[str, Any]],
+    *,
+    include_snippet: bool = False,
+) -> list[dict[str, Any]]:
+    """Format research sources into a lean public list omitting full page content.
+
+    On success, sources contain only id, title, url, and date.
+    On fallback paths, a 400-character sanitized snippet is included.
+    """
+    formatted: list[dict[str, Any]] = []
+    for s in sources:
+        title = s.get("title")
+        if isinstance(title, str):
+            title, _ = sanitize_untrusted_text(title)
+        item: dict[str, Any] = {
+            "id": s.get("id"),
+            "title": title,
+            "url": s.get("url"),
+            "date": s.get("date"),
+        }
+        if include_snippet:
+            raw_text = s.get("snippet") or s.get("content") or ""
+            snip = raw_text[:400].strip() if isinstance(raw_text, str) else ""
+            if snip:
+                snip, _ = sanitize_untrusted_text(snip)
+            item["snippet"] = snip
+        formatted.append(item)
+    return formatted
+
+
 # Search results whose content is shorter than this are treated as gaps and fetched directly.
 RESEARCH_GAP_CHARS = 200
 # Default content budgets for deepseek_research: per source and across all sources.
@@ -2850,7 +2881,8 @@ async def _execute_research_pipeline(
             "subqueries": subqueries,
             "report": None,
             "synthesized": False,
-            "sources": sources,
+            "sources": _format_public_sources(sources, include_snippet=True),
+            "partial": True,
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
             "cached_count": cached_count,
@@ -2888,7 +2920,8 @@ async def _execute_research_pipeline(
             "subqueries": subqueries,
             "report": None,
             "synthesized": False,
-            "sources": sources,
+            "sources": _format_public_sources(sources, include_snippet=True),
+            "partial": True,
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
             "cached_count": cached_count,
@@ -2922,7 +2955,8 @@ async def _execute_research_pipeline(
             "subqueries": subqueries,
             "report": None,
             "synthesized": False,
-            "sources": sources,
+            "sources": _format_public_sources(sources, include_snippet=True),
+            "partial": True,
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
             "cached_count": cached_count,
@@ -3003,7 +3037,8 @@ async def _execute_research_pipeline(
             "subqueries": subqueries,
             "report": None,
             "synthesized": False,
-            "sources": sources,
+            "sources": _format_public_sources(sources, include_snippet=True),
+            "partial": True,
             "requests_used": requests_used + 1,
             "cached": _all_cached(requests_used + 1, cached_count),
             "cached_count": cached_count,
@@ -3044,19 +3079,8 @@ async def _execute_research_pipeline(
         "subqueries": subqueries,
         "report": clean_report,
         "synthesized": True,
-        "sources": [
-            {
-                "id": s["id"],
-                "title": (
-                    sanitize_untrusted_text(s["title"])[0]
-                    if isinstance(s.get("title"), str)
-                    else s.get("title")
-                ),
-                "url": s["url"],
-            }
-            for s in synthesis_context
-        ],
-        "raw_sources": sources,
+        "sources": _format_public_sources(synthesis_context, include_snippet=False),
+        "partial": bool(fill.failed > 0),
         "requests_used": requests_used + 1,
         "cached": _all_cached(requests_used + 1, cached_count),
         "cached_count": cached_count,

@@ -237,7 +237,8 @@ async def test_research_path_sanitization(monkeypatch: pytest.MonkeyPatch, injec
     res = await deepseek_research("ai security", refresh=True)
     assert res["ok"] is True
     first_source = res["sources"][0]
-    _assert_content_is_sanitized(first_source["content"])
+    assert "content" not in first_source
+    _assert_content_is_sanitized(first_source["snippet"])
     assert "\u200b" not in first_source["title"]
 
 
