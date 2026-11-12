@@ -1195,3 +1195,39 @@ async def test_research_progress_reporting_resilient_to_context_exceptions(fake_
     res = await server.deepseek_research("quantum resilient progress", depth="low", ctx=ctx)
     assert res["ok"] is True
     assert res["synthesized"] is True
+
+
+@pytest.mark.parametrize("depth", ["low", "medium", "high", "max"])
+async def test_fake_clock_44s_inline_for_every_depth(depth: str, fake_upstream: Any) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research(f"inline test {depth}", depth=depth)
+    assert res["ok"] is True
+    assert res["status"] == "done"
+    assert res["delivery"] == "inline"
+    assert res["depth"] == depth
+
+
+@pytest.mark.parametrize("depth", ["low", "medium", "high", "max"])
+async def test_fake_clock_46s_running_for_every_depth(
+    depth: str, fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    async def mock_wait_timeout(tasks: Any, timeout: float | None = None) -> tuple[set[Any], set[Any]]:
+        return set(), set(tasks)
+
+    monkeypatch.setattr(asyncio, "wait", mock_wait_timeout)
+
+    res = await server.deepseek_research(f"running test {depth}", depth=depth)
+    assert res["ok"] is True
+    assert res["status"] == "running"
+    assert res["depth"] == depth
+    assert "job_id" in res
+    assert "Call deepseek_check_research" in res["next_action"]
+
+    job = get_job_store().get(res["job_id"])
+    assert job is not None and job.task is not None
+    await job.task
