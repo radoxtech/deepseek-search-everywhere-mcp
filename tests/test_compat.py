@@ -52,6 +52,15 @@ def test_ori_question_dropped_from_public_search() -> None:
 
 
 @pytest.mark.parametrize(
+    "dropped_param",
+    ["localization", "summary_chars", "max_chars_per_result", "strip_boilerplate", "dedupe"],
+)
+def test_dropped_parameters_not_in_search_tools(dropped_param: str) -> None:
+    assert dropped_param not in inspect.signature(server.deepseek_search).parameters
+    assert dropped_param not in inspect.signature(server.deepseek_search_many).parameters
+
+
+@pytest.mark.parametrize(
     "name",
     [
         "_search",

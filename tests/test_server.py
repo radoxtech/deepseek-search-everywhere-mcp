@@ -527,24 +527,6 @@ def test_rewrite_exception_is_logged_redacted(fake_upstream, caplog):
     assert all("sk-abcdefghijklmnop" not in message for message in messages)
 
 
-def test_search_localization_included_in_payload(fake_upstream):
-    result, calls = _run_search(fake_upstream, [], localization="192.168.1.1")
-    assert result["ok"] is True
-    assert calls[0]["payload"].get("localization") == "192.168.1.1"
-
-
-def test_search_localization_rejections(fake_upstream):
-    result = asyncio.run(server.deepseek_search("test", localization=123))  # type: ignore[arg-type]
-    assert result["ok"] is False
-    assert result["error"]["code"] == "bad_request"
-    assert "must be a string" in result["error"]["message"]
-
-    result = asyncio.run(server.deepseek_search("test", localization="x" * 65))
-    assert result["ok"] is False
-    assert result["error"]["code"] == "bad_request"
-    assert "maximum length of 64 characters" in result["error"]["message"]
-
-
 def test_search_exclude_terms_and_exact_phrases_in_payload(fake_upstream):
     result, calls = _run_search(
         fake_upstream,

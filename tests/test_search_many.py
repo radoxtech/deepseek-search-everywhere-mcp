@@ -144,7 +144,6 @@ def test_search_many_exception_redacts_secrets(monkeypatch):
     [
         ({"count": 0}, "bad_count"),
         ({"count": 51}, "bad_count"),
-        ({"max_chars_per_result": 0}, "bad_request"),
         ({"max_total_chars": 0}, "bad_request"),
     ],
 )

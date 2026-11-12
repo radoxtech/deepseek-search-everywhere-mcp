@@ -80,16 +80,13 @@ def test_search_strips_before_budgets_and_shares_the_cache(fake_upstream):
     escaped = THREAD.replace("# 评论区域", "\\# 评论区域")
     fake = fake_upstream(default={"ok": True, "data": {"results": [_search_item(REDDIT_URL, escaped)]}})
     clean = asyncio.run(server.deepseek_search("q", count=1, content="full"))
-    raw = asyncio.run(server.deepseek_search("q", count=1, content="full", strip_boilerplate=False))
-    assert len(fake.calls) == 1  # one cache entry serves both
-    assert raw["cached"] is True
+    assert len(fake.calls) == 1
     result = clean["results"][0]
     assert not CJK.search(result["content"])
     assert result["chars"] == len(result["content"])
-    assert raw["results"][0]["content"] == server._unescape_markdown(escaped)
 
     budget = len(remove_boilerplate(THREAD, REDDIT_URL))
-    cut = asyncio.run(server.deepseek_search("q", count=1, content="full", max_chars_per_result=budget))
+    cut = asyncio.run(server.deepseek_search("q", count=1, content="full", max_total_chars=budget))
     assert cut["results"][0]["content"] == result["content"]
     assert server.TRUNCATED_NOTE not in cut["notes"]
 
@@ -120,10 +117,11 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
 @pytest.mark.parametrize(
     "name",
     [
-        "deepseek_search",
         "deepseek_fetch",
         "deepseek_fetch_many",
         "deepseek_research",
+        "deepseek_extract",
+        "deepseek_extract_many",
     ],
 )
 def test_flag_is_keyword_only_and_on_by_default(name):

@@ -13,7 +13,7 @@ PAGE = "Plain page text with an escaped \\(paren\\). " * 100
 def test_search_results_report_chars_only(fake_upstream):
     item = {"title": "T", "url": URL, "site_name": "Example", "content": PAGE}
     fake_upstream(default={"ok": True, "data": {"results": [item]}})
-    envelope = asyncio.run(server.deepseek_search("q", count=1, content="full", max_chars_per_result=300))
+    envelope = asyncio.run(server.deepseek_search("q", count=1, content="full", max_total_chars=300))
     result = envelope["results"][0]
     assert result["chars"] == len(result["content"])
     assert "content_chars" not in result

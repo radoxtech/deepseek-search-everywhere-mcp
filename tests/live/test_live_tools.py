@@ -63,9 +63,7 @@ async def test_web_search_returns_relevant_results() -> None:
 
 async def test_search_and_read_returns_relevant_content() -> None:
     query = "PostgreSQL VACUUM FULL versus regular VACUUM"
-    envelope = await server.deepseek_search(
-        query, count=3, content="full", max_chars_per_result=1500, max_total_chars=4500
-    )
+    envelope = await server.deepseek_search(query, count=3, content="full", max_total_chars=4500)
     results = _assert_results(envelope, 2)
     with_content = [item for item in results if item.get("content")]
     assert len(with_content) >= 2, "expected page content for at least two results"
@@ -85,29 +83,17 @@ def _ui_labels(content: str) -> list[str]:
 
 async def test_reddit_threads_come_back_without_site_ui() -> None:
     query = "site:reddit.com ADHD social media"
-    envelope = await server.deepseek_search(
-        query, count=2, content="full", max_chars_per_result=50000, max_total_chars=100000
-    )
+    envelope = await server.deepseek_search(query, count=2, content="full", max_total_chars=100000)
     _assert_ok(envelope)
     threads = [item for item in envelope["results"] if rules_for(item["url"]) and item.get("content")]
     if not threads:
         pytest.skip("upstream returned no Reddit thread with content")
     for item in threads:
         assert _ui_labels(item["content"]) == [], item["url"]
-    # The raw variant is served from the same cache entry, so it costs nothing.
-    raw = await server.deepseek_search(
-        query,
-        count=2,
-        content="full",
-        max_chars_per_result=50000,
-        max_total_chars=100000,
-        strip_boilerplate=False,
-    )
-    assert raw["cached"] is True
-    stripped = {item["url"]: item["content"] for item in threads}
-    for item in raw["results"]:
-        if item["url"] in stripped and _ui_labels(item["content"]):
-            assert len(stripped[item["url"]]) < len(item["content"])
+    # Verify raw fetch retains UI labels that search stripped
+    raw = await server.deepseek_fetch(threads[0]["url"], strip_boilerplate=False)
+    if raw.get("ok") and _ui_labels(raw["content"]):
+        assert len(threads[0]["content"]) < len(raw["content"])
 
 
 @pytest.mark.parametrize(

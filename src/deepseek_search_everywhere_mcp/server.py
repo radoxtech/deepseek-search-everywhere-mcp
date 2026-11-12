@@ -1405,26 +1405,14 @@ async def deepseek_search(
         str | None,
         Field(description="Restrict results to ISO language code like 'en', 'de', 'pl' (default None)"),
     ] = None,
-    max_chars_per_result: Annotated[
-        int,
-        Field(description="Max characters of page text per result with content='full' (default 4000)"),
-    ] = 4000,
     max_total_chars: Annotated[
         int,
         Field(description="Max total characters of page text across results (default 30000)"),
     ] = 30000,
-    dedupe: Annotated[
-        bool,
-        Field(description="Remove duplicate URLs across result list (default True)"),
-    ] = True,
     rewrite: Annotated[
         bool,
         Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
     ] = False,
-    localization: Annotated[
-        str | None,
-        Field(description="Optional country code or client IP for regional search bias (default None)"),
-    ] = None,
     exclude_terms: Annotated[
         list[str] | None,
         Field(description="Terms that must not appear in search results (default None)"),
@@ -1453,14 +1441,6 @@ async def deepseek_search(
         bool,
         Field(description="Bypass local cache and fetch fresh results from API (default False)"),
     ] = False,
-    summary_chars: Annotated[
-        int | None,
-        Field(description="Max summary characters per snippet; 0 omits summary (default 400)"),
-    ] = None,
-    strip_boilerplate: Annotated[
-        bool,
-        Field(description="Remove cookie banners, headers and site UI boilerplate (default True)"),
-    ] = True,
 ) -> dict[str, Any]:
     """Search the web with DeepSeek index and return ranked results, snippets, and page text.
 
@@ -1474,17 +1454,19 @@ async def deepseek_search(
 
     Returns: {"ok": True, "results": [...], "count": int, "cost_usd": float, "notes": [...]}.
     """
+    if max_total_chars < 1:
+        return _fail("bad_request", "max_total_chars must be at least 1.")
+    per_result = max(500, max_total_chars // max(1, count))
     res = await _search(
         query,
         count,
         None,
         content,
         lang,
-        max_chars_per_result,
+        per_result,
         max_total_chars,
-        dedupe,
-        rewrite,
-        localization=localization,
+        dedupe=True,
+        rewrite=rewrite,
         exclude_terms=exclude_terms,
         exact_phrases=exact_phrases,
         after=after,
@@ -1492,12 +1474,12 @@ async def deepseek_search(
         include_domains=include_domains,
         exclude_domains=exclude_domains,
         refresh=refresh,
-        summary_chars=summary_chars,
-        strip_boilerplate=strip_boilerplate,
+        summary_chars=None,
+        strip_boilerplate=True,
     )
     if res.get("ok") and (content == "full" or content is True):
         fill = await _fill_gaps(
-            res.get("results") or [], max_chars_per_result, max_total_chars, refresh, strip_boilerplate
+            res.get("results") or [], per_result, max_total_chars, refresh, strip_boilerplate=True
         )
         if fill.requests_used:
             res["requests_used"] = (0 if res.get("cached") else 1) + fill.requests_used
@@ -1527,26 +1509,14 @@ async def deepseek_search_many(
         str | None,
         Field(description="Restrict results to ISO language code like 'en', 'de', 'pl' (default None)"),
     ] = None,
-    max_chars_per_result: Annotated[
-        int,
-        Field(description="Max characters of page text per result with content='full' (default 4000)"),
-    ] = 4000,
     max_total_chars: Annotated[
         int,
         Field(description="Max total characters of page text across results (default 30000)"),
     ] = 30000,
-    dedupe: Annotated[
-        bool,
-        Field(description="Remove duplicate URLs across result list (default True)"),
-    ] = True,
     rewrite: Annotated[
         bool,
         Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
     ] = False,
-    localization: Annotated[
-        str | None,
-        Field(description="Optional country code or client IP for regional search bias (default None)"),
-    ] = None,
     exclude_terms: Annotated[
         list[str] | None,
         Field(description="Terms that must not appear in search results (default None)"),
@@ -1575,14 +1545,6 @@ async def deepseek_search_many(
         bool,
         Field(description="Bypass local cache and fetch fresh results from API (default False)"),
     ] = False,
-    summary_chars: Annotated[
-        int | None,
-        Field(description="Max summary characters per snippet; 0 omits summary (default 400)"),
-    ] = None,
-    strip_boilerplate: Annotated[
-        bool,
-        Field(description="Remove cookie banners, headers and site UI boilerplate (default True)"),
-    ] = True,
     deadline: Annotated[
         float | None,
         Field(description="Overall timeout deadline in seconds; completed results returned if reached"),
@@ -1612,8 +1574,8 @@ async def deepseek_search_many(
         return _fail("bad_request", "all items in queries must be strings.")
     if count < 1 or count > MAX_COUNT:
         return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
-    if max_chars_per_result < 1 or max_total_chars < 1:
-        return _fail("bad_request", "max_chars_per_result and max_total_chars must be at least 1.")
+    if max_total_chars < 1:
+        return _fail("bad_request", "max_total_chars must be at least 1.")
 
     unique_queries: list[str] = []
     seen: set[str] = set()
@@ -1639,11 +1601,8 @@ async def deepseek_search_many(
             count=count,
             content=content,
             lang=lang,
-            max_chars_per_result=max_chars_per_result,
             max_total_chars=per_query_chars,
-            dedupe=dedupe,
             rewrite=rewrite,
-            localization=localization,
             exclude_terms=exclude_terms,
             exact_phrases=exact_phrases,
             after=after,
@@ -1651,8 +1610,6 @@ async def deepseek_search_many(
             include_domains=include_domains,
             exclude_domains=exclude_domains,
             refresh=refresh,
-            summary_chars=summary_chars,
-            strip_boilerplate=strip_boilerplate,
         )
 
     tasks = [asyncio.create_task(_run_one(q)) for q in unique_queries]
