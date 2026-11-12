@@ -80,3 +80,33 @@ def test_boilerplate_removal_fuzz_time_limit() -> None:
 
     assert elapsed < 0.5, f"Boilerplate removal took {elapsed:.3f} s on 2 MB input"
     assert isinstance(result, str)
+
+
+async def test_fetch_content_capped_and_windowing_notes(fake_upstream) -> None:
+    from deepseek_search_everywhere_mcp import server
+
+    huge_content = "x" * 3_000_000
+    fake_upstream(
+        responses={
+            "/v1/tools/fetch": {
+                "ok": True,
+                "data": {"title": "Huge Page", "content": huge_content},
+            }
+        }
+    )
+
+    # 1. Normal fetch: content was capped, total_chars reports original length, content_capped is True
+    res = await server.deepseek_fetch("https://example.com/huge", refresh=True)
+    assert res["ok"] is True
+    assert res.get("content_capped") is True
+    assert res["total_chars"] == 3_000_000
+    assert any("capped" in note.lower() for note in res["notes"])
+
+    # 2. Windowing with offset beyond the capped limit returns empty content and a clear note
+    res_window = await server.deepseek_fetch(
+        "https://example.com/huge", offset=2_500_000, limit=1000, refresh=True
+    )
+    assert res_window["ok"] is True
+    assert res_window.get("content_capped") is True
+    assert res_window["content"] == ""
+    assert any("beyond the capped content limit" in note for note in res_window["notes"])

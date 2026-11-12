@@ -1958,7 +1958,10 @@ async def _fetch(
 
     data = record["data"]
     raw_content = data.get("content") or ""
+    raw_len = len(raw_content)
     content = _cap_raw_content(raw_content, max_chars)
+    content_capped = raw_len > len(content)
+    capped_limit = len(content)
     if clean:
         content = _unescape_markdown(content)
     only_boilerplate = False
@@ -1990,8 +1993,13 @@ async def _fetch(
     elif query:
         content, snippets_count = extract_snippets(content, query, max_snippets=max_snippets)
 
-    total_chars = len(content)
+    total_chars = raw_len if content_capped else len(content)
     notes = _fetch_notes(content, only_boilerplate)
+    if content_capped:
+        notes.append(
+            f"Content was capped at {capped_limit} characters before processing "
+            f"(original document length: {raw_len} chars)."
+        )
 
     if find_text:
         target = find_text.strip()
@@ -2007,6 +2015,14 @@ async def _fetch(
     is_windowed = offset is not None or limit is not None or find_text is not None
     if is_windowed:
         start = offset if offset is not None else 0
+        if offset is not None and offset >= capped_limit:
+            if content_capped:
+                notes.append(
+                    f"offset {offset} is beyond the capped content limit ({capped_limit} chars); "
+                    f"original length is {raw_len} chars."
+                )
+            else:
+                notes.append(f"offset {offset} is beyond the total document length ({capped_limit} chars).")
         effective_limit = min(limit if limit is not None else max_chars, max_chars)
         content = content[start : start + effective_limit]
         window_has_more = (start + len(content)) < total_chars
@@ -2038,6 +2054,8 @@ async def _fetch(
         "notes": notes,
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }
+    if content_capped:
+        envelope["content_capped"] = True
     if section is not None:
         envelope["section"] = section_index
         envelope["total_sections"] = total_sections
