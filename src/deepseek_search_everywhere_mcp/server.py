@@ -39,6 +39,7 @@ from .deep_research import (
     sanitize_citations,
     select_synthesis_context,
 )
+from .egress import check_fetch_egress, check_search_egress
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
 from .extract import (
@@ -938,6 +939,9 @@ def _check_search_args(
     """Validate query, count, lang and filter budget; return an error envelope or None."""
     if not query:
         return _fail("empty_query", "query must not be empty.")
+    egress_err = check_search_egress(query, get_settings())
+    if egress_err is not None:
+        return _fail("egress_blocked", egress_err)
     ops_len = len(filter_ops) if filter_ops else 0
     budget = MAX_QUERY - (ops_len + 1 if ops_len else 0)
     if len(query) > budget:
@@ -1733,7 +1737,13 @@ def _check_fetch_url(url: str) -> dict[str, Any] | None:
         return _fail("url_too_long", f"url must be at most {MAX_URL} characters.")
     if not re.match(r"^https?://", url, re.I):
         return _fail("bad_url", "url must start with http:// or https://.")
-    return _reject_url(url)
+    rejection = _reject_url(url)
+    if rejection is not None:
+        return rejection
+    egress_err = check_fetch_egress(url, get_settings())
+    if egress_err is not None:
+        return _fail("egress_blocked", egress_err)
+    return None
 
 
 @_timed

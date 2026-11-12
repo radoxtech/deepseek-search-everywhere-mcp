@@ -18,6 +18,9 @@ MIB = 1024 * 1024
 ENV_CACHE = "DEEPSEEK_MCP_CACHE"
 ENV_LOG_LEVEL = "DEEPSEEK_MCP_LOG_LEVEL"
 ENV_DAILY_BUDGET = "DEEPSEEK_DAILY_BUDGET_USD"
+ENV_FETCH_ALLOW_DOMAINS = "DEEPSEEK_FETCH_ALLOW_DOMAINS"
+ENV_FETCH_DENY_DOMAINS = "DEEPSEEK_FETCH_DENY_DOMAINS"
+ENV_EGRESS_ENTROPY_CHECK = "DEEPSEEK_EGRESS_ENTROPY_CHECK"
 
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"
@@ -115,6 +118,11 @@ class Settings:
     http_port: int = 8000
     http_path: str = "/mcp"
 
+    # Egress guard settings (S2, S10).
+    fetch_allow_domains: tuple[str, ...] | None = None
+    fetch_deny_domains: tuple[str, ...] | None = None
+    egress_entropy_check: bool = False
+
     def __post_init__(self) -> None:
         for field in fields(self):
             value = getattr(self, field.name)
@@ -142,6 +150,18 @@ class Settings:
             raise ValueError(f"http_path must start with '/', got {self.http_path!r}")
         if self.log_level.upper() not in _LOG_LEVELS:
             raise ValueError(f"log_level must be one of {sorted(_LOG_LEVELS)}, got {self.log_level!r}")
+        if self.fetch_allow_domains is not None:
+            if not isinstance(self.fetch_allow_domains, tuple):
+                object.__setattr__(self, "fetch_allow_domains", tuple(self.fetch_allow_domains))
+            for d in self.fetch_allow_domains:
+                if not isinstance(d, str) or not d.strip() or "/" in d or ":" in d:
+                    raise ValueError(f"fetch_allow_domains must contain valid domain names, got {d!r}")
+        if self.fetch_deny_domains is not None:
+            if not isinstance(self.fetch_deny_domains, tuple):
+                object.__setattr__(self, "fetch_deny_domains", tuple(self.fetch_deny_domains))
+            for d in self.fetch_deny_domains:
+                if not isinstance(d, str) or not d.strip() or "/" in d or ":" in d:
+                    raise ValueError(f"fetch_deny_domains must contain valid domain names, got {d!r}")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -166,6 +186,15 @@ class Settings:
                 raise ValueError(
                     f"daily_budget_usd: {ENV_DAILY_BUDGET} must be a positive number, got {budget!r}"
                 ) from None
+        allow = os.environ.get(ENV_FETCH_ALLOW_DOMAINS, "").strip()
+        if allow:
+            overrides["fetch_allow_domains"] = tuple(d.strip().lower() for d in allow.split(",") if d.strip())
+        deny = os.environ.get(ENV_FETCH_DENY_DOMAINS, "").strip()
+        if deny:
+            overrides["fetch_deny_domains"] = tuple(d.strip().lower() for d in deny.split(",") if d.strip())
+        entropy = os.environ.get(ENV_EGRESS_ENTROPY_CHECK, "").strip().lower()
+        if entropy:
+            overrides["egress_entropy_check"] = entropy in {"1", "true", "yes"}
         return cls(**overrides)
 
 
