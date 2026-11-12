@@ -396,3 +396,35 @@ async def test_live_llm_extract_30_field_schema_with_evidence() -> None:
     assert len(data) == 30
     assert isinstance(envelope["evidence"], dict)
     assert envelope["extraction_truncated"] is False
+
+
+@pytest.mark.live_llm
+@repeat_llm(3)
+async def test_live_llm_extract_five_pages_evidence() -> None:
+    test_cases = [
+        (
+            "https://en.wikipedia.org/wiki/Python_(programming_language)",
+            ["designer", "typing", "os", "license", "paradigm"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+            ["designed_by", "first_appeared", "paradigm", "typing", "license"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/Linux",
+            ["developer", "written_in", "os_family", "source_model", "license"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/PostgreSQL",
+            ["original_author", "developer", "initial_release", "written_in", "operating_system"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/SQLite",
+            ["original_author", "developer", "initial_release", "written_in", "type"],
+        ),
+    ]
+    for url, fields in test_cases:
+        envelope = await server.deepseek_extract(url, fields=fields, refresh=True)
+        _assert_ok(envelope)
+        assert isinstance(envelope.get("data"), dict)
+        assert isinstance(envelope.get("evidence"), dict)
