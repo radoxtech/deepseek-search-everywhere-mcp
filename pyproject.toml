@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deepseek-search-everywhere-mcp"
-version = "2.3.0"
+version = "3.0.0"
 description = "MCP server for web search, page fetch to Markdown, structured data extraction and deep research with citations, built on the DeepSeek Search & Fetch API. Works with Claude Code, Claude Desktop, Cursor, Cline, Windsurf, Zed and OpenCode."
 readme = "README.md"
 license = "MIT"
