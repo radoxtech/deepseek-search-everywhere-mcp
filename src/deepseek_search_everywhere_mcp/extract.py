@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from typing import Any
 
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
@@ -124,11 +125,60 @@ def validate_schema(data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
     return errors
 
 
+_QUOTES_RE = re.compile(r'["“”„«»]')
+_APOSTROPHES_RE = re.compile(r"['’‘ʻ]")
+_DASHES_RE = re.compile(r"[-–—−‐‑]")
+_MARKDOWN_MARKERS_RE = re.compile(r"[*_`~]+")
+
+
 def normalize_for_evidence(text: str) -> str:
-    """Normalize text for substring matching by collapsing whitespace and lowercasing."""
+    """Normalize text for evidence matching.
+
+    Applies NFKC Unicode normalization, strips markdown emphasis and code markers (*, _, `, ~),
+    unifies quotation marks, apostrophes and dashes, collapses whitespace, and lowercases.
+    """
     if not isinstance(text, str):
         return ""
+    text = unicodedata.normalize("NFKC", text)
+    text = _MARKDOWN_MARKERS_RE.sub("", text)
+    text = _QUOTES_RE.sub('"', text)
+    text = _APOSTROPHES_RE.sub("'", text)
+    text = _DASHES_RE.sub("-", text)
     return " ".join(text.lower().split())
+
+
+def _value_appears_in_quote(val: Any, quote: str, norm_quote: str) -> bool:
+    """Check whether a scalar value appears in the evidence quote."""
+    if isinstance(val, str):
+        norm_val = normalize_for_evidence(val)
+        return bool(norm_val and norm_val in norm_quote)
+    if isinstance(val, bool):
+        return True
+    if isinstance(val, (int, float)):
+        norm_q = normalize_for_evidence(quote)
+        if isinstance(val, int):
+            digits = str(abs(val))
+            sep_pattern = r"(?<!\d)" + r"[\s,._']?".join(re.escape(d) for d in digits) + r"(?!\d)"
+            return bool(re.search(sep_pattern, quote) or re.search(sep_pattern, norm_q))
+        elif isinstance(val, float):
+            if val.is_integer():
+                digits = str(abs(int(val)))
+                sep_pattern = r"(?<!\d)" + r"[\s,._']?".join(re.escape(d) for d in digits) + r"(?!\d)"
+                if re.search(sep_pattern, quote) or re.search(sep_pattern, norm_q):
+                    return True
+            parts = f"{abs(val):.6f}".rstrip("0").rstrip(".").split(".")
+            int_part = parts[0]
+            frac_part = parts[1] if len(parts) > 1 else ""
+            if frac_part:
+                int_pat = r"[\s,._']?".join(re.escape(d) for d in int_part)
+                frac_pat = r"[\s,._']?".join(re.escape(d) for d in frac_part)
+                sep_pattern = r"(?<!\d)" + int_pat + r"[\.,]" + frac_pat + r"(?!\d)"
+                return bool(re.search(sep_pattern, quote) or re.search(sep_pattern, norm_q))
+            else:
+                int_pat = r"[\s,._']?".join(re.escape(d) for d in int_part)
+                sep_pattern = r"(?<!\d)" + int_pat + r"(?!\d)"
+                return bool(re.search(sep_pattern, quote) or re.search(sep_pattern, norm_q))
+    return False
 
 
 def _verify_field_evidence(
@@ -170,12 +220,19 @@ def _verify_field_evidence(
         notes.append(f"Field '{field_name}' nullified: missing evidence quote.")
     else:
         norm_quote = normalize_for_evidence(quote)
-        if norm_quote and norm_quote in norm_page:
-            verified_data[field_name] = val
-            verified_evidence[field_name] = quote
-        else:
+        if not norm_quote or norm_quote not in norm_page:
             verified_data[field_name] = None
             notes.append(f"Field '{field_name}' nullified: evidence quote not found in page content.")
+        elif (
+            isinstance(val, (str, int, float))
+            and not isinstance(val, bool)
+            and not _value_appears_in_quote(val, quote, norm_quote)
+        ):
+            verified_data[field_name] = None
+            notes.append(f"Field '{field_name}' nullified: extracted value not found in evidence quote.")
+        else:
+            verified_data[field_name] = val
+            verified_evidence[field_name] = quote
 
 
 def verify_evidence(
