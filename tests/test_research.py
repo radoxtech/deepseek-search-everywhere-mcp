@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 from typing import Any
 
+import pytest
+
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.deep_research import get_job_store
+from deepseek_search_everywhere_mcp.settings import Settings
 
 
 class DeepResearchUpstream:
@@ -156,3 +162,122 @@ async def test_research_synthesis_fallback(fake_upstream: Any) -> None:
     assert res["report"] is None
     assert "sources" in res
     assert any("Synthesis model call failed" in note for note in res["notes"])
+
+
+async def test_research_finishing_within_inline_wait_returns_inline(fake_upstream: Any) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research("quantum computing scaling", depth="low")
+    assert res["ok"] is True
+    assert res["status"] == "done"
+    assert res["delivery"] == "inline"
+
+
+async def test_research_exceeding_inline_wait_returns_running(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+
+    class SlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                await asyncio.sleep(0.15)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(SlowUpstream())
+
+    res = await server.deepseek_research("slow quantum topic", depth="low")
+    assert res["ok"] is True
+    assert res["status"] == "running"
+    job_id = res["job_id"]
+    uuid_obj = uuid.UUID(job_id, version=4)
+    assert str(uuid_obj) == job_id
+    assert res["depth"] == "low"
+    assert "progress" in res
+    assert "next_action" in res
+    assert "Call deepseek_check_research with this job_id now." in res["next_action"]
+
+    store = get_job_store()
+    job = store.get(job_id)
+    assert job is not None
+    assert job.task is not None
+    done_res = await job.task
+    assert done_res["ok"] is True
+    assert done_res["status"] == "done"
+
+
+async def test_research_cancellation_does_not_cancel_background_job(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=10.0))
+
+    class SlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                await asyncio.sleep(0.2)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(SlowUpstream())
+
+    call_task = asyncio.create_task(server.deepseek_research("cancelled topic", depth="low"))
+    await asyncio.sleep(0.05)
+    call_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call_task
+
+    store = get_job_store()
+    job = store.find_active_match("cancelled topic", "low", None)
+    assert job is not None
+    assert job.task is not None
+    assert not job.task.cancelled()
+    res = await job.task
+    assert res["ok"] is True
+
+
+async def test_research_duplicate_joins_running_job(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+
+    class SlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                await asyncio.sleep(0.15)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(SlowUpstream())
+
+    res1 = await server.deepseek_research("duplicate topic", depth="medium")
+    res2 = await server.deepseek_research("DUPLICATE TOPIC ", depth="medium")
+    assert res1["status"] == "running"
+    assert res2["status"] == "running"
+    assert res1["job_id"] == res2["job_id"]
+
+
+async def test_research_concurrency_limit_returns_rate_limited_local(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        server,
+        "get_settings",
+        lambda: Settings(research_inline_wait=0.01, research_max_jobs=3),
+    )
+
+    class SlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            await asyncio.sleep(0.2)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(SlowUpstream())
+
+    res1 = await server.deepseek_research("topic 1", depth="low")
+    res2 = await server.deepseek_research("topic 2", depth="low")
+    res3 = await server.deepseek_research("topic 3", depth="low")
+    assert res1["status"] == "running"
+    assert res2["status"] == "running"
+    assert res3["status"] == "running"
+
+    res4 = await server.deepseek_research("topic 4", depth="low")
+    assert res4["ok"] is False
+    assert res4["error"]["code"] == "rate_limited_local"

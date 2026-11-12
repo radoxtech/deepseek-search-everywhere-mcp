@@ -6,13 +6,92 @@ budgets merged retrieval contexts, and generates factual briefings with [n] cita
 
 from __future__ import annotations
 
+import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .extract import sanitize_json
 
 DepthLevel = Literal["low", "medium", "high", "max"]
+
+
+@dataclass
+class ResearchJob:
+    job_id: str
+    topic: str
+    depth: str
+    lang: str | None
+    created_at: float
+    task: asyncio.Task[dict[str, Any]] | None = None
+    completed_at: float | None = None
+    result: dict[str, Any] | None = None
+    exception: BaseException | None = None
+    progress: dict[str, Any] = field(default_factory=lambda: {"phase": "starting", "step": 0, "of": 4})
+
+    def normalize_key(self) -> tuple[str, str, str | None]:
+        return (self.topic.strip().lower(), self.depth, self.lang)
+
+
+class ResearchJobStore:
+    def __init__(self, ttl: float = 1800.0, max_active: int = 3) -> None:
+        self.ttl = ttl
+        self.max_active = max_active
+        self._jobs: dict[str, ResearchJob] = {}
+
+    def prune_expired(self, now: float) -> None:
+        expired_ids = [
+            jid
+            for jid, job in self._jobs.items()
+            if job.completed_at is not None and (now - job.completed_at) > self.ttl
+        ]
+        for jid in expired_ids:
+            del self._jobs[jid]
+
+    def count_active(self) -> int:
+        return sum(1 for j in self._jobs.values() if j.task is not None and not j.task.done())
+
+    def find_active_match(self, topic: str, depth: str, lang: str | None) -> ResearchJob | None:
+        target_key = (topic.strip().lower(), depth, lang)
+        for job in self._jobs.values():
+            if job.task is not None and not job.task.done():
+                if job.normalize_key() == target_key:
+                    return job
+        return None
+
+    def add(self, job: ResearchJob) -> None:
+        self._jobs[job.job_id] = job
+
+    def get(self, job_id: str) -> ResearchJob | None:
+        return self._jobs.get(job_id)
+
+    def cancel_all(self) -> None:
+        for job in self._jobs.values():
+            if job.task is not None and not job.task.done():
+                job.task.cancel()
+        self._jobs.clear()
+
+
+_job_store: ResearchJobStore | None = None
+
+
+def get_job_store(ttl: float = 1800.0, max_active: int = 3) -> ResearchJobStore:
+    """Return the global research job store, initializing it lazily if needed."""
+    global _job_store
+    if _job_store is None:
+        _job_store = ResearchJobStore(ttl=ttl, max_active=max_active)
+    else:
+        _job_store.ttl = ttl
+        _job_store.max_active = max_active
+    return _job_store
+
+
+def reset_state() -> None:
+    """Clear all research jobs and cancel running background tasks."""
+    global _job_store
+    if _job_store is not None:
+        _job_store.cancel_all()
+        _job_store = None
 
 
 @dataclass(frozen=True)

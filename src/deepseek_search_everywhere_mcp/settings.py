@@ -106,6 +106,10 @@ class Settings:
     # Research tool budget.
     research_max_pages: int = 5
     research_gap_deadline: float = 15.0
+    research_inline_wait: float = 45.0
+    research_max_jobs: int = 3
+    research_job_ttl: float = 1800.0
+    research_cost_ceiling_usd: float = 1.0
 
     # Daily spend budget limit in USD (None means disabled).
     daily_budget_usd: float | None = None
@@ -135,7 +139,19 @@ class Settings:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
             if name.startswith("response_cap_") and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
-            if name in {"limiter_max_wait", "batch_deadline", "research_gap_deadline"} and not value > 0:
+            if (
+                name
+                in {
+                    "limiter_max_wait",
+                    "batch_deadline",
+                    "research_gap_deadline",
+                    "research_inline_wait",
+                    "research_cost_ceiling_usd",
+                }
+                and not value > 0
+            ):
+                raise ValueError(f"{name} must be > 0, got {value!r}")
+            if name == "research_max_jobs" and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
         if self.daily_budget_usd is not None and not self.daily_budget_usd > 0:
             raise ValueError(f"daily_budget_usd must be > 0, got {self.daily_budget_usd!r}")

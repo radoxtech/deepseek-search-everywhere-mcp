@@ -20,6 +20,7 @@ import math
 import re
 import time
 import urllib.parse
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -34,11 +35,16 @@ from .boilerplate import remove_boilerplate
 from .budget import DailyBudgetTracker, Reservation
 from .cache import SingleFlight, TTLCache
 from .deep_research import (
+    ResearchJob,
     build_decomposition_messages,
     build_synthesis_messages,
+    get_job_store,
     parse_subqueries,
     sanitize_citations,
     select_synthesis_context,
+)
+from .deep_research import (
+    reset_state as reset_deep_research_state,
 )
 from .egress import check_fetch_egress, check_search_egress
 from .errors import _fail
@@ -153,6 +159,7 @@ def reset_state() -> None:
     global _rewrite_cache, _rewrite_flight, _rate_limiter, _session_metrics, _budget_tracker
     _search_cache = _search_flight = _fetch_cache = _fetch_flight = None
     _rewrite_cache = _rewrite_flight = _rate_limiter = _session_metrics = _budget_tracker = None
+    reset_deep_research_state()
 
 
 def _get_budget_tracker() -> DailyBudgetTracker | None:
@@ -2571,11 +2578,98 @@ async def deepseek_research(
     if depth not in _DEPTH_TIERS:
         return _fail("bad_request", f"depth must be one of: {', '.join(_DEPTH_TIERS.keys())}")
 
+    settings = get_settings()
+    store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
+    store.prune_expired(_clock())
+
+    existing = store.find_active_match(clean_topic, depth, lang)
+    if existing is not None and existing.task is not None and not existing.task.done():
+        job = existing
+    else:
+        if store.count_active() >= settings.research_max_jobs:
+            return _fail(
+                "rate_limited_local",
+                "Maximum concurrent research jobs reached. Try again later.",
+            )
+        job_id = str(uuid.uuid4())
+        job = ResearchJob(
+            job_id=job_id,
+            topic=clean_topic,
+            depth=depth,
+            lang=lang,
+            created_at=_clock(),
+        )
+        job.task = asyncio.create_task(
+            _run_research_job(
+                job=job,
+                clean_topic=clean_topic,
+                depth=depth,
+                lang=lang,
+                refresh=refresh,
+                strip_boilerplate=strip_boilerplate,
+            )
+        )
+        store.add(job)
+
+    inline_wait = settings.research_inline_wait
+    assert job.task is not None
+    try:
+        done, _ = await asyncio.wait([job.task], timeout=inline_wait)
+    except asyncio.CancelledError:
+        raise
+
+    if job.task in done:
+        if job.exception is not None:
+            return _fail("internal_error", f"Research job failed: {job.exception}")
+        res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+        if res.get("ok"):
+            res["status"] = "done"
+            res["delivery"] = "inline"
+        return res
+
+    elapsed_ms = int((_clock() - job.created_at) * 1000)
+    return {
+        "ok": True,
+        "status": "running",
+        "job_id": job.job_id,
+        "depth": depth,
+        "elapsed_ms": elapsed_ms,
+        "progress": job.progress,
+        "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
+    }
+
+
+async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
+    try:
+        res = await _execute_research_pipeline(job=job, **kwargs)
+        job.result = res
+        job.completed_at = _clock()
+        return res
+    except asyncio.CancelledError:
+        job.completed_at = _clock()
+        raise
+    except Exception as exc:
+        job.exception = exc
+        job.completed_at = _clock()
+        job.result = _fail("internal_error", str(exc))
+        return job.result
+
+
+async def _execute_research_pipeline(
+    *,
+    job: ResearchJob,
+    clean_topic: str,
+    depth: str,
+    lang: str | None,
+    refresh: bool,
+    strip_boilerplate: bool,
+) -> dict[str, Any]:
     max_queries, max_pages_per_query = _DEPTH_TIERS[depth]
     dedupe = True
     t0 = _clock()
 
     # Step 1: Decompose topic into subqueries
+    job.progress = {"phase": "decomposition", "step": 1, "of": 4}
     dec_messages = build_decomposition_messages(clean_topic, max_queries=max_queries)
     dec_res = await _chat_request(
         messages=dec_messages,
@@ -2595,6 +2689,7 @@ async def deepseek_research(
         subqueries = [fallback_subq]
 
     # Step 2: Concurrently execute search across subqueries
+    job.progress = {"phase": "retrieval", "step": 2, "of": 4}
     search_coros = [
         _search(
             subq,
@@ -2636,6 +2731,7 @@ async def deepseek_research(
     ]
 
     # Step 4: Gap-fill stub pages
+    job.progress = {"phase": "gap_fill", "step": 3, "of": 4}
     fill = await _fill_gaps(sources, RESEARCH_PAGE_CHARS, 30000, refresh, strip_boilerplate)
     requests_used += fill.requests_used
     cached_count += fill.cached_count
@@ -2647,6 +2743,7 @@ async def deepseek_research(
         notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
 
     # Step 5: Select synthesis context (capped at 6 sources, 24k chars)
+    job.progress = {"phase": "synthesis", "step": 4, "of": 4}
     synthesis_context = select_synthesis_context(sources)
     search_cost = sum(s.get("cost_usd", 0.0) for s in successful_searches)
     fetch_cost = fill.requests_used * COST_PER_REQUEST
@@ -2655,6 +2752,7 @@ async def deepseek_research(
         total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
         return {
             "ok": True,
+            "status": "done",
             "topic": clean_topic,
             "depth": depth,
             "subqueries": subqueries,
@@ -2682,6 +2780,7 @@ async def deepseek_research(
         total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
         return {
             "ok": True,
+            "status": "done",
             "topic": clean_topic,
             "depth": depth,
             "subqueries": subqueries,
@@ -2720,6 +2819,7 @@ async def deepseek_research(
     if not synth_res.get("ok"):
         return {
             "ok": True,
+            "status": "done",
             "topic": clean_topic,
             "depth": depth,
             "subqueries": subqueries,
@@ -2751,6 +2851,7 @@ async def deepseek_research(
 
     return {
         "ok": True,
+        "status": "done",
         "topic": clean_topic,
         "depth": depth,
         "subqueries": subqueries,
