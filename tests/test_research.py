@@ -922,6 +922,68 @@ def test_filter_synthesis_output_drops_unauthorized_links() -> None:
     assert "Untrusted Phish" in cleaned
 
 
+def test_filter_synthesis_output_drops_non_source_reference_definitions() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    cleaned, _, notes = filter_synthesis_output(
+        "See ref [1].\n\n[1]: https://evil.com\n\nMore [2].", {"https://s1.com"}
+    )
+    assert "evil.com" not in cleaned
+    assert "See ref [1]." in cleaned
+    assert "More [2]." in cleaned
+    assert any("link" in n.lower() for n in notes)
+
+    cleaned, _, _ = filter_synthesis_output(
+        'Claim [src].\n[src]: https://evil.com/x "title"\n[js]: javascript:alert(1)\nEnd.', {"https://s1.com"}
+    )
+    assert "evil.com" not in cleaned
+    assert "javascript" not in cleaned
+    assert "Claim [src]." in cleaned
+    assert "End." in cleaned
+
+
+def test_filter_synthesis_output_keeps_source_reference_definitions() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    raw = "See ref [1].\n\n[1]: https://s1.com/page\n\n[two]: https://www.s2.org/a"
+    cleaned, _, _ = filter_synthesis_output(raw, {"https://s1.com/page", "https://s2.org/a"})
+    assert "[1]: https://s1.com/page" in cleaned
+    assert "[two]: https://www.s2.org/a" in cleaned
+
+
+def test_filter_synthesis_output_drops_non_source_bare_urls() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    cleaned, _, notes = filter_synthesis_output(
+        "Plain url https://evil.com/x mentioned [1].", {"https://s1.com"}
+    )
+    assert "evil.com" not in cleaned
+    assert "mentioned [1]." in cleaned
+    assert notes
+
+    cleaned, _, _ = filter_synthesis_output("Visit www.evil.org/path, then http://bad.io. Done [1].", set())
+    assert "evil.org" not in cleaned
+    assert "bad.io" not in cleaned
+    assert "Done [1]." in cleaned
+
+
+def test_filter_synthesis_output_keeps_source_bare_urls_and_links() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    allowed = {"https://s1.com/page", "https://docs.s2.org/a"}
+    raw = (
+        "Source https://s1.com/page says X [1]. Also www.s1.com/other and https://docs.s2.org/a/b. "
+        "Linked [doc](https://docs.s2.org/a) stays. Bad https://evil.com/q gone."
+    )
+    cleaned, _, _ = filter_synthesis_output(raw, allowed)
+    assert "https://s1.com/page says X [1]." in cleaned
+    assert "www.s1.com/other" in cleaned
+    assert "https://docs.s2.org/a/b." in cleaned
+    assert "[doc](https://docs.s2.org/a)" in cleaned
+    assert "evil.com" not in cleaned
+    assert "Bad" in cleaned and "gone." in cleaned
+
+
 def test_filter_synthesis_output_drops_agent_imperatives() -> None:
     from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
 

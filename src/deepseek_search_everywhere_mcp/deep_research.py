@@ -10,6 +10,7 @@ import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from .extract import sanitize_json
 from .filters import fit_query
@@ -490,6 +491,26 @@ _INJECTION_PATTERN = re.compile(
 _MD_IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
 _HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_LINK_DEFINITION_PATTERN = re.compile(
+    r"(?m)^[ \t]*\[(?!\^)[^\]\n]+\]:[ \t]*<?((?:[a-zA-Z][a-zA-Z0-9+.-]*:|www\.|//)[^\s>]*)>?.*(?:\n|$)"
+)
+_BARE_URL_PATTERN = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>\]\[\"'`]+")
+_URL_TRAILING_PUNCT = ".,;:!?)"
+
+
+def _url_host(url: str) -> str:
+    """Lowercased hostname without a leading 'www.' (empty when unparseable)."""
+    candidate = url.strip()
+    if candidate.lower().startswith("www."):
+        candidate = "http://" + candidate
+    elif candidate.startswith("//"):
+        candidate = "http:" + candidate
+    try:
+        host = urlparse(candidate).hostname or ""
+    except ValueError:
+        return ""
+    host = host.lower()
+    return host[4:] if host.startswith("www.") else host
 
 
 def apply_token_guard(
@@ -532,6 +553,27 @@ def filter_synthesis_output(
     text = _MD_IMAGE_PATTERN.sub(lambda m: f"[image: {m.group(1)}]" if m.group(1) else "[image]", report)
     text = _HTML_TAG_PATTERN.sub("", text)
 
+    allowed_hosts = {h for h in (_url_host(u) for u in allowed_urls) if h}
+    removed_links = 0
+
+    def _is_allowed(url: str) -> bool:
+        canon = _canonical_url(url) or url
+        if url in allowed_urls or canon in allowed_urls:
+            return True
+        host = _url_host(url)
+        return (
+            bool(host) and url.lower().startswith(("http://", "https://", "www.")) and host in allowed_hosts
+        )
+
+    def _replace_definition(match: re.Match[str]) -> str:
+        nonlocal removed_links
+        if _is_allowed(match.group(1)):
+            return match.group(0)
+        removed_links += 1
+        return ""
+
+    text = _LINK_DEFINITION_PATTERN.sub(_replace_definition, text)
+
     def _replace_link(match: re.Match[str]) -> str:
         anchor = match.group(1)
         url = match.group(2).strip()
@@ -541,6 +583,21 @@ def filter_synthesis_output(
         return anchor
 
     text = _MD_LINK_PATTERN.sub(_replace_link, text)
+
+    def _replace_bare_url(match: re.Match[str]) -> str:
+        nonlocal removed_links
+        raw = match.group(0)
+        url = raw.rstrip(_URL_TRAILING_PUNCT)
+        trailing = raw[len(url) :]
+        if _is_allowed(url):
+            return raw
+        removed_links += 1
+        return trailing
+
+    text = _BARE_URL_PATTERN.sub(_replace_bare_url, text)
+    if removed_links:
+        text = re.sub(r"(?<=\S)[ \t]{2,}", " ", text)
+        text = _PUNCT_SPACE_RE.sub(r"\1", text)
 
     paragraphs = text.split("\n\n")
     cleaned_paragraphs: list[str] = []
@@ -560,6 +617,8 @@ def filter_synthesis_output(
             cleaned_paragraphs.append(" ".join(kept_sentences))
 
     cleaned_report = "\n\n".join(cleaned_paragraphs)
+    if removed_links > 0:
+        notes.append(f"Removed {removed_links} non-source link/URL reference(s) from report.")
     if injection_suspected > 0:
         notes.append(f"Neutralized {injection_suspected} suspected prompt injection sentence(s) from report.")
 
