@@ -129,29 +129,68 @@ _QUOTES_RE = re.compile(r'["“”„«»]')
 _APOSTROPHES_RE = re.compile(r"['’‘ʻ]")
 _DASHES_RE = re.compile(r"[-–—−‐‑]")
 _MARKDOWN_MARKERS_RE = re.compile(r"[*_`~]+")
+_SUPERSCRIPT_DIGITS_RE = re.compile(r"[\u2070-\u2079\u00b2\u00b3\u00b9]+")
+_FOOTNOTE_MARKERS_RE = re.compile(
+    r"\[(?:\d+(?:[,\-–—]\s*\d+)*|[a-zA-Z]|citation\s+needed|edit|note\s+\d+|nb\s+\d+)\]",
+    re.IGNORECASE,
+)
+_PUNCT_SPACE_RE = re.compile(r"\s+([,.;:!?])")
 
 
 def normalize_for_evidence(text: str) -> str:
     """Normalize text for evidence matching.
 
-    Applies NFKC Unicode normalization, strips markdown emphasis and code markers (*, _, `, ~),
-    unifies quotation marks, apostrophes and dashes, collapses whitespace, and lowercases.
+    Strips superscript digits and citation/footnote markers ([4], [a], [citation needed], [edit]),
+    applies NFKC Unicode normalization, strips markdown emphasis and code markers (*, _, `, ~),
+    unifies quotation marks, apostrophes and dashes, collapses whitespace, fixes space before
+    punctuation, and lowercases.
     """
     if not isinstance(text, str):
         return ""
+    text = _SUPERSCRIPT_DIGITS_RE.sub("", text)
     text = unicodedata.normalize("NFKC", text)
+    text = _FOOTNOTE_MARKERS_RE.sub("", text)
     text = _MARKDOWN_MARKERS_RE.sub("", text)
     text = _QUOTES_RE.sub('"', text)
     text = _APOSTROPHES_RE.sub("'", text)
     text = _DASHES_RE.sub("-", text)
-    return " ".join(text.lower().split())
+    text = " ".join(text.lower().split())
+    text = _PUNCT_SPACE_RE.sub(r"\1", text)
+    return text
 
 
 def _value_appears_in_quote(val: Any, quote: str, norm_quote: str) -> bool:
     """Check whether a scalar value appears in the evidence quote."""
     if isinstance(val, str):
         norm_val = normalize_for_evidence(val)
-        return bool(norm_val and norm_val in norm_quote)
+        if norm_val and norm_val in norm_quote:
+            return True
+        # If val is a comma/semicolon-delimited list, check if all items appear in quote
+        if "," in val or ";" in val:
+            parts = [normalize_for_evidence(p) for p in re.split(r"[,;]", val) if p.strip()]
+            if parts and all(p in norm_quote for p in parts):
+                return True
+        # For string values that look numeric, compare by digits (ignoring
+        # thousands separators and spaces) like int values.
+        clean_val = re.sub(r"[\s,._']", "", val.strip())
+        digits = clean_val.lstrip("+-")
+        if digits and digits.isdigit():
+            sep_pattern = r"(?<!\d)" + r"[\s,._']?".join(re.escape(d) for d in digits) + r"(?!\d)"
+            norm_q = normalize_for_evidence(quote)
+            if re.search(sep_pattern, quote) or re.search(sep_pattern, norm_q):
+                return True
+        if "." in val or "," in val:
+            try:
+                std_num = val.strip().replace(" ", "").replace("'", "")
+                if "," in std_num and "." not in std_num and len(std_num.split(",")[1]) <= 2:
+                    std_num = std_num.replace(",", ".")
+                else:
+                    std_num = std_num.replace(",", "")
+                float_val = float(std_num)
+                return _value_appears_in_quote(float_val, quote, norm_quote)
+            except ValueError:
+                pass
+        return False
     if isinstance(val, bool):
         return True
     if isinstance(val, (int, float)):
