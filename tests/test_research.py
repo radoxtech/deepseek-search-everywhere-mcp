@@ -1386,3 +1386,58 @@ def test_normalize_citations_keeps_bracketed_years() -> None:
     assert "[2]" in res
     res = normalize_citations("Out of range [9] stays out.", max_id=3)
     assert "[9]" not in res
+
+
+async def test_synthesis_retry_cost_includes_failed_first_attempt(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_upstream(DeepResearchUpstream())
+    synth_calls: list[dict[str, Any]] = []
+
+    async def fake_chat_request(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("max_tokens") == 1024:
+            # Decomposition call: zero-cost, valid subqueries.
+            return {
+                "ok": True,
+                "content": json.dumps({"queries": ["q1"]}),
+                "reasoning_content": None,
+                "finish_reason": "stop",
+                "usage": {},
+                "cost_usd": 0.0,
+                "pricing_period": "peak",
+                "notes": [],
+                "raw": {},
+            }
+        synth_calls.append(kwargs)
+        if len(synth_calls) == 1:
+            return {
+                "ok": True,
+                "content": "",
+                "reasoning_content": "internal",
+                "finish_reason": "length",
+                "usage": {},
+                "cost_usd": 0.01,
+                "pricing_period": "peak",
+                "notes": [],
+                "raw": {},
+            }
+        return {
+            "ok": True,
+            "content": "Retry report [1].",
+            "reasoning_content": None,
+            "finish_reason": "stop",
+            "usage": {},
+            "cost_usd": 0.002,
+            "pricing_period": "peak",
+            "notes": [],
+            "raw": {},
+        }
+
+    monkeypatch.setattr(server, "_chat_request", fake_chat_request)
+    res = await server.deepseek_research("cost retry topic", depth="medium")
+    assert res["ok"] is True
+    assert res["synthesized"] is True
+    assert len(synth_calls) == 2
+    assert res["cost_breakdown"]["llm"] == pytest.approx(0.012, abs=1e-6)
+    breakdown = res["cost_breakdown"]
+    assert res["cost_usd"] == pytest.approx(breakdown["search"] + breakdown["fetch"] + 0.012, abs=1e-6)

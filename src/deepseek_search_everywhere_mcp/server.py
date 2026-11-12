@@ -3060,6 +3060,7 @@ async def _execute_research_pipeline(
         or not (synth_res.get("content") or "").strip()
     )
     rem_retry = deadline_at - _clock()
+    discarded_attempt_cost = 0.0
     if needs_retry and rem_retry >= 8.0:
         notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
         retry_kwargs = {
@@ -3073,15 +3074,20 @@ async def _execute_research_pipeline(
             "attempts": 1,
         }
         retry_res = await _chat_request(**retry_kwargs)
-        if (
+        # Every attempt is billed, so the attempt that is not used still counts toward the cost.
+        retry_used = (
             retry_res.get("ok")
             and (retry_res.get("content") or "").strip()
             and retry_res.get("finish_reason") != "length"
-        ):
+        )
+        if retry_used:
+            discarded_attempt_cost = float(synth_res.get("cost_usd", 0.0) or 0.0)
             synth_res = retry_res
+        else:
+            discarded_attempt_cost = float(retry_res.get("cost_usd", 0.0) or 0.0)
 
     synth_cost = synth_res.get("cost_usd", 0.0) if synth_res.get("ok") else 0.0
-    total_llm_cost = round(dec_cost + synth_cost, 6)
+    total_llm_cost = round(dec_cost + synth_cost + discarded_attempt_cost, 6)
     total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
 
     if not synth_res.get("ok") or not (synth_res.get("content") or "").strip():
