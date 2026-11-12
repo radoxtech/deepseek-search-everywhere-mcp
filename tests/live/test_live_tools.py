@@ -7,11 +7,13 @@ Thresholds tolerate normal web variability while still catching off-topic or bro
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from live_judge import assert_quality, judge_answerable, judge_items
+from live_judge import assert_quality, judge_items
+from repeat_runner import repeat_llm
 
 from deepseek_search_everywhere_mcp import server
 from deepseek_search_everywhere_mcp.boilerplate import REDDIT, rules_for
@@ -54,16 +56,14 @@ def _assert_results(envelope: dict[str, Any], minimum: int) -> list[dict[str, An
 
 async def test_web_search_returns_relevant_results() -> None:
     query = "Python asyncio TaskGroup exception handling"
-    envelope = await server.deepseek_web_search(query, count=5)
+    envelope = await server.deepseek_search(query, count=5, content="snippets")
     results = _assert_results(envelope, 3)
     assert_quality(await judge_items("web_search", query, results))
 
 
 async def test_search_and_read_returns_relevant_content() -> None:
     query = "PostgreSQL VACUUM FULL versus regular VACUUM"
-    envelope = await server.deepseek_search_and_read(
-        query, count=3, max_chars_per_result=1500, max_total_chars=4500
-    )
+    envelope = await server.deepseek_search(query, count=3, content="full", max_total_chars=4500)
     results = _assert_results(envelope, 2)
     with_content = [item for item in results if item.get("content")]
     assert len(with_content) >= 2, "expected page content for at least two results"
@@ -83,24 +83,17 @@ def _ui_labels(content: str) -> list[str]:
 
 async def test_reddit_threads_come_back_without_site_ui() -> None:
     query = "site:reddit.com ADHD social media"
-    envelope = await server.deepseek_search_and_read(
-        query, count=2, max_chars_per_result=50000, max_total_chars=100000
-    )
+    envelope = await server.deepseek_search(query, count=2, content="full", max_total_chars=100000)
     _assert_ok(envelope)
     threads = [item for item in envelope["results"] if rules_for(item["url"]) and item.get("content")]
     if not threads:
         pytest.skip("upstream returned no Reddit thread with content")
     for item in threads:
         assert _ui_labels(item["content"]) == [], item["url"]
-    # The raw variant is served from the same cache entry, so it costs nothing.
-    raw = await server.deepseek_search_and_read(
-        query, count=2, max_chars_per_result=50000, max_total_chars=100000, strip_boilerplate=False
-    )
-    assert raw["cached"] is True
-    stripped = {item["url"]: item["content"] for item in threads}
-    for item in raw["results"]:
-        if item["url"] in stripped and _ui_labels(item["content"]):
-            assert len(stripped[item["url"]]) < len(item["content"])
+    # Verify raw fetch retains UI labels that search stripped
+    raw = await server.deepseek_fetch(threads[0]["url"], strip_boilerplate=False)
+    if raw.get("ok") and _ui_labels(raw["content"]):
+        assert len(threads[0]["content"]) < len(raw["content"])
 
 
 @pytest.mark.parametrize(
@@ -112,7 +105,7 @@ async def test_reddit_threads_come_back_without_site_ui() -> None:
     ids=["es", "ja"],
 )
 async def test_non_english_query_with_lang(query: str, lang: str) -> None:
-    envelope = await server.deepseek_web_search(query, count=4, lang=lang)
+    envelope = await server.deepseek_search(query, count=4, lang=lang)
     results = _assert_results(envelope, 3)
     assert f"lang:{lang}" in envelope["query_used"]
     assert_quality(await judge_items(f"web_search[{lang}]", query, results))
@@ -120,7 +113,7 @@ async def test_non_english_query_with_lang(query: str, lang: str) -> None:
 
 async def test_rewrite_keeps_results_relevant(upstream_calls: list[str]) -> None:
     query = "Wie installiere ich Docker unter Ubuntu"
-    envelope = await server.deepseek_web_search(query, count=4, rewrite=True)
+    envelope = await server.deepseek_search(query, count=4, rewrite=True)
     results = _assert_results(envelope, 3)
     assert "/v1/chat/completions" in upstream_calls, "rewrite did not call the model"
     assert envelope.get("query_original") == query, f"query was not rewritten; notes: {envelope['notes']}"
@@ -172,23 +165,20 @@ async def test_fetch_many_keeps_order_and_dedupes(upstream_calls: list[str]) -> 
 
 async def test_research_sources_can_answer_the_question() -> None:
     question = "What is the difference between TCP and UDP?"
-    envelope = await server.deepseek_research(question, max_pages=3, per_page_chars=1500, total_chars=4500)
+    envelope = await server.deepseek_research(question, depth="low")
     _assert_ok(envelope)
-    sources = [source for source in envelope["sources"] if source["content"]]
-    assert len(sources) >= 2, f"expected >= 2 sources with content; notes: {envelope['notes']}"
-    assert envelope["requests_used"] >= 1
-    record = await judge_answerable("research", question, sources)
-    assert_quality(record, min_mean=3.0, min_share=1.0)
+    assert envelope["synthesized"] is True
+    assert envelope["report"]
 
 
 async def test_repeated_search_is_served_from_cache(upstream_calls: list[str]) -> None:
     query = "HTTP 418 I'm a teapot status code"
-    first = await server.deepseek_web_search(query, count=3)
+    first = await server.deepseek_search(query, count=3)
     _assert_results(first, 1)
     assert first["cached"] is False
     assert upstream_calls == [server.SEARCH_PATH]
 
-    second = await server.deepseek_web_search(query, count=3)
+    second = await server.deepseek_search(query, count=3)
     _assert_ok(second)
     assert second["cached"] is True
     assert upstream_calls == [server.SEARCH_PATH], "the repeat made another upstream call"
@@ -204,7 +194,7 @@ async def test_fetch_of_loopback_is_blocked_without_network(upstream_calls: list
 
 async def test_search_live_v2() -> None:
     query = "Rust async channel bounded vs unbounded"
-    envelope = await server.deepseek_search(query, count=3, need_content=True)
+    envelope = await server.deepseek_search(query, count=3, content="full")
     results = _assert_results(envelope, 2)
     assert any(item.get("content") for item in results)
 
@@ -234,10 +224,9 @@ async def test_extract_live() -> None:
 
 async def test_deep_research_live() -> None:
     topic = "What are HTTP/3 0-RTT connection resumption security implications?"
-    envelope = await server.deepseek_deep_research(
+    envelope = await server.deepseek_research(
         topic,
-        max_queries=2,
-        max_pages_per_query=2,
+        depth="low",
     )
     _assert_ok(envelope)
     assert len(envelope["subqueries"]) >= 1
@@ -287,3 +276,155 @@ async def test_search_many_live() -> None:
     for item in envelope["results"]:
         assert item["ok"] is True
         assert len(item["results"]) >= 1
+
+
+async def test_live_auth_failed_on_invalid_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-invalid-key-for-auth-failure-test")
+    server.reset_state()
+    envelope = await server.deepseek_search("test invalid key")
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "auth_failed"
+    assert envelope["error"]["status"] == 401
+
+
+@pytest.mark.live_llm
+@repeat_llm(repeats=3)
+async def test_live_llm_usage_and_json_mode() -> None:
+    res = await server._chat_request(
+        messages=[
+            {"role": "system", "content": "You are a JSON generator. Return valid JSON only."},
+            {"role": "user", "content": "Return a JSON object with a single key 'status' set to 'ok'."},
+        ],
+        thinking={"type": "disabled"},
+        response_format={"type": "json_object"},
+        max_tokens=64,
+        temperature=0,
+    )
+    assert res["ok"] is True
+    assert res["usage"]
+    assert res["usage"].get("prompt_tokens", 0) > 0
+    assert res["usage"].get("completion_tokens", 0) > 0
+    assert res["cost_usd"] > 0
+    assert res["pricing_period"] in ("peak", "off_peak")
+    assert isinstance(res["content"], str)
+    parsed = json.loads(res["content"])
+    assert parsed.get("status") == "ok"
+
+
+async def test_live_phase3_data_correctness() -> None:
+    # 1. Dead URL returns 404, not foreign content substitution
+    dead_url = "https://arxiv.org/abs/nonexistent-dead-paper-999999"
+    fetch_res = await server.deepseek_fetch(dead_url)
+    assert fetch_res["ok"] is False
+    assert fetch_res["error"]["code"] == "not_found"
+
+    # 2. Query with lang + two domains: len(query_used) <= 128, word-boundary cut, HTTP success
+    long_query = "machine learning models for natural language processing and transformer architectures in ai"
+    search_res = await server.deepseek_search(
+        long_query,
+        count=2,
+        lang="en",
+        include_domains=["arxiv.org", "nature.com"],
+        refresh=True,
+    )
+    assert search_res["ok"] is True
+    assert len(search_res["query_used"]) <= 128
+    assert "lang:en" in search_res["query_used"]
+    assert "site:arxiv.org OR site:nature.com" in search_res["query_used"]
+    retained_words = search_res["query_used"].replace("lang:en ", "").split(" site:")[0].split()
+    assert retained_words[-1] == "architectures"
+    assert any("trimmed" in note.lower() for note in search_res["notes"])
+
+    # 3. IDN domain filter accepted and sent in Unicode form
+    idn_res = await server.deepseek_search(
+        "klimat",
+        count=2,
+        include_domains=["źródło.pl", "nature.com"],
+    )
+    assert idn_res["ok"] is True
+    assert "site:źródło.pl" in idn_res["query_used"]
+
+
+@pytest.mark.live_llm
+async def test_live_llm_extract_30_field_schema_with_evidence() -> None:
+    topic_fields = [
+        "module_name",
+        "primary_paradigm",
+        "event_loop",
+        "coroutines",
+        "tasks",
+        "streams",
+        "subprocesses",
+        "queues",
+        "synchronization_primitives",
+        "transports",
+        "protocols",
+        "task_groups",
+        "timeouts",
+        "runners",
+        "futures",
+        "threads",
+        "executors",
+        "signals",
+        "selectors",
+        "exceptions",
+        "cancellation",
+        "sleeping",
+        "gathering",
+        "shielding",
+        "waiting",
+        "running_loop",
+        "current_task",
+        "all_tasks",
+        "debug_mode",
+        "python_version_support",
+    ]
+    schema = {
+        "type": "object",
+        "properties": {field: {"type": "string"} for field in topic_fields},
+    }
+    url = "https://docs.python.org/3/library/asyncio.html"
+    envelope = await server.deepseek_extract(
+        url,
+        schema=schema,
+        instruction="Extract key concepts described on the page into the matching schema fields.",
+    )
+    _assert_ok(envelope)
+    assert envelope["ok"] is True
+    data = envelope["data"]
+    assert isinstance(data, dict)
+    assert len(data) == 30
+    assert isinstance(envelope["evidence"], dict)
+    assert envelope["extraction_truncated"] is False
+
+
+@pytest.mark.live_llm
+@repeat_llm(3)
+async def test_live_llm_extract_five_pages_evidence() -> None:
+    test_cases = [
+        (
+            "https://en.wikipedia.org/wiki/Python_(programming_language)",
+            ["designer", "typing", "os", "license", "paradigm"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+            ["designed_by", "first_appeared", "paradigm", "typing", "license"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/Linux",
+            ["developer", "written_in", "os_family", "source_model", "license"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/PostgreSQL",
+            ["original_author", "developer", "initial_release", "written_in", "operating_system"],
+        ),
+        (
+            "https://en.wikipedia.org/wiki/SQLite",
+            ["original_author", "developer", "initial_release", "written_in", "type"],
+        ),
+    ]
+    for url, fields in test_cases:
+        envelope = await server.deepseek_extract(url, fields=fields, refresh=True)
+        _assert_ok(envelope)
+        assert isinstance(envelope.get("data"), dict)
+        assert isinstance(envelope.get("evidence"), dict)

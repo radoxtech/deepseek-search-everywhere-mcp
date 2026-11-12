@@ -8,6 +8,7 @@ import pytest
 
 from deepseek_search_everywhere_mcp import ratelimit
 from deepseek_search_everywhere_mcp.ratelimit import (
+    CHAT,
     FETCH,
     SEARCH,
     RateLimiter,
@@ -160,15 +161,16 @@ async def test_limiter_routes_endpoints_and_leaves_others_unlimited(fake_clock):
     sleep = FakeSleep(fake_clock)
     limiter = RateLimiter.from_settings(Settings(), clock=fake_clock.monotonic, sleep=sleep)
 
-    assert set(limiter.buckets) == {SEARCH, FETCH}
-    search, fetch = limiter.buckets[SEARCH], limiter.buckets[FETCH]
+    assert set(limiter.buckets) == {SEARCH, FETCH, CHAT}
+    search, fetch, chat = limiter.buckets[SEARCH], limiter.buckets[FETCH], limiter.buckets[CHAT]
     assert (search.qps, search.burst, search.max_wait) == (10, 20, 5)
     assert (fetch.qps, fetch.burst, fetch.max_wait) == (5, 10, 5)
+    assert (chat.qps, chat.burst, chat.max_wait) == (10, 20, 5)
 
     for _ in range(50):
-        ticket = await limiter.acquire("chat")
+        ticket = await limiter.acquire("balance")
         assert ticket.refund() is False
-    await limiter.acquire("balance")
+    await limiter.acquire("other_unlimited")
 
     await limiter.acquire(FETCH)
     assert fetch.tokens == pytest.approx(9)

@@ -126,12 +126,24 @@ def test_search_many_cache_and_refresh(fake_upstream):
     assert r3["requests_used"] == 1
 
 
+def test_search_many_exception_redacts_secrets(monkeypatch):
+    async def mock_search(*args, **kwargs):
+        raise RuntimeError("failed with secret sk-ant-api03-verysecretkey123456")
+
+    monkeypatch.setattr(server, "_search", mock_search)
+    res = asyncio.run(server.deepseek_search_many(["test"]))
+    assert res["ok"] is True
+    assert res["failed_count"] == 1
+    err_msg = res["results"][0]["error"]["message"]
+    assert "verysecretkey" not in err_msg
+    assert "[REDACTED]" in err_msg
+
+
 @pytest.mark.parametrize(
     ("kwargs", "expected_code"),
     [
         ({"count": 0}, "bad_count"),
         ({"count": 51}, "bad_count"),
-        ({"max_chars_per_result": 0}, "bad_request"),
         ({"max_total_chars": 0}, "bad_request"),
     ],
 )
@@ -141,11 +153,11 @@ def test_search_many_invalid_count_and_caps(kwargs, expected_code):
     assert res["error"]["code"] == expected_code
 
 
-def test_search_many_need_content_true(fake_upstream):
+def test_search_many_content_full(fake_upstream):
     results_map = {"full": [{"title": "Full", "url": "https://f.test", "content": "Full markdown body"}]}
     _install_fake_search(fake_upstream, results_map)
 
-    res = asyncio.run(server.deepseek_search_many(["full"], need_content=True))
+    res = asyncio.run(server.deepseek_search_many(["full"], content="full"))
     assert res["ok"] is True
     assert res["results"][0]["results"][0]["content"] == "Full markdown body"
 
@@ -157,5 +169,36 @@ def test_search_many_deadline_timeout(fake_upstream):
 
     fake_upstream(slow_request)
     res = asyncio.run(server.deepseek_search_many(["slow_q"], deadline=0.01))
-    assert res["ok"] is False
-    assert res["error"]["code"] == "timeout"
+    assert res["ok"] is True
+    assert res["partial"] is True
+    assert res["failed_count"] == 1
+    assert res["results"][0]["ok"] is False
+    assert res["results"][0]["error"]["code"] == "deadline_exceeded"
+
+
+def test_search_many_partial_on_slow_query(fake_upstream):
+    async def mixed_request(method, path, **kwargs):
+        payload = kwargs.get("payload") or {}
+        q = payload.get("query", "")
+        if "slow" in q:
+            await asyncio.sleep(0.5)
+            return {"ok": True, "data": {"results": [{"title": "Slow", "url": "https://slow.test"}]}}
+        return {"ok": True, "data": {"results": [{"title": "Fast", "url": "https://fast.test"}]}}
+
+    fake_upstream(mixed_request)
+    res = asyncio.run(server.deepseek_search_many(["fast_q", "slow_q"], deadline=0.05))
+    assert res["ok"] is True
+    assert res["partial"] is True
+    assert res["count"] == 2
+    assert res["failed_count"] == 1
+    assert res["requests_used"] == 1
+
+    fast_res = res["results"][0]
+    assert fast_res["ok"] is True
+    assert fast_res["query"] == "fast_q"
+    assert len(fast_res["results"]) == 1
+
+    slow_res = res["results"][1]
+    assert slow_res["ok"] is False
+    assert slow_res["query"] == "slow_q"
+    assert slow_res["error"]["code"] == "deadline_exceeded"

@@ -24,6 +24,7 @@ from .settings import Settings
 
 SEARCH = "search"
 FETCH = "fetch"
+CHAT = "chat"
 
 Clock = Callable[[], float]
 Sleep = Callable[[float], Awaitable[Any]]
@@ -175,6 +176,7 @@ class RateLimiter:
             {
                 SEARCH: TokenBucket(settings.search_qps, settings.search_burst, name=SEARCH, **common),
                 FETCH: TokenBucket(settings.fetch_qps, settings.fetch_burst, name=FETCH, **common),
+                CHAT: TokenBucket(settings.chat_qps, settings.chat_burst, name=CHAT, **common),
             }
         )
 

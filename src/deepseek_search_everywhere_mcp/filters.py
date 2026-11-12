@@ -17,9 +17,10 @@ _DOMAIN_CHAR_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$|^localh
 
 
 def normalize_domain(raw: str) -> tuple[str | None, str | None]:
-    """Strip protocol, path and whitespace from ``raw``; validate domain characters.
+    """Strip protocol, path and whitespace from ``raw``; validate domain characters via IDNA.
 
-    Returns ``(domain, None)`` on success, or ``(None, error_message)`` on failure.
+    Returns ``(unicode_domain, None)`` on success, or ``(None, error_message)`` on failure.
+    Always returns the domain in Unicode form for upstream search.
     """
     cleaned = (raw or "").strip()
     if not cleaned:
@@ -30,9 +31,26 @@ def normalize_domain(raw: str) -> tuple[str | None, str | None]:
     cleaned = cleaned.split("/", 1)[0].split(":", 1)[0].strip().lower()
     if cleaned.startswith("www."):
         cleaned = cleaned[4:]
-    if not cleaned or not _DOMAIN_CHAR_RE.match(cleaned):
+    if not cleaned:
         return None, f"Invalid domain: {raw!r}."
-    return cleaned, None
+
+    if cleaned == "localhost":
+        return "localhost", None
+
+    try:
+        ascii_form = cleaned.encode("idna").decode("ascii")
+    except (UnicodeError, ValueError):
+        return None, f"Invalid domain: {raw!r}."
+
+    if not _DOMAIN_CHAR_RE.match(ascii_form):
+        return None, f"Invalid domain: {raw!r}."
+
+    try:
+        unicode_form = ascii_form.encode("ascii").decode("idna")
+    except (UnicodeError, ValueError):
+        unicode_form = cleaned
+
+    return unicode_form, None
 
 
 def normalize_date(raw: str) -> tuple[str | None, str | None]:
@@ -58,6 +76,70 @@ def normalize_date(raw: str) -> tuple[str | None, str | None]:
     if not 1990 <= parsed.year <= max_year:
         return None, f"Year must be between 1990 and {max_year}: {raw!r}."
     return cleaned, None
+
+
+def _name_forms(name: str) -> set[str]:
+    """Return the lowercase ASCII (punycode) and Unicode spellings of a host or domain name."""
+    lowered = name.strip().lower().rstrip(".")
+    forms = {lowered}
+    try:
+        ascii_form = lowered.encode("idna").decode("ascii")
+        forms.add(ascii_form)
+        forms.add(ascii_form.encode("ascii").decode("idna"))
+    except (UnicodeError, ValueError):
+        pass
+    return forms
+
+
+def _result_host(item: dict[str, object]) -> str | None:
+    url = item.get("url")
+    if not isinstance(url, str):
+        return None
+    try:
+        host = urlparse(url.strip()).hostname
+    except ValueError:
+        return None
+    return host or None
+
+
+def _host_matches(host_forms: set[str], domain_forms: set[str]) -> bool:
+    return any(h == d or h.endswith(f".{d}") for h in host_forms for d in domain_forms)
+
+
+def _normalized_domain_forms(domains: list[str] | None) -> list[set[str]]:
+    forms: list[set[str]] = []
+    for raw in domains or []:
+        domain, err = normalize_domain(raw)
+        if err is None and domain:
+            forms.append(_name_forms(domain))
+    return forms
+
+
+def filter_results_by_domain(
+    items: list[dict],
+    include_domains: list[str] | None,
+    exclude_domains: list[str] | None,
+) -> tuple[list[dict], int]:
+    """Enforce ``include_domains`` / ``exclude_domains`` on upstream results (the upstream may ignore them).
+
+    A host matches a domain when it equals it or is a subdomain of it; IDN names compare in both their
+    Unicode and punycode spellings. With ``include_domains`` set, results without a parsable host are
+    dropped. Returns ``(kept, dropped_count)``.
+    """
+    includes = _normalized_domain_forms(include_domains)
+    excludes = _normalized_domain_forms(exclude_domains)
+    if not includes and not excludes:
+        return list(items), 0
+    kept: list[dict] = []
+    for item in items:
+        host = _result_host(item)
+        host_forms = _name_forms(host) if host else set()
+        if includes and not any(_host_matches(host_forms, d) for d in includes):
+            continue
+        if excludes and host_forms and any(_host_matches(host_forms, d) for d in excludes):
+            continue
+        kept.append(item)
+    return kept, len(items) - len(kept)
 
 
 def compile_filters(
@@ -156,3 +238,89 @@ def compile_filters(
         )
 
     return ops_string, None, None
+
+
+MAX_QUERY = 128
+
+
+def fit_query(
+    query: str,
+    *,
+    lang: str | None = None,
+    filter_ops: str | None = None,
+    max_query: int = MAX_QUERY,
+) -> tuple[str, bool]:
+    """Fit query, language operator and filter operators into ``max_query`` characters.
+
+    Operators and language are prioritized. If they alone exceed ``max_query``, raises
+    ValueError("operators_exceed_limit").
+    When the query must be trimmed:
+    - Cuts at the last word boundary (space).
+    - Drops any half-cut operator or token.
+    - Drops unbalanced double quotes.
+    - Preserves Unicode characters intact.
+
+    Returns ``(fitted_query, trimmed)``.
+    """
+    clean_q = re.sub(r"\s+", " ", query).strip()
+
+    lang_prefix = ""
+    if lang:
+        if not re.search(r"(?:^|\s)lang:\S+", clean_q):
+            lang_prefix = f"lang:{lang} "
+
+    filter_suffix = ""
+    if filter_ops and filter_ops.strip():
+        filter_suffix = f" {filter_ops.strip()}"
+
+    fixed_len = len(lang_prefix) + len(filter_suffix)
+    if fixed_len > max_query:
+        raise ValueError("Operators and language filter exceed maximum query length.")
+
+    available = max_query - fixed_len
+
+    if not clean_q:
+        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
+        return fitted, False
+
+    if len(clean_q) <= available:
+        fitted = f"{lang_prefix}{clean_q}{filter_suffix}".strip()
+        return re.sub(r"\s+", " ", fitted), False
+
+    if available <= 0:
+        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
+        return fitted, True
+
+    cut = clean_q[:available]
+
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        cut = cut[:last_space].rstrip()
+
+    tokens = cut.split()
+    if tokens:
+        last_tok = tokens[-1]
+        tok_pos = clean_q.find(last_tok, max(0, len(cut) - len(last_tok) - 5))
+        if tok_pos >= 0:
+            tok_end = tok_pos + len(last_tok)
+            if tok_end < len(clean_q) and not clean_q[tok_end].isspace():
+                if len(tokens) > 1 or ":" in last_tok or last_tok.startswith(("-", "+")):
+                    tokens.pop()
+                    cut = " ".join(tokens).rstrip()
+
+    tokens = cut.split()
+    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
+        tokens.pop()
+    cut = " ".join(tokens).rstrip()
+
+    if cut.count('"') % 2 != 0:
+        last_q = cut.rfind('"')
+        cut = cut[:last_q].rstrip()
+
+    tokens = cut.split()
+    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
+        tokens.pop()
+    cut = " ".join(tokens).rstrip()
+
+    fitted = f"{lang_prefix}{cut}{filter_suffix}".strip()
+    return re.sub(r"\s+", " ", fitted), True

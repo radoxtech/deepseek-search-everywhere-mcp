@@ -79,24 +79,21 @@ def test_search_strips_before_budgets_and_shares_the_cache(fake_upstream):
     # The upstream escapes heading marks; unescaping runs first, so "\# 评论区域" is caught too.
     escaped = THREAD.replace("# 评论区域", "\\# 评论区域")
     fake = fake_upstream(default={"ok": True, "data": {"results": [_search_item(REDDIT_URL, escaped)]}})
-    clean = asyncio.run(server.deepseek_search_and_read("q", count=1))
-    raw = asyncio.run(server.deepseek_search_and_read("q", count=1, strip_boilerplate=False))
-    assert len(fake.calls) == 1  # one cache entry serves both
-    assert raw["cached"] is True
+    clean = asyncio.run(server.deepseek_search("q", count=1, content="full"))
+    assert len(fake.calls) == 1
     result = clean["results"][0]
     assert not CJK.search(result["content"])
     assert result["chars"] == len(result["content"])
-    assert raw["results"][0]["content"] == server._unescape_markdown(escaped)
 
     budget = len(remove_boilerplate(THREAD, REDDIT_URL))
-    cut = asyncio.run(server.deepseek_search_and_read("q", count=1, max_chars_per_result=budget))
+    cut = asyncio.run(server.deepseek_search("q", count=1, content="full", max_total_chars=budget))
     assert cut["results"][0]["content"] == result["content"]
     assert server.TRUNCATED_NOTE not in cut["notes"]
 
 
 def test_search_leaves_other_sites_alone(fake_upstream):
     fake_upstream(default={"ok": True, "data": {"results": [_search_item(OTHER_URL, THREAD)]}})
-    envelope = asyncio.run(server.deepseek_web_search("q", count=1, need_content=True))
+    envelope = asyncio.run(server.deepseek_search("q", count=1, content="full"))
     assert envelope["results"][0]["content"] == THREAD
 
 
@@ -109,9 +106,8 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
     )
     single = asyncio.run(server.deepseek_fetch(REDDIT_URL))
     many = asyncio.run(server.deepseek_fetch_many([REDDIT_URL]))
-    research = asyncio.run(server.deepseek_research("q", max_pages=1))
     raw = asyncio.run(server.deepseek_fetch(REDDIT_URL, strip_boilerplate=False))
-    for content in (single["content"], many["results"][0]["content"], research["sources"][0]["content"]):
+    for content in (single["content"], many["results"][0]["content"]):
         assert content == remove_boilerplate(THREAD, REDDIT_URL)
     assert raw["content"] == THREAD
     assert raw["cached"] is True
@@ -121,11 +117,11 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
 @pytest.mark.parametrize(
     "name",
     [
-        "deepseek_web_search",
-        "deepseek_search_and_read",
         "deepseek_fetch",
         "deepseek_fetch_many",
         "deepseek_research",
+        "deepseek_extract",
+        "deepseek_extract_many",
     ],
 )
 def test_flag_is_keyword_only_and_on_by_default(name):

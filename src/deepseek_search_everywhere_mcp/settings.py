@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, fields
+from datetime import UTC, datetime
 from typing import Any
 
 MIB = 1024 * 1024
@@ -17,12 +18,58 @@ MIB = 1024 * 1024
 ENV_CACHE = "DEEPSEEK_MCP_CACHE"
 ENV_LOG_LEVEL = "DEEPSEEK_MCP_LOG_LEVEL"
 ENV_DAILY_BUDGET = "DEEPSEEK_DAILY_BUDGET_USD"
+ENV_FETCH_ALLOW_DOMAINS = "DEEPSEEK_FETCH_ALLOW_DOMAINS"
+ENV_FETCH_DENY_DOMAINS = "DEEPSEEK_FETCH_DENY_DOMAINS"
+ENV_EGRESS_ENTROPY_CHECK = "DEEPSEEK_EGRESS_ENTROPY_CHECK"
+ENV_SOURCE_DENYLIST = "DEEPSEEK_SOURCE_DENYLIST"
+
+# Research never uses these hosts as sources (structural rules only: library proxies). An entry matches
+# the host itself and its subdomains; an entry containing "*" is a glob matched against the whole host.
+DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ("*.ezproxy.*",)
 
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"
 
 # deepseek_fetch_many never runs more fetches than this at once.
 MAX_BATCH_CONCURRENCY = 5
+
+
+@dataclass(frozen=True, slots=True)
+class LLMRates:
+    cache_hit_per_1m: float
+    cache_miss_per_1m: float
+    output_per_1m: float
+
+
+@dataclass(frozen=True, slots=True)
+class LLMPricing:
+    peak: LLMRates = LLMRates(cache_hit_per_1m=0.006, cache_miss_per_1m=0.30, output_per_1m=1.20)
+    off_peak: LLMRates = LLMRates(cache_hit_per_1m=0.003, cache_miss_per_1m=0.15, output_per_1m=0.60)
+
+
+DEFAULT_LLM_PRICING = LLMPricing()
+
+
+def get_pricing_period(when: datetime | None = None) -> str:
+    """Return 'peak' or 'off_peak' based on the UTC timestamp.
+
+    Peak: Mon-Fri 01:00-04:00 and 06:00-10:00 UTC.
+    All other times (weekends, other UTC hours) are off-peak.
+    """
+    if when is None:
+        when = datetime.now(UTC)
+    elif when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    else:
+        when = when.astimezone(UTC)
+
+    if when.weekday() in (5, 6):
+        return "off_peak"
+
+    hour = when.hour
+    if (1 <= hour < 4) or (6 <= hour < 10):
+        return "peak"
+    return "off_peak"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +99,8 @@ class Settings:
     search_burst: int = 20
     fetch_qps: float = 5
     fetch_burst: int = 10
+    chat_qps: float = 10
+    chat_burst: int = 20
     limiter_max_wait: float = 5
 
     # Batch fetching.
@@ -62,14 +111,29 @@ class Settings:
     # Research tool budget.
     research_max_pages: int = 5
     research_gap_deadline: float = 15.0
+    research_inline_wait: float = 45.0
+    research_max_jobs: int = 3
+    research_job_ttl: float = 1800.0
+    research_cost_ceiling_usd: float = 1.0
 
     # Daily spend budget limit in USD (None means disabled).
     daily_budget_usd: float | None = None
+
+    # LLM pricing rates for peak and off-peak periods.
+    llm_pricing: LLMPricing = DEFAULT_LLM_PRICING
 
     # HTTP transport defaults (the CLI may override them).
     http_host: str = "127.0.0.1"
     http_port: int = 8000
     http_path: str = "/mcp"
+
+    # Egress guard settings (S2, S10).
+    fetch_allow_domains: tuple[str, ...] | None = None
+    fetch_deny_domains: tuple[str, ...] | None = None
+    egress_entropy_check: bool = False
+
+    # Research source denylist (empty tuple disables it).
+    source_denylist: tuple[str, ...] = DEFAULT_SOURCE_DENYLIST
 
     def __post_init__(self) -> None:
         for field in fields(self):
@@ -83,7 +147,19 @@ class Settings:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
             if name.startswith("response_cap_") and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
-            if name in {"limiter_max_wait", "batch_deadline", "research_gap_deadline"} and not value > 0:
+            if (
+                name
+                in {
+                    "limiter_max_wait",
+                    "batch_deadline",
+                    "research_gap_deadline",
+                    "research_inline_wait",
+                    "research_cost_ceiling_usd",
+                }
+                and not value > 0
+            ):
+                raise ValueError(f"{name} must be > 0, got {value!r}")
+            if name == "research_max_jobs" and not value > 0:
                 raise ValueError(f"{name} must be > 0, got {value!r}")
         if self.daily_budget_usd is not None and not self.daily_budget_usd > 0:
             raise ValueError(f"daily_budget_usd must be > 0, got {self.daily_budget_usd!r}")
@@ -98,6 +174,24 @@ class Settings:
             raise ValueError(f"http_path must start with '/', got {self.http_path!r}")
         if self.log_level.upper() not in _LOG_LEVELS:
             raise ValueError(f"log_level must be one of {sorted(_LOG_LEVELS)}, got {self.log_level!r}")
+        if self.fetch_allow_domains is not None:
+            if not isinstance(self.fetch_allow_domains, tuple):
+                object.__setattr__(self, "fetch_allow_domains", tuple(self.fetch_allow_domains))
+            for d in self.fetch_allow_domains:
+                if not isinstance(d, str) or not d.strip() or "/" in d or ":" in d:
+                    raise ValueError(f"fetch_allow_domains must contain valid domain names, got {d!r}")
+        if self.fetch_deny_domains is not None:
+            if not isinstance(self.fetch_deny_domains, tuple):
+                object.__setattr__(self, "fetch_deny_domains", tuple(self.fetch_deny_domains))
+            for d in self.fetch_deny_domains:
+                if not isinstance(d, str) or not d.strip() or "/" in d or ":" in d:
+                    raise ValueError(f"fetch_deny_domains must contain valid domain names, got {d!r}")
+
+        if not isinstance(self.source_denylist, tuple):
+            object.__setattr__(self, "source_denylist", tuple(self.source_denylist))
+        for d in self.source_denylist:
+            if not isinstance(d, str) or not d.strip() or "/" in d or ":" in d:
+                raise ValueError(f"source_denylist must contain valid host names or globs, got {d!r}")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -122,6 +216,23 @@ class Settings:
                 raise ValueError(
                     f"daily_budget_usd: {ENV_DAILY_BUDGET} must be a positive number, got {budget!r}"
                 ) from None
+        allow = os.environ.get(ENV_FETCH_ALLOW_DOMAINS, "").strip()
+        if allow:
+            overrides["fetch_allow_domains"] = tuple(d.strip().lower() for d in allow.split(",") if d.strip())
+        deny = os.environ.get(ENV_FETCH_DENY_DOMAINS, "").strip()
+        if deny:
+            overrides["fetch_deny_domains"] = tuple(d.strip().lower() for d in deny.split(",") if d.strip())
+        entropy = os.environ.get(ENV_EGRESS_ENTROPY_CHECK, "").strip().lower()
+        if entropy:
+            overrides["egress_entropy_check"] = entropy in {"1", "true", "yes"}
+        denylist = os.environ.get(ENV_SOURCE_DENYLIST, "").strip()
+        if denylist:
+            if denylist.lower() == "none":
+                overrides["source_denylist"] = ()
+            else:
+                overrides["source_denylist"] = tuple(
+                    d.strip().lower() for d in denylist.split(",") if d.strip()
+                )
         return cls(**overrides)
 
 

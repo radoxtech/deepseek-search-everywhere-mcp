@@ -33,6 +33,56 @@ MAX_RETRY_DELAY = 10.0
 # Retry backoff sleep; a module-level seam so tests can replace it without patching asyncio.
 _sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
+CLIENT_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+
+_client: httpx.AsyncClient | None = None
+_client_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Return a shared httpx.AsyncClient bound to the current event loop."""
+    global _client, _client_loop
+    loop = asyncio.get_running_loop()
+    if _client is None or _client.is_closed or _client_loop is not loop:
+        _client = httpx.AsyncClient(limits=CLIENT_LIMITS)
+        _client_loop = loop
+    return _client
+
+
+async def close_client() -> None:
+    """Close the shared HTTP client if open."""
+    global _client, _client_loop
+    client = _client
+    _client = None
+    _client_loop = None
+    if client is not None and not client.is_closed:
+        await client.aclose()
+
+
+_close_tasks: set[asyncio.Task[Any]] = set()
+
+
+def reset_state() -> None:
+    """Reset shared transport state and close any open client."""
+    global _client, _client_loop
+    client = _client
+    client_loop = _client_loop
+    _client = None
+    _client_loop = None
+    if client is not None and not client.is_closed:
+        if client_loop is not None and client_loop.is_closed():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(client.aclose())
+            _close_tasks.add(task)
+            task.add_done_callback(_close_tasks.discard)
+        except RuntimeError:
+            try:
+                asyncio.run(client.aclose())
+            except Exception:
+                pass
+
 
 def _base_url() -> str:
     return os.environ.get("DEEPSEEK_BASE_URL", BASE_DEFAULT).rstrip("/")
@@ -130,16 +180,16 @@ async def _attempt(
 ) -> tuple[dict[str, Any], float | None]:
     """Run one HTTP exchange; return the envelope and a retry delay when it is retryable."""
     cap = _response_cap(path)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream(method, url, json=payload, headers=headers) as response:
-            status = response.status_code
-            if status >= 400:
-                raw, _ = await _read_capped(response, ERROR_BODY_CAP)
-                error = _map_http_error(status, raw.decode("utf-8", errors="replace"))
-                if status in RETRY_STATUSES:
-                    return error, _retry_after(response.headers.get("Retry-After"))
-                return error, None
-            body, too_large = await _read_capped(response, cap)
+    client = _get_client()
+    async with client.stream(method, url, json=payload, headers=headers, timeout=timeout) as response:
+        status = response.status_code
+        if status >= 400:
+            raw, _ = await _read_capped(response, ERROR_BODY_CAP)
+            error = _map_http_error(status, raw.decode("utf-8", errors="replace"), path=path)
+            if status in RETRY_STATUSES:
+                return error, _retry_after(response.headers.get("Retry-After"))
+            return error, None
+        body, too_large = await _read_capped(response, cap)
     if too_large:
         return _fail(
             "response_too_large", f"Response from {path} exceeded the {cap}-byte limit.", status
@@ -151,13 +201,19 @@ async def _attempt(
 
 
 async def request(
-    method: str, path: str, *, payload: dict[str, Any] | None = None, timeout: float, attempts: int = 2
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    timeout: float = 30.0,
+    deadline: float | None = None,
+    attempts: int = 2,
 ) -> dict[str, Any]:
     """Call the DeepSeek API and return ``{"ok": True, "data": ...}`` or an error envelope.
 
-    ``attempts`` is the total number of tries, so ``attempts=1`` means no retry and the
-    default of 2 allows one retry. Each attempt gets its own ``timeout``; 429 and 5xx gateway
-    errors, timeouts and network errors are retried, other 4xx responses are returned at once.
+    ``attempts`` is the total number of tries. Retries are bounded by the total request
+    budget (``deadline`` if specified, else ``timeout``); a second attempt is made only
+    if at least 50% of the total budget remains after the first attempt and any backoff delay.
     """
     key = _api_key()
     if not key:
@@ -169,19 +225,41 @@ async def request(
     headers = {"Authorization": f"Bearer {key}"}
     last: dict[str, Any] = _fail("request_failed", "No attempt was made.")
 
+    budget = deadline if deadline is not None else timeout
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+
     for attempt in range(attempts):
+        elapsed = loop.time() - t0
+        remaining = budget - elapsed
+
+        if attempt > 0 and remaining < 0.5 * budget:
+            break
+
+        current_timeout = min(timeout, remaining)
+        if current_timeout <= 0:
+            last = _fail("timeout", f"Request to {path} timed out after {budget:.0f}s.")
+            break
+
         delay = DEFAULT_RETRY_DELAY
         try:
-            result, retry_delay = await _attempt(
-                method, url, path, payload=payload, headers=headers, timeout=timeout
-            )
+            async with asyncio.timeout(current_timeout):
+                result, retry_delay = await _attempt(
+                    method, url, path, payload=payload, headers=headers, timeout=current_timeout
+                )
             if retry_delay is None:
                 return _scrub(result, key)
             last, delay = result, retry_delay
-        except httpx.TimeoutException:
-            last = _fail("timeout", f"Request to {path} timed out after {timeout:.0f}s.")
+        except (httpx.TimeoutException, TimeoutError):
+            last = _fail("timeout", f"Request to {path} timed out after {current_timeout:.0f}s.")
         except httpx.RequestError as exc:
             last = _fail("network_error", f"{type(exc).__name__}: {exc}")
+
         if attempt + 1 < attempts:
+            elapsed = loop.time() - t0
+            remaining = budget - elapsed
+            if (remaining - delay) < 0.5 * budget:
+                break
             await _sleep(delay)
+
     return _scrub(last, key)

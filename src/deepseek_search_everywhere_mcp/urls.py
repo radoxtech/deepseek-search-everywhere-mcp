@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 MAX_URL_LENGTH = 8192
 
@@ -135,3 +135,76 @@ def validate_url(url: str) -> str:
     if host == "localhost" or host.endswith(_BLOCKED_SUFFIXES):
         raise _blocked("Local and internal hostnames are not allowed.")
     return url
+
+
+TRACKING_PARAMS = {"fbclid", "gclid", "yclid", "mc_cid", "mc_eid"}
+_TWO_PART_SECOND_LEVEL = frozenset(
+    {"co", "com", "org", "net", "edu", "gov", "ac", "ne", "or", "mil", "gc", "go"}
+)
+
+
+def _is_tracking_param(name: str) -> bool:
+    lowered = name.lower()
+    return lowered.startswith("utm_") or lowered in TRACKING_PARAMS
+
+
+def _canonical_url(url: str) -> str | None:
+    """Normalize a URL to its canonical form for deduplication.
+
+    Equates http and https schemes, strips default www prefix, strips trailing slashes,
+    and removes common marketing tracking query parameters.
+    """
+    try:
+        parts = urlsplit(url.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.hostname:
+        return None
+    scheme = parts.scheme.lower()
+    if scheme in ("http", "https"):
+        scheme = "https"
+    host = parts.hostname.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    netloc = host if port is None else f"{host}:{port}"
+    path = parts.path
+    if len(path) > 1:
+        path = path.rstrip("/") or "/"
+    params = [
+        (name, value)
+        for name, value in parse_qsl(parts.query, keep_blank_values=True)
+        if not _is_tracking_param(name)
+    ]
+    params.sort()
+    return urlunsplit((scheme, netloc, path, urlencode(params), ""))
+
+
+def _url_etld1(url: str) -> str:
+    """Extract effective top-level domain plus one label (eTLD+1) from a URL or host."""
+    raw = url.strip()
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw)
+        host = parts.hostname or parts.path
+    except Exception:
+        host = raw
+
+    host = host.lower().rstrip(".")
+    if host.startswith("[") and host.endswith("]"):
+        return host[1:-1]
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+
+    labels = host.split(".")
+    if len(labels) <= 2:
+        return host
+
+    if len(labels[-1]) == 2 and labels[-2] in _TWO_PART_SECOND_LEVEL:
+        return ".".join(labels[-3:])
+
+    return ".".join(labels[-2:])

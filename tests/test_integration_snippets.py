@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from deepseek_search_everywhere_mcp import server
 
 SAMPLE_PAGE = """# First Chapter: Classical Bits
@@ -118,13 +120,10 @@ def test_fetch_offset_limit_rejections(fake_upstream):
 def test_fetch_find_text_success(fake_upstream):
     _install_fetch(fake_upstream)
     # Search for "quantum mechanics" (case-insensitive)
-    result = asyncio.run(
-        server.deepseek_fetch("https://example.com/quantum", find_text="QUANTUM MECHANICS", limit=40)
-    )
+    result = asyncio.run(server.deepseek_fetch("https://example.com/quantum", find_text="QUANTUM MECHANICS"))
     assert result["ok"] is True
     assert result["find_text"] == "QUANTUM MECHANICS"
     assert "Quantum Mechanics" in result["content"]
-    assert result["chars"] <= 40
     assert result["offset"] == SAMPLE_PAGE.lower().find("quantum mechanics")
 
 
@@ -137,14 +136,81 @@ def test_fetch_find_text_not_found(fake_upstream):
     assert any("not found in page content" in note for note in result["notes"])
 
 
-def test_fetch_find_text_with_offset(fake_upstream):
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"section": 1, "query": "test"},
+        {"section": 1, "offset": 10},
+        {"section": 1, "limit": 50},
+        {"section": 1, "find_text": "test"},
+        {"query": "test", "offset": 10},
+        {"query": "test", "limit": 50},
+        {"query": "test", "find_text": "test"},
+        {"find_text": "test", "offset": 10},
+        {"find_text": "test", "limit": 50},
+        {"section": 1, "query": "test", "find_text": "test"},
+    ],
+)
+def test_fetch_conflicting_selectors_rejected(fake_upstream, kwargs):
     _install_fetch(fake_upstream)
-    # Find "qubits" starting after the first chapter
-    first_qubits = SAMPLE_PAGE.lower().find("qubits")
-    assert first_qubits >= 0
+    result = asyncio.run(server.deepseek_fetch("https://example.com/quantum", **kwargs))
+    assert result["ok"] is False
+    assert result["error"]["code"] == "bad_request"
+    assert (
+        "Selectors section, query, offset/limit, and find_text are mutually exclusive."
+        in result["error"]["message"]
+    )
+
+
+def _long_page() -> str:
+    filler = "Routine maintenance paragraph with unrelated operational details only. " * 5
+    block = "\n\n".join([filler] * 30)
+    return (
+        block
+        + "\n\nAn incremental backup is created with pg_basebackup --incremental.\n\n"
+        + block
+        + "\n\nCombining an incremental backup requires pg_combinebackup.\n\n"
+        + block
+    )
+
+
+def test_fetch_query_returns_short_focused_excerpts(fake_upstream):
+    page = _long_page()
+    assert len(page) > 30_000
+    _install_fetch(fake_upstream, page)
     result = asyncio.run(
-        server.deepseek_fetch("https://example.com/quantum", offset=first_qubits + 1, find_text="qubits")
+        server.deepseek_fetch(
+            "https://example.com/pg", query="incremental backup", max_snippets=2, max_chars=20_000
+        )
     )
     assert result["ok"] is True
-    second_qubits = SAMPLE_PAGE.lower().find("qubits", first_qubits + 1)
-    assert result["offset"] == second_qubits
+    assert result["snippets_count"] == 2
+    parts = [p for p in result["content"].split("\n\n---\n\n") if p.strip()]
+    assert len(parts) == 2
+    assert all("incremental backup" in p.lower() for p in parts)
+    assert all(len(p) <= 1700 for p in parts)
+    assert result["chars"] < 3500
+    assert result["truncated"] is False
+
+
+def test_fetch_query_without_matches_has_clear_note_and_empty_content(fake_upstream):
+    _install_fetch(fake_upstream, _long_page())
+    result = asyncio.run(server.deepseek_fetch("https://example.com/pg", query="kubernetes ingress"))
+    assert result["ok"] is True
+    assert result["content"] == ""
+    assert result["snippets_count"] == 0
+    assert any("No excerpt" in n and "kubernetes ingress" in n for n in result["notes"])
+    assert not any("PDF" in n for n in result["notes"])
+
+
+def test_fetch_many_query_returns_focused_excerpts(fake_upstream):
+    _install_fetch(fake_upstream, _long_page())
+    result = asyncio.run(
+        server.deepseek_fetch_many(
+            ["https://example.com/pg"], query="incremental backup", max_chars_per_url=20_000
+        )
+    )
+    item = result["results"][0]
+    assert item["ok"] is True
+    assert len(item["content"]) < 3500
+    assert "incremental backup" in item["content"].lower()

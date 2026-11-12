@@ -107,3 +107,30 @@ def test_get_settings_can_be_swapped_and_reset() -> None:
     settings_module.reset_state()
     assert get_settings() is not custom
     assert get_settings() == Settings()
+
+
+def test_source_denylist_default_and_override():
+    from deepseek_search_everywhere_mcp.settings import DEFAULT_SOURCE_DENYLIST, Settings
+
+    assert Settings().source_denylist == DEFAULT_SOURCE_DENYLIST
+    assert DEFAULT_SOURCE_DENYLIST == ("*.ezproxy.*",)
+    assert any("ezproxy" in d for d in DEFAULT_SOURCE_DENYLIST)
+    assert Settings(source_denylist=()).source_denylist == ()
+    assert Settings(source_denylist=["a.com"]).source_denylist == ("a.com",)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("bad", ["", "  ", "a/b.com", "host:80", 5])
+def test_source_denylist_rejects_invalid_entries(bad):
+    from deepseek_search_everywhere_mcp.settings import Settings
+
+    with pytest.raises(ValueError, match="source_denylist"):
+        Settings(source_denylist=(bad,))  # type: ignore[arg-type]
+
+
+def test_source_denylist_from_env(monkeypatch):
+    from deepseek_search_everywhere_mcp.settings import Settings
+
+    monkeypatch.setenv("DEEPSEEK_SOURCE_DENYLIST", "Foo.com, bar.org")
+    assert Settings.from_env().source_denylist == ("foo.com", "bar.org")
+    monkeypatch.setenv("DEEPSEEK_SOURCE_DENYLIST", "none")
+    assert Settings.from_env().source_denylist == ()

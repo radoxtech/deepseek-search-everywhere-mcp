@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.radoxtech/deepseek-search-everywhere-mcp",
   "title": "DeepSeek Search Everywhere",
-  "description": "Web search, page fetching and multi-source research via the DeepSeek Search & Fetch API.",
+  "description": "MCP server: web search, page fetch to Markdown, data extraction, cited deep research via DeepSeek.",
   "repository": {
     "url": "https://github.com/radoxtech/deepseek-search-everywhere-mcp",
     "source": "github"

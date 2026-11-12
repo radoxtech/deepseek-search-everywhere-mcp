@@ -177,7 +177,7 @@ def _run_search(fake_upstream, results, **kwargs):
             kwargs.pop("query", "test query"),
             5,
             kwargs.pop("ori_question", None),
-            kwargs.pop("need_content", False),
+            kwargs.pop("content", kwargs.pop("need_content", "snippets")),
             kwargs.pop("lang", None),
             1000,
             4000,
@@ -259,6 +259,30 @@ def test_dedupe_preserves_input_and_order():
     assert items == snapshot
     assert [item["title"] for item in kept] == ["A", "B"]
     assert removed == 1
+
+
+def test_dedupe_treats_http_and_https_as_duplicates_and_prefers_https(fake_upstream):
+    results = [
+        {"title": "HTTP First", "url": "http://example.com/page", "site_name": "Example"},
+        {"title": "HTTPS Second", "url": "https://example.com/page", "site_name": "Example"},
+    ]
+    result, _ = _run_search(fake_upstream, results)
+    assert result["count"] == 1
+    assert result["deduped"] == 1
+    assert result["results"][0]["url"] == "https://example.com/page"
+    assert result["results"][0]["title"] == "HTTPS Second"
+
+
+def test_dedupe_keeps_https_when_https_comes_first(fake_upstream):
+    results = [
+        {"title": "HTTPS First", "url": "https://example.com/page", "site_name": "Example"},
+        {"title": "HTTP Second", "url": "http://example.com/page", "site_name": "Example"},
+    ]
+    result, _ = _run_search(fake_upstream, results)
+    assert result["count"] == 1
+    assert result["deduped"] == 1
+    assert result["results"][0]["url"] == "https://example.com/page"
+    assert result["results"][0]["title"] == "HTTPS First"
 
 
 def test_dedupe_false_preserves_duplicates(fake_upstream):
@@ -501,24 +525,6 @@ def test_rewrite_exception_is_logged_redacted(fake_upstream, caplog):
     messages = [record.getMessage() for record in caplog.records if record.name == server.__name__]
     assert any("RuntimeError" in message for message in messages)
     assert all("sk-abcdefghijklmnop" not in message for message in messages)
-
-
-def test_search_localization_included_in_payload(fake_upstream):
-    result, calls = _run_search(fake_upstream, [], localization="192.168.1.1")
-    assert result["ok"] is True
-    assert calls[0]["payload"].get("localization") == "192.168.1.1"
-
-
-def test_search_localization_rejections(fake_upstream):
-    result = asyncio.run(server.deepseek_search("test", localization=123))  # type: ignore[arg-type]
-    assert result["ok"] is False
-    assert result["error"]["code"] == "bad_request"
-    assert "must be a string" in result["error"]["message"]
-
-    result = asyncio.run(server.deepseek_search("test", localization="x" * 65))
-    assert result["ok"] is False
-    assert result["error"]["code"] == "bad_request"
-    assert "maximum length of 64 characters" in result["error"]["message"]
 
 
 def test_search_exclude_terms_and_exact_phrases_in_payload(fake_upstream):

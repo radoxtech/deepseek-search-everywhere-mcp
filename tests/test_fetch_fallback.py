@@ -38,14 +38,14 @@ class FallbackUpstream:
             return {
                 "ok": False,
                 "error": {
-                    "code": f"http_{self.fetch_status}",
+                    "code": "not_found" if self.fetch_status == 404 else f"http_{self.fetch_status}",
                     "message": "failed to fetch URL",
                     "status": self.fetch_status,
                 },
             }
         if path == server.SEARCH_PATH:
             if not self.search_ok:
-                return {"ok": False, "error": {"code": "upstream_500", "message": "Search error"}}
+                return {"ok": False, "error": {"code": "upstream_error", "message": "Search error"}}
             return {
                 "ok": True,
                 "data": {
@@ -81,6 +81,7 @@ async def test_fetch_pdf_fallback_success(fake_upstream: Any) -> None:
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is True
+    assert res["source"] == "search_index"
     assert res["title"] == "Attention Is All You Need"
     assert "The dominant sequence" in res["content"]
     assert any("Content retrieved via DeepSeek search index" in note for note in res["notes"])
@@ -107,12 +108,13 @@ async def test_fetch_reddit_fallback_success(fake_upstream: Any) -> None:
 
     res = await server.deepseek_fetch(reddit_url)
     assert res["ok"] is True
+    assert res["source"] == "search_index"
     assert res["title"] == "Discussion on LLMs"
     assert "Interesting thread" in res["content"]
     assert any("Content retrieved via DeepSeek search index" in note for note in res["notes"])
 
 
-async def test_fetch_pdf_fallback_caching(fake_upstream: Any) -> None:
+async def test_fetch_pdf_fallback_not_cached_under_original_key(fake_upstream: Any) -> None:
     pdf_url = "https://arxiv.org/pdf/1706.03762"
     search_item = {
         "url": "https://arxiv.org/pdf/1706.03762",
@@ -124,18 +126,34 @@ async def test_fetch_pdf_fallback_caching(fake_upstream: Any) -> None:
 
     res1 = await server.deepseek_fetch(pdf_url)
     assert res1["ok"] is True
+    assert res1["source"] == "search_index"
     assert res1["cached"] is False
     assert len(upstream.calls) == 2
 
-    # Second call should be served from fetch cache at 0 cost
+    # Second call should not be served from cache; fallback is never cached under original key
     res2 = await server.deepseek_fetch(pdf_url)
     assert res2["ok"] is True
-    assert res2["cached"] is True
-    assert res2["cost_usd"] == 0.0
-    assert res2["content"] == "Paper content to cache."
-    assert any("Content retrieved via DeepSeek search index" in note for note in res2["notes"])
-    # No new upstream calls
-    assert len(upstream.calls) == 2
+    assert res2["source"] == "search_index"
+    assert res2["cached"] is False
+    # Upstream fetch was called again (not served from fetch cache)
+    assert len([c for c in upstream.calls if c["path"] == server.FETCH_PATH]) == 2
+
+
+async def test_fetch_fallback_same_host_different_path_rejected(fake_upstream: Any) -> None:
+    reddit_url = "https://www.reddit.com/r/MachineLearning/comments/123/target_thread"
+    # Result is from reddit.com, but a completely different thread
+    search_item = {
+        "url": "https://www.reddit.com/r/MachineLearning/comments/999/other_thread",
+        "title": "Other Thread",
+        "content": "Unrelated content",
+    }
+    upstream = FallbackUpstream(fetch_status=404, search_results=[search_item])
+    fake_upstream(upstream)
+
+    res = await server.deepseek_fetch(reddit_url)
+    assert res["ok"] is False
+    assert res["error"]["code"] == "not_found"
+    assert "deepseek_search" in res["error"]["message"]
 
 
 async def test_fetch_fallback_disabled(fake_upstream: Any) -> None:
@@ -150,7 +168,7 @@ async def test_fetch_fallback_disabled(fake_upstream: Any) -> None:
 
     res = await server.deepseek_fetch(pdf_url, fallback_to_search=False)
     assert res["ok"] is False
-    assert res["error"]["code"] == "http_404"
+    assert res["error"]["code"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
     # Only 1 fetch call, no search call
     assert len(upstream.calls) == 1
@@ -170,7 +188,7 @@ async def test_fetch_fallback_domain_mismatch_fails_to_404(fake_upstream: Any) -
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "http_404"
+    assert res["error"]["code"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
 
 
@@ -186,7 +204,7 @@ async def test_fetch_fallback_empty_content_fails_to_404(fake_upstream: Any) -> 
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "http_404"
+    assert res["error"]["code"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
 
 
@@ -204,5 +222,21 @@ async def test_extract_pdf_uses_fallback(fake_upstream: Any) -> None:
     res = await server.deepseek_extract(pdf_url, fields=["title", "year"])
     assert res["ok"] is True
     assert res["data"] == {"title": "Attention Is All You Need", "year": 2017}
-    # 1 fetch (404) + 1 search + 1 chat completion = 3 requests
-    assert res["cost_usd"] == round(3 * server.COST_PER_REQUEST, 5)
+    # 1 fetch (404) + 1 search = 2 requests for fetch stage, plus LLM extraction cost
+    assert "cost_breakdown" in res
+    assert res["cost_breakdown"]["fetch"] == round(2 * server.COST_PER_REQUEST, 6)
+    assert res["cost_breakdown"]["llm"] > 0.0
+    assert res["cost_usd"] == round(res["cost_breakdown"]["fetch"] + res["cost_breakdown"]["llm"], 6)
+
+
+async def test_fetch_fallback_survives_oversized_host(fake_upstream: Any) -> None:
+    oversized_host = "a" * 50 + "." + "b" * 50 + "." + "c" * 20 + ".org"
+    url = f"https://{oversized_host}/document.pdf"
+    upstream = FallbackUpstream(fetch_status=404)
+    fake_upstream(upstream)
+
+    # Must survive without raising ValueError and return the 404 envelope
+    res = await server.deepseek_fetch(url)
+    assert res["ok"] is False
+    assert res["error"]["code"] == "not_found"
+    assert res["error"]["status"] == 404

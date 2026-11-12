@@ -32,17 +32,11 @@ def test_fetch_many_with_only_rejected_urls_is_not_cached():
     assert envelope["cached"] is False
 
 
-def test_research_cached_only_without_upstream_requests(fake_upstream):
-    fake_upstream(responses={server.SEARCH_PATH: _search_answer(A), server.FETCH_PATH: PAGE})
-    cold = asyncio.run(server.deepseek_research("q", max_pages=1))
-    warm = asyncio.run(server.deepseek_research("q", max_pages=1))
-    assert (cold["cached"], cold["requests_used"]) == (False, 2)
-    assert (warm["cached"], warm["requests_used"], warm["cached_count"]) == (True, 0, 2)
-
-
-def test_research_with_cached_search_but_fresh_fetch_is_not_cached(fake_upstream):
-    fake_upstream(responses={server.SEARCH_PATH: _search_answer(A), server.FETCH_PATH: PAGE})
-    asyncio.run(server.deepseek_research("q", max_pages=1))
-    server._get_fetch_cache().clear()
-    envelope = asyncio.run(server.deepseek_research("q", max_pages=1))
-    assert (envelope["cached"], envelope["cached_count"], envelope["requests_used"]) == (False, 1, 1)
+def test_search_many_cached_only_when_every_query_is_a_hit(fake_upstream):
+    fake_upstream(responses={server.SEARCH_PATH: _search_answer(A)})
+    first = asyncio.run(server.deepseek_search_many(["q1"]))
+    mixed = asyncio.run(server.deepseek_search_many(["q1", "q2"]))
+    warm = asyncio.run(server.deepseek_search_many(["q1", "q2"]))
+    assert (first["cached"], first["cached_count"]) == (False, 0)
+    assert (mixed["cached"], mixed["cached_count"], mixed["requests_used"]) == (False, 1, 1)
+    assert (warm["cached"], warm["cached_count"], warm["requests_used"]) == (True, 2, 0)

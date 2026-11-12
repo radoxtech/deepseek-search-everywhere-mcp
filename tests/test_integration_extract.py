@@ -9,9 +9,15 @@ from deepseek_search_everywhere_mcp import server
 
 
 class ExtractUpstream:
-    def __init__(self, page_content: str = "", chat_response: str = "") -> None:
+    def __init__(
+        self,
+        page_content: str = "",
+        chat_response: str = "",
+        finish_reason: str = "stop",
+    ) -> None:
         self.page_content = page_content
         self.chat_response = chat_response
+        self.finish_reason = finish_reason
         self.fetch_calls: list[dict[str, Any]] = []
         self.chat_calls: list[dict[str, Any]] = []
 
@@ -34,10 +40,11 @@ class ExtractUpstream:
                 "data": {
                     "choices": [
                         {
+                            "finish_reason": self.finish_reason,
                             "message": {
                                 "role": "assistant",
                                 "content": self.chat_response,
-                            }
+                            },
                         }
                     ]
                 },
@@ -198,7 +205,10 @@ async def test_extract_many_success_with_fields(fake_upstream: Any) -> None:
     assert len(upstream.fetch_calls) == 2
     assert len(upstream.chat_calls) == 2
     assert res["requests_used"] == 4
-    assert res["cost_usd"] == round(4 * server.COST_PER_REQUEST, 5)
+    assert "cost_breakdown" in res
+    assert res["cost_breakdown"]["fetch"] == round(2 * server.COST_PER_REQUEST, 6)
+    assert res["cost_breakdown"]["llm"] > 0.0
+    assert res["cost_usd"] == round(res["cost_breakdown"]["fetch"] + res["cost_breakdown"]["llm"], 6)
 
 
 async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
@@ -257,3 +267,163 @@ async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
     assert len(upstream.chat_calls) == 1
     # 2 upstream fetch calls + 1 upstream chat call = 3
     assert res["requests_used"] == 3
+
+
+async def test_extract_evidence_verified(fake_upstream: Any) -> None:
+    page = "The Enterprise Widget model X9 costs $199 and includes a 3-year warranty."
+    model_output = json.dumps(
+        {
+            "data": {"model": "model X9", "price": "$199", "warranty": "3-year warranty"},
+            "evidence": {
+                "model": "model X9",
+                "price": "costs $199",
+                "warranty": "3-year warranty",
+            },
+        }
+    )
+    upstream = ExtractUpstream(page_content=page, chat_response=model_output)
+    fake_upstream(upstream)
+
+    res = await server.deepseek_extract(
+        "https://example.com/item",
+        fields=["model", "price", "warranty"],
+    )
+    assert res["ok"] is True
+    assert res["data"] == {
+        "model": "model X9",
+        "price": "$199",
+        "warranty": "3-year warranty",
+    }
+    assert res["evidence"] == {
+        "model": "model X9",
+        "price": "costs $199",
+        "warranty": "3-year warranty",
+    }
+    assert res["extraction_truncated"] is False
+    assert not any("nullified" in note for note in res["notes"])
+
+    # Verify JSON mode was passed to LLM gateway
+    assert len(upstream.chat_calls) == 1
+    call = upstream.chat_calls[0]
+    assert call.get("response_format") == {"type": "json_object"}
+
+
+async def test_extract_evidence_unverified_nullified(fake_upstream: Any) -> None:
+    page = "Only basic gadgets are listed on this inventory page."
+    model_output = json.dumps(
+        {
+            "data": {"gadget": "basic gadgets", "price": "$499"},
+            "evidence": {
+                "gadget": "basic gadgets",
+                "price": "unheard of cheap price of $499",  # Not in page
+            },
+        }
+    )
+    upstream = ExtractUpstream(page_content=page, chat_response=model_output)
+    fake_upstream(upstream)
+
+    res = await server.deepseek_extract(
+        "https://example.com/gadgets",
+        fields=["gadget", "price"],
+    )
+    assert res["ok"] is True
+    assert res["data"]["gadget"] == "basic gadgets"
+    assert res["data"]["price"] is None
+    assert any(
+        "Field 'price' nullified: evidence quote not found in page content." in n for n in res["notes"]
+    )
+
+
+async def test_extract_evidence_missing_nullified(fake_upstream: Any) -> None:
+    page = "The server blade is listed at $1200 with rack mount included."
+    model_output = json.dumps(
+        {
+            "data": {"item": "server blade", "price": "$1200"},
+            "evidence": {
+                "item": "server blade",
+                # "price" evidence omitted
+            },
+        }
+    )
+    upstream = ExtractUpstream(page_content=page, chat_response=model_output)
+    fake_upstream(upstream)
+
+    res = await server.deepseek_extract(
+        "https://example.com/blade",
+        fields=["item", "price"],
+    )
+    assert res["ok"] is True
+    assert res["data"]["item"] == "server blade"
+    assert res["data"]["price"] is None
+    assert any("Field 'price' nullified: missing evidence quote." in n for n in res["notes"])
+
+
+async def test_extract_truncated_invalid_json(fake_upstream: Any) -> None:
+    page = "Page with a large amount of content."
+    broken_json = '{"data": {"item": "Incomplete text and no closing'
+    upstream = ExtractUpstream(
+        page_content=page,
+        chat_response=broken_json,
+        finish_reason="length",
+    )
+    fake_upstream(upstream)
+
+    res = await server.deepseek_extract("https://example.com/large", fields=["item"])
+    assert res["ok"] is False
+    assert res["error"]["code"] == "extraction_truncated"
+    assert "truncated before valid JSON" in res["error"]["message"]
+
+
+async def test_extract_truncated_valid_json(fake_upstream: Any) -> None:
+    page = "Page with items."
+    valid_json = json.dumps(
+        {
+            "data": {"item": "items"},
+            "evidence": {"item": "items"},
+        }
+    )
+    upstream = ExtractUpstream(
+        page_content=page,
+        chat_response=valid_json,
+        finish_reason="length",
+    )
+    fake_upstream(upstream)
+
+    res = await server.deepseek_extract("https://example.com/items", fields=["item"])
+    assert res["ok"] is True
+    assert res["data"] == {"item": "items"}
+    assert res["extraction_truncated"] is True
+    assert any("Extraction output was truncated by token limit." in n for n in res["notes"])
+
+
+async def test_extract_schema_mode_evidence_verification(fake_upstream: Any) -> None:
+    page = "Author: John Doe. Published in 2024. Available in Hardcover."
+    schema = {
+        "type": "object",
+        "properties": {
+            "author": {"type": "string"},
+            "format": {"type": "string"},
+            "price": {"type": "string"},
+        },
+    }
+    model_output = json.dumps(
+        {
+            "data": {"author": "John Doe", "format": "Hardcover", "price": "$29"},
+            "evidence": {
+                "author": "Author: John Doe",
+                "format": "Available in Hardcover",
+                "price": "cost is $29",  # Hallucinated quote
+            },
+        }
+    )
+    upstream = ExtractUpstream(page_content=page, chat_response=model_output)
+    fake_upstream(upstream)
+
+    res = await server.deepseek_extract("https://example.com/book", schema=schema)
+    assert res["ok"] is True
+    assert res["data"]["author"] == "John Doe"
+    assert res["data"]["format"] == "Hardcover"
+    assert res["data"]["price"] is None
+    assert any(
+        "Field 'price' nullified: evidence quote not found in page content." in n for n in res["notes"]
+    )

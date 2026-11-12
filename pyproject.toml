@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "deepseek-search-everywhere-mcp"
 version = "2.3.0"
-description = "Research-grade MCP server for the DeepSeek Search & Fetch API"
+description = "MCP server for web search, page fetch to Markdown, structured data extraction and deep research with citations, built on the DeepSeek Search & Fetch API. Works with Claude Code, Claude Desktop, Cursor, Cline, Windsurf, Zed and OpenCode."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -14,10 +14,27 @@ keywords = [
     "mcp-server",
     "model-context-protocol",
     "deepseek",
+    "deepseek-api",
     "web-search",
+    "deep-research",
     "research",
-    "llm",
+    "web-scraping",
+    "web-fetch",
+    "structured-data-extraction",
+    "citations",
+    "claude",
+    "claude-code",
+    "claude-desktop",
+    "cursor",
+    "cline",
+    "windsurf",
+    "opencode",
+    "tavily-alternative",
+    "perplexity-alternative",
+    "firecrawl-alternative",
+    "llm-tools",
     "ai-agents",
+    "rag",
 ]
 authors = [{ name = "radoxtech" }]
 requires-python = ">=3.11"
@@ -68,5 +85,9 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["live: hits the real DeepSeek API"]
-addopts = "-m 'not live'"
+markers = [
+    "live: hits the real DeepSeek API",
+    "live_llm: live LLM evaluation tests (run 3x)",
+    "live_e2e: end-to-end live pipeline tests",
+]
+addopts = "-m 'not (live or live_llm or live_e2e)'"

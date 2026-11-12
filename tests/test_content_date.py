@@ -46,39 +46,37 @@ def test_content_date_only_looks_at_the_start_of_the_text() -> None:
     assert server._content_date(None, REPORT, TODAY) == "2025-06-26"
 
 
-def _result(fake_upstream, tool: str, **item: Any) -> dict[str, Any]:
+def _result(fake_upstream, content_mode: str = "full", **item: Any) -> dict[str, Any]:
     base = {"title": "PUBLIKACJE", "url": "https://survey.example.pl/raport?id=1", "site_name": "Example"}
     fake_upstream(default={"ok": True, "data": {"results": [{**base, **item}]}})
-    return asyncio.run(getattr(server, tool)("internet 2025", count=1))["results"][0]
+    return asyncio.run(server.deepseek_search("internet 2025", count=1, content=content_mode))["results"][0]
 
 
 def test_search_uses_content_date_when_upstream_has_none(fake_upstream) -> None:
-    result = _result(fake_upstream, "deepseek_search_and_read", date=None, content=REPORT)
+    result = _result(fake_upstream, content_mode="full", date=None, content=REPORT)
     assert (result["date"], result["date_source"]) == ("2025-06-26", "content")
 
 
 def test_web_search_uses_summary_without_content(fake_upstream) -> None:
-    result = _result(fake_upstream, "deepseek_web_search", summary=REPORT)
+    result = _result(fake_upstream, content_mode="snippets", summary=REPORT)
     assert (result["date"], result["date_source"]) == ("2025-06-26", "content")
 
 
 def test_upstream_date_wins(fake_upstream) -> None:
     upstream = "2025-11-23T16:00:00+00:00"
-    result = _result(fake_upstream, "deepseek_search_and_read", date=upstream, content=REPORT)
+    result = _result(fake_upstream, content_mode="full", date=upstream, content=REPORT)
     assert (result["date"], result["date_source"]) == (upstream, "upstream")
 
 
 def test_no_date_anywhere_stays_null(fake_upstream) -> None:
-    result = _result(
-        fake_upstream, "deepseek_search_and_read", content="Badanie objęło 98 299 osób w 2025 roku."
-    )
+    result = _result(fake_upstream, content_mode="full", content="Badanie objęło 98 299 osób w 2025 roku.")
     assert (result["date"], result["date_source"]) == (None, None)
 
 
 def test_research_sources_carry_date_source(fake_upstream) -> None:
     item = {"title": "PUBLIKACJE", "url": "https://survey.example.pl/raport?id=1", "content": REPORT * 2}
     fake_upstream(default={"ok": True, "data": {"results": [item]}})
-    source = asyncio.run(server.deepseek_research("internet 2025", max_pages=1))["sources"][0]
+    source = asyncio.run(server.deepseek_search("internet 2025", count=1, content="full"))["results"][0]
     assert (source["date"], source["date_source"]) == ("2025-06-26", "content")
 
 
@@ -90,7 +88,7 @@ def test_research_takes_a_date_from_a_fetched_gap(fake_upstream) -> None:
             server.FETCH_PATH: {"ok": True, "data": {"title": "Raport", "content": REPORT}},
         }
     )
-    source = asyncio.run(server.deepseek_research("internet 2025", max_pages=1))["sources"][0]
+    source = asyncio.run(server.deepseek_search("internet 2025", count=1, content="full"))["results"][0]
     assert source["origin"] == "fetch"
     assert (source["date"], source["date_source"]) == ("2025-06-26", "content")
 
@@ -166,11 +164,11 @@ def test_content_date_window_is_600_characters() -> None:
 
 
 def test_search_reads_a_month_date_from_content(fake_upstream) -> None:
-    result = _result(fake_upstream, "deepseek_search_and_read", date=None, content=JOURNAL_TOC)
+    result = _result(fake_upstream, content_mode="full", date=None, content=JOURNAL_TOC)
     assert (result["date"], result["date_source"]) == ("2025-09-01", "content")
 
 
 def test_upstream_date_wins_over_a_month_date(fake_upstream) -> None:
     upstream = "2025-11-23T16:00:00+00:00"
-    result = _result(fake_upstream, "deepseek_search_and_read", date=upstream, content=JOURNAL_TOC)
+    result = _result(fake_upstream, content_mode="full", date=upstream, content=JOURNAL_TOC)
     assert (result["date"], result["date_source"]) == (upstream, "upstream")

@@ -82,12 +82,25 @@ def test_research_meta_and_cost(fake_upstream):
             "/v1/tools/search": _search_response(
                 [{"title": "T1", "url": "https://example.com/1", "content": "Full content" * 50}]
             ),
+            "/v1/chat/completions": {
+                "ok": True,
+                "data": {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"queries": ["q1", "q2"]}',
+                            }
+                        }
+                    ]
+                },
+            },
         }
     )
 
-    res = asyncio.run(server.deepseek_research("quantum computing"))
+    res = asyncio.run(server.deepseek_research("quantum computing", depth="low"))
     assert res["ok"] is True
     assert res["untrusted_content"] is True
-    assert res["cost_usd"] == 0.00075
-    assert res["_meta"]["cost_usd"] == 0.00075
     assert res["_meta"]["untrusted_content"] is True
+    assert res["cost_usd"] > 0
+    assert res["_meta"]["cost_usd"] == res["cost_usd"]

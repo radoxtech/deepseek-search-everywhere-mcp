@@ -121,9 +121,279 @@ def test_server_enforces_budget_exceeded(fake_upstream, tmp_path):
     res2 = asyncio.run(server.deepseek_search("test2"))
     assert res2["ok"] is False
     assert res2["error"]["code"] == "budget_exceeded"
-    assert res2["error"]["status"] == 429
+    assert res2["error"]["status"] == 402
     assert "Daily spend limit" in res2["error"]["message"]
 
     # Reset server state
     set_settings(None)
     server.reset_state()
+
+
+async def test_fifty_concurrent_reservations_never_exceed_limit(tmp_path: Any) -> None:
+    state_file = tmp_path / "budget.json"
+    tracker = DailyBudgetTracker(limit_usd=0.05, state_path=state_file)
+
+    # 50 tasks attempt to reserve $0.002 each ($0.10 total, limit is $0.05)
+    results = await asyncio.gather(*(tracker.reserve(0.002) for _ in range(50)))
+    successful = [r for r in results if r is not None]
+
+    assert len(successful) == 25
+    assert len(successful) * 0.002 <= 0.05
+
+    status = await tracker.get_status()
+    assert status["reserved_usd"] == 0.05
+    assert status["spent_usd"] == 0.0
+    assert status["remaining_usd"] == 0.0
+
+    # Release 10 reservations
+    for res in successful[:10]:
+        await res.release()
+
+    status_after_release = await tracker.get_status()
+    assert round(status_after_release["reserved_usd"], 6) == 0.03
+    assert round(status_after_release["remaining_usd"], 6) == 0.02
+
+    # Commit remaining 15 reservations at $0.0015 actual cost
+    for res in successful[10:]:
+        await res.commit(0.0015)
+
+    status_after_commit = await tracker.get_status()
+    assert status_after_commit["reserved_usd"] == 0.0
+    assert round(status_after_commit["spent_usd"], 6) == round(15 * 0.0015, 6)
+    assert status_after_commit["requests"] == 15
+
+
+async def test_two_trackers_on_one_file_lose_no_updates(tmp_path: Any) -> None:
+    state_file = tmp_path / "budget.json"
+    tracker1 = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
+    tracker2 = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
+
+    async def run_worker(tracker: DailyBudgetTracker, cost: float) -> None:
+        res = await tracker.reserve(cost * 2)
+        assert res is not None
+        await asyncio.sleep(0.005)
+        await res.commit(cost)
+
+    tasks = []
+    # 10 tasks on tracker1 committing $0.001 each
+    for _ in range(10):
+        tasks.append(run_worker(tracker1, 0.001))
+    # 10 tasks on tracker2 committing $0.002 each
+    for _ in range(10):
+        tasks.append(run_worker(tracker2, 0.002))
+
+    await asyncio.gather(*tasks)
+
+    # Both trackers should observe 20 requests and $0.030 total spent
+    status1 = await tracker1.get_status()
+    status2 = await tracker2.get_status()
+
+    assert status1["requests"] == 20
+    assert status2["requests"] == 20
+    assert round(status1["spent_usd"], 6) == 0.03
+    assert round(status2["spent_usd"], 6) == 0.03
+    assert status1["reserved_usd"] == 0.0
+    assert status2["reserved_usd"] == 0.0
+
+
+async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
+    fake_upstream: Any, tmp_path: Any
+) -> None:
+    # Set limit to allow exactly 5 operations ($0.00075 * 5 = $0.00375)
+    limit = 0.00375
+    state_file = tmp_path / "budget.json"
+    tracker = DailyBudgetTracker(limit_usd=limit, state_path=state_file)
+
+    settings = Settings(daily_budget_usd=limit)
+    set_settings(settings)
+    server.reset_state()
+    server._budget_tracker = tracker
+
+    # Mock responses with a small delay to induce concurrency race in check_budget
+    async def delayed_handler(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        await asyncio.sleep(0.01)
+        if path == server.SEARCH_PATH:
+            res_item = {"url": "http://example.com/1", "title": "T", "content": "C"}
+            return {"ok": True, "data": {"results": [res_item]}}
+        if path == server.FETCH_PATH:
+            return {"ok": True, "data": {"url": "http://example.com/2", "title": "T", "content": "C"}}
+        if path == "/v1/chat/completions":
+            return {
+                "ok": True,
+                "data": {
+                    "choices": [{"message": {"role": "assistant", "content": "rewritten query"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 10},
+                },
+            }
+        return {"ok": False, "error": {"code": "not_found", "message": "Unknown path"}}
+
+    fake_upstream(delayed_handler)
+
+    # Launch 20 mixed concurrent requests (search, fetch)
+    tasks = []
+    for i in range(10):
+        tasks.append(server.deepseek_search(f"query_{i}", refresh=True, rewrite=False))
+        tasks.append(server.deepseek_fetch(f"http://example.com/page_{i}", refresh=True))
+
+    results = await asyncio.gather(*tasks)
+    status = await tracker.get_status()
+
+    # The total recorded spend + remaining reservations must NEVER exceed the limit
+    assert (status["spent_usd"] + status["reserved_usd"]) <= limit + 1e-9, (
+        f"Budget breached! Spent {status['spent_usd']}, limit {limit}"
+    )
+    # Check that budget_exceeded occurred on excess requests
+    failures = [r for r in results if not r.get("ok") and r.get("error", {}).get("code") == "budget_exceeded"]
+    assert len(failures) > 0
+
+    set_settings(None)
+    server.reset_state()
+
+
+async def test_stale_reservations_from_dead_pid_and_ttl_are_recovered(tmp_path: Any) -> None:
+    import os
+    import time
+
+    state_file = tmp_path / "budget.json"
+    limit = 0.002
+    today = (datetime.now(UTC)).strftime("%Y-%m-%d")
+
+    # Write a budget file with $0.002 reserved by a dead PID and an expired TTL
+    stale_data = {
+        "date": today,
+        "spent_usd": 0.0,
+        "reserved_usd": 0.002,
+        "reservations": {
+            "stale_pid": {"pid": 99999999, "amount": 0.001, "created_at": time.time()},
+            "stale_ttl": {"pid": os.getpid(), "amount": 0.001, "created_at": time.time() - 1000},
+        },
+        "requests": 0,
+        "limit_usd": limit,
+    }
+    state_file.write_text(json.dumps(stale_data), encoding="utf-8")
+
+    tracker = DailyBudgetTracker(limit_usd=limit, state_path=state_file)
+
+    # If stale reservations are not pruned, reserve(0.001) would fail (0.002 + 0.001 > 0.002)
+    res = await tracker.reserve(0.001)
+    assert res is not None, "Failed to recover budget from stale reservations"
+
+    status = await tracker.get_status()
+    assert status["spent_usd"] == 0.0
+    assert round(status["reserved_usd"], 6) == 0.001
+
+
+async def test_held_file_lock_does_not_freeze_event_loop(tmp_path: Any) -> None:
+    import threading
+    import time
+
+    from deepseek_search_everywhere_mcp.budget import _file_lock
+
+    state_file = tmp_path / "budget.json"
+    lock_file = state_file.with_suffix(".json.lock")
+    tracker = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
+
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_lock_worker():
+        with _file_lock(lock_file):
+            lock_acquired.set()
+            release_lock.wait(timeout=2.0)
+
+    t = threading.Thread(target=hold_lock_worker, daemon=True)
+    t.start()
+    assert lock_acquired.wait(timeout=1.0) is True
+
+    ticks = 0
+
+    async def heartbeat():
+        nonlocal ticks
+        for _ in range(5):
+            await asyncio.sleep(0.02)
+            ticks += 1
+        release_lock.set()
+
+    # While tracker.reserve waits for the lock, heartbeat must be able to advance
+    t0 = time.monotonic()
+    hb_task = asyncio.create_task(heartbeat())
+    res_task = asyncio.create_task(tracker.reserve(0.001))
+
+    await asyncio.gather(hb_task, res_task)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 0.8, f"Event loop was blocked by file lock! Elapsed: {elapsed:.2f}s"
+    assert ticks >= 3, f"Event loop was blocked by file lock! Ticks: {ticks}"
+
+
+async def test_budget_json_state_stores_micro_usd_ints_and_usd_floats(tmp_path: Any) -> None:
+    state_file = tmp_path / "budget.json"
+    tracker = DailyBudgetTracker(limit_usd=0.01, state_path=state_file)
+    res = await tracker.reserve(0.002)
+    assert res is not None
+
+    raw = json.loads(state_file.read_text(encoding="utf-8"))
+    assert isinstance(raw["spent_micros"], int)
+    assert isinstance(raw["reserved_micros"], int)
+    assert raw["reserved_micros"] == 2000
+    assert raw["limit_micros"] == 10000
+    assert isinstance(raw["spent_usd"], float)
+    assert isinstance(raw["reserved_usd"], float)
+    assert raw["reserved_usd"] == 0.002
+
+    await res.commit(0.0015)
+    raw2 = json.loads(state_file.read_text(encoding="utf-8"))
+    assert raw2["spent_micros"] == 1500
+    assert raw2["reserved_micros"] == 0
+    assert raw2["spent_usd"] == 0.0015
+
+
+async def test_random_amount_reservations_property(tmp_path: Any) -> None:
+    """Property test: random amounts never exceed limit and never under-fill by > 1 reservation."""
+    import random
+
+    rng = random.Random(42)
+    for trial in range(15):
+        state_file = tmp_path / f"budget_prop_{trial}.json"
+        limit_usd = round(rng.uniform(0.01, 0.05), 4)
+        tracker = DailyBudgetTracker(limit_usd=limit_usd, state_path=state_file)
+
+        # Part A: Identical random amounts
+        chunk = round(rng.uniform(0.0008, 0.0035), 6)
+        chunk_micros = round(chunk * 1_000_000)
+        expected_count = tracker.limit_micros // chunk_micros
+        # Launch more tasks than can possibly fit
+        n_tasks = expected_count + 15
+        results = await asyncio.gather(*(tracker.reserve(chunk) for _ in range(n_tasks)))
+        successful = [r for r in results if r is not None]
+        status = await tracker.get_status()
+
+        # Never exceed limit
+        assert status["reserved_usd"] <= limit_usd + 1e-9
+        assert status["reserved_micros"] <= tracker.limit_micros
+
+        # Exactly expected_count succeeded and remaining is less than one chunk
+        assert len(successful) == expected_count
+        assert status["remaining_usd"] < chunk
+        assert status["remaining_micros"] < chunk_micros
+
+        # Part B: Settle and release all
+        for r in successful:
+            await r.release()
+
+        # Part C: Varied random amounts
+        state_file_var = tmp_path / f"budget_prop_var_{trial}.json"
+        tracker_var = DailyBudgetTracker(limit_usd=limit_usd, state_path=state_file_var)
+        amounts = [round(rng.uniform(0.0005, 0.0040), 6) for _ in range(40)]
+        results_var = await asyncio.gather(*(tracker_var.reserve(amt) for amt in amounts))
+
+        successful_var = [amt for amt, r in zip(amounts, results_var, strict=True) if r is not None]
+        rejected_var = [amt for amt, r in zip(amounts, results_var, strict=True) if r is None]
+
+        status_var = await tracker_var.get_status()
+        assert status_var["reserved_usd"] <= limit_usd + 1e-9
+        assert status_var["reserved_micros"] <= tracker_var.limit_micros
+        assert status_var["reserved_micros"] == sum(round(amt * 1_000_000) for amt in successful_var)
+
+        # If any was rejected, the remaining budget was less than what could accommodate all
+        if rejected_var:
+            assert status_var["remaining_usd"] < max(rejected_var)

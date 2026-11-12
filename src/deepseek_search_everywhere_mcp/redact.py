@@ -17,7 +17,7 @@ _BEARER = re.compile(
     r"(?i)(\bbearer\s+)"
     r"(?:[A-Za-z0-9._~+/=-]*\d[A-Za-z0-9._~+/=-]*|[A-Za-z0-9._~+/=-]{20,})"
 )
-_SK_KEY = re.compile(r"\bsk-[A-Za-z0-9_-]{10,}")
+_SK_KEY = re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{10,}")
 _USERINFO = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
 _KEY_VALUE = re.compile(r"(?i)\b((?:\w+[_-])?(?:api[_-]?key|token|secret))=[^&\s]+")
 

@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from deepseek_search_everywhere_mcp import server, transport
-from deepseek_search_everywhere_mcp.ratelimit import FETCH, SEARCH, RateLimiter, Ticket
+from deepseek_search_everywhere_mcp.ratelimit import CHAT, FETCH, SEARCH, RateLimiter, Ticket
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 CHAT_PATH = "/v1/chat/completions"
@@ -177,7 +177,7 @@ async def test_retried_429_takes_one_token_and_is_cached_once_it_succeeds(
     ) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
         if len(attempts) == 1:
-            return {"ok": False, "error": {"code": "http_429", "message": "slow down"}}, 0.0
+            return {"ok": False, "error": {"code": "upstream_rate_limited", "message": "slow down"}}, 0.0
         return {"ok": True, "data": PAGE}, None
 
     monkeypatch.setattr(transport, "_attempt", rate_limited_once)
@@ -196,11 +196,11 @@ async def test_exhausted_429_retries_are_one_token_and_not_cached(
 
     async def always_429(method: str, url: str, path: str, **_: Any) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
-        return {"ok": False, "error": {"code": "http_429", "message": "slow down"}}, 0.0
+        return {"ok": False, "error": {"code": "upstream_rate_limited", "message": "slow down"}}, 0.0
 
     monkeypatch.setattr(transport, "_attempt", always_429)
     first = await _search()
-    assert first["ok"] is False and first["error"]["code"] == "http_429"
+    assert first["ok"] is False and first["error"]["code"] == "upstream_rate_limited"
     assert len(attempts) == 2
     assert limiter.acquired == [SEARCH]
     second = await _search()
@@ -269,7 +269,7 @@ async def test_rewrite_and_search_cache_skip_flash_and_upstream(
     second = await _search("jak działa sen", rewrite=True)
     assert upstream.count(CHAT_PATH) == 1
     assert upstream.count(server.SEARCH_PATH) == 1
-    assert limiter.acquired == [SEARCH]
+    assert limiter.acquired == [CHAT, SEARCH]
     assert second["cached"] is True
     assert second["query_used"] == first["query_used"] == "how sleep works"
     assert second["query_original"] == "jak działa sen"
@@ -285,7 +285,7 @@ async def test_concurrent_rewritten_searches_share_one_upstream_call(
     results = await asyncio.gather(*tasks)
     assert all(r["query_used"] == "how sleep works" for r in results)
     assert upstream.count(server.SEARCH_PATH) == 1
-    assert limiter.acquired == [SEARCH]
+    assert limiter.acquired == [CHAT, SEARCH]
     flash_calls = upstream.count(CHAT_PATH)
     await _search("jak działa sen", rewrite=True)
     assert upstream.count(CHAT_PATH) == flash_calls
@@ -311,7 +311,7 @@ async def test_cache_disabled_by_env_keeps_single_flight_but_stores_nothing(
     assert upstream.count(server.SEARCH_PATH) == 2
     assert upstream.count(server.FETCH_PATH) == 2
     assert upstream.count(CHAT_PATH) == rewrites + 1
-    assert sorted(limiter.acquired) == [FETCH, FETCH, SEARCH, SEARCH]
+    assert sorted(limiter.acquired) == [CHAT, CHAT, FETCH, FETCH, SEARCH, SEARCH]
     assert server._get_search_cache() is None and server._get_fetch_cache() is None
 
 

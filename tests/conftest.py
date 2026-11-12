@@ -20,7 +20,7 @@ PACKAGE = "deepseek_search_everywhere_mcp"
 # Modules that may own process-wide state (cache entries, in-flight maps, rate-limit
 # buckets, the rewrite cache). Each one opts in by defining a ``reset_state()`` function;
 # modules that do not exist yet are skipped.
-STATEFUL_MODULES = ("cache", "ratelimit", "server", "settings")
+STATEFUL_MODULES = ("cache", "deep_research", "ratelimit", "server", "settings", "transport")
 
 # The real key, captured once at import time before any fixture strips the environment.
 # Only tests marked ``live`` get it back, through the ``live_api_key`` fixture.
@@ -55,13 +55,14 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> No
 def live_api_key(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, _isolated_env: None
 ) -> None:
-    """Re-expose the captured ``DEEPSEEK_API_KEY`` to a ``live`` test, or skip it without one.
+    """Re-expose the captured ``DEEPSEEK_API_KEY`` to a live test, or skip it without one.
 
     Depends on ``_isolated_env`` so the key is restored after the environment is stripped.
     The key itself is never returned, so it cannot leak into assertion output.
     """
-    if request.node.get_closest_marker("live") is None:
-        pytest.fail("live_api_key is reserved for tests marked 'live'.", pytrace=False)
+    live_markers = ("live", "live_llm", "live_e2e")
+    if not any(request.node.get_closest_marker(m) is not None for m in live_markers):
+        pytest.fail(f"live_api_key is reserved for tests marked {live_markers}.", pytrace=False)
     if not _LIVE_API_KEY:
         pytest.skip("DEEPSEEK_API_KEY is not set; live tests need a real DeepSeek key.")
     monkeypatch.setenv("DEEPSEEK_API_KEY", _LIVE_API_KEY)

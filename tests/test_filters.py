@@ -112,3 +112,72 @@ def test_compile_filters_too_long():
     ops, code, err = compile_filters(include_domains=long_domains)
     assert code == "filters_too_long"
     assert "exceed 96 characters" in str(err)
+
+
+def test_filter_results_by_domain_include_exact_subdomain_and_idn() -> None:
+    from deepseek_search_everywhere_mcp.filters import filter_results_by_domain
+
+    items = [
+        {"url": "https://www.münchen.de/wetter"},
+        {"url": "https://xn--mnchen-3ya.de/a"},
+        {"url": "https://stadt.xn--mnchen-3ya.de/b"},
+        {"url": "https://www.orasonline.lt/zugspitze"},
+        {"url": "https://www.yr.no/en/forecast"},
+        {"url": "https://notmünchen.de/x"},
+        {"url": "https://evil.example/?u=münchen.de"},
+        {"title": "no url"},
+    ]
+    kept, dropped = filter_results_by_domain(items, include_domains=["münchen.de"], exclude_domains=None)
+    assert [i.get("url") for i in kept] == [
+        "https://www.münchen.de/wetter",
+        "https://xn--mnchen-3ya.de/a",
+        "https://stadt.xn--mnchen-3ya.de/b",
+    ]
+    assert dropped == 5
+
+
+def test_filter_results_by_domain_include_given_as_punycode_matches_unicode_host() -> None:
+    from deepseek_search_everywhere_mcp.filters import filter_results_by_domain
+
+    items = [{"url": "https://münchen.de/a"}, {"url": "https://other.de/b"}]
+    kept, dropped = filter_results_by_domain(
+        items, include_domains=["xn--mnchen-3ya.de"], exclude_domains=None
+    )
+    assert [i["url"] for i in kept] == ["https://münchen.de/a"]
+    assert dropped == 1
+
+
+def test_filter_results_by_domain_exclude_and_combined() -> None:
+    from deepseek_search_everywhere_mcp.filters import filter_results_by_domain
+
+    items = [
+        {"url": "https://en.wikipedia.org/wiki/X"},
+        {"url": "https://wikipedia.org/wiki/Y"},
+        {"url": "https://notwikipedia.org/z"},
+        {"url": "https://arxiv.org/abs/1"},
+        {"url": "https://blog.arxiv.org/p"},
+        {"title": "no url"},
+    ]
+    kept, dropped = filter_results_by_domain(items, include_domains=None, exclude_domains=["wikipedia.org"])
+    assert [i.get("url") for i in kept] == [
+        "https://notwikipedia.org/z",
+        "https://arxiv.org/abs/1",
+        "https://blog.arxiv.org/p",
+        None,
+    ]
+    assert dropped == 2
+    kept, dropped = filter_results_by_domain(
+        items,
+        include_domains=["arxiv.org", "wikipedia.org"],
+        exclude_domains=["blog.arxiv.org", "wikipedia.org"],
+    )
+    assert [i["url"] for i in kept] == ["https://arxiv.org/abs/1"]
+    assert dropped == 5
+
+
+def test_filter_results_by_domain_without_filters_is_identity() -> None:
+    from deepseek_search_everywhere_mcp.filters import filter_results_by_domain
+
+    items = [{"url": "https://a.example/1"}, {"title": "no url"}]
+    kept, dropped = filter_results_by_domain(items, include_domains=None, exclude_domains=None)
+    assert kept == items and dropped == 0
