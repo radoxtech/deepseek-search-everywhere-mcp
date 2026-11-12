@@ -97,5 +97,5 @@ def test_fetch_strip_boilerplate_off_keeps_the_banner(fake_upstream):
 def test_search_content_loses_a_leading_banner(fake_upstream):
     item = {"title": "Artykuł", "url": URL, "content": BANNER_DE + "\n" + ARTICLE}
     fake_upstream(default={"ok": True, "data": {"results": [item]}})
-    envelope = asyncio.run(server.deepseek_search_and_read("koncentracja", count=1))
+    envelope = asyncio.run(server.deepseek_search("koncentracja", count=1, content="full"))
     assert envelope["results"][0]["content"] == ARTICLE

@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 
 from deepseek_search_everywhere_mcp.server import (
-    deepseek_deep_research,
     deepseek_extract,
     deepseek_extract_many,
     deepseek_fetch,
@@ -274,7 +273,7 @@ async def test_deep_research_path_sanitization(
     monkeypatch.setattr("deepseek_search_everywhere_mcp.server._chat_request", fake_chat_request)
     monkeypatch.setattr("deepseek_search_everywhere_mcp.server._search", fake_search)
 
-    res = await deepseek_deep_research("ai security", refresh=True)
+    res = await deepseek_research("ai security", depth="low", refresh=True)
     assert res["ok"] is True
     assert res["synthesized"] is True
     _assert_content_is_sanitized(res["report"])

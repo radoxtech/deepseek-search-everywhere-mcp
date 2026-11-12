@@ -39,9 +39,9 @@ def _item(**fields: Any) -> dict[str, Any]:
     return base
 
 
-def _search(fake_upstream, tool: str = "deepseek_search_and_read", **item: Any) -> dict[str, Any]:
+def _search(fake_upstream, *, content_mode: str = "full", **item: Any) -> dict[str, Any]:
     fake_upstream(default={"ok": True, "data": {"results": [_item(**item)]}})
-    return asyncio.run(getattr(server, tool)("brainrot", count=1))
+    return asyncio.run(server.deepseek_search("brainrot", count=1, content=content_mode))
 
 
 def test_decode_unicode_escapes_restores_polish_letters() -> None:
@@ -117,10 +117,9 @@ def test_search_and_read_leaves_clean_content_and_code_untouched(fake_upstream) 
 def test_research_sources_strip_html_tags(fake_upstream) -> None:
     long_content = TAGGED_CONTENT * 3  # long enough that research does not fetch the page
     fake_upstream(default={"ok": True, "data": {"results": [_item(content=long_content)]}})
-    source = asyncio.run(server.deepseek_research("brainrot", max_pages=1))["sources"][0]
-    assert source["origin"] == "search"
-    assert "<strong>" not in source["content"] and "</h2>" not in source["content"]
-    assert ">>> print('<p>')" in source["content"]
+    result = asyncio.run(server.deepseek_search("brainrot", count=1, content="full"))["results"][0]
+    assert "<strong>" not in result["content"] and "</h2>" not in result["content"]
+    assert ">>> print('<p>')" in result["content"]
 
 
 def test_search_and_read_decodes_content_snippet_and_summary(fake_upstream) -> None:
@@ -133,7 +132,7 @@ def test_search_and_read_decodes_content_snippet_and_summary(fake_upstream) -> N
 
 
 def test_web_search_decodes_summary(fake_upstream) -> None:
-    envelope = _search(fake_upstream, "deepseek_web_search", summary=ESCAPED_CONTENT)
+    envelope = _search(fake_upstream, content_mode="snippets", summary=ESCAPED_CONTENT)
     summary = envelope["results"][0]["summary"]
     assert summary == DECODED_CONTENT.replace(" <p>", " ")
 
@@ -141,7 +140,6 @@ def test_web_search_decodes_summary(fake_upstream) -> None:
 def test_research_sources_are_decoded(fake_upstream) -> None:
     long_content = ESCAPED_CONTENT * 3  # long enough that research does not fetch the page
     fake_upstream(default={"ok": True, "data": {"results": [_item(content=long_content)]}})
-    envelope = asyncio.run(server.deepseek_research("brainrot", max_pages=1))
-    source = envelope["sources"][0]
-    assert source["origin"] == "search"
+    envelope = asyncio.run(server.deepseek_search("brainrot", count=1, content="full"))
+    source = envelope["results"][0]
     assert "\\u0" not in source["content"] and "Łodzi" in source["content"]

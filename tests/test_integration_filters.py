@@ -15,7 +15,7 @@ def _install_search(fake_upstream, items: list[dict[str, Any]] | None = None):
 def test_filters_applied_to_query_used(fake_upstream):
     _install_search(fake_upstream)
     result = asyncio.run(
-        server.deepseek_web_search(
+        server.deepseek_search(
             "quantum",
             include_domains=["arxiv.org", "nature.com"],
             exclude_domains=["wikipedia.org"],
@@ -35,7 +35,7 @@ def test_filters_applied_to_query_used(fake_upstream):
 
 def test_filters_reject_bad_domain(fake_upstream):
     _install_search(fake_upstream)
-    result = asyncio.run(server.deepseek_web_search("test", include_domains=["bad domain with spaces"]))
+    result = asyncio.run(server.deepseek_search("test", include_domains=["bad domain with spaces"]))
     assert result["ok"] is False
     assert result["error"]["code"] == "bad_domain"
 
@@ -43,7 +43,7 @@ def test_filters_reject_bad_domain(fake_upstream):
 def test_filters_accept_idn_domains_and_send_unicode_to_search(fake_upstream):
     upstream = _install_search(fake_upstream)
     result = asyncio.run(
-        server.deepseek_web_search(
+        server.deepseek_search(
             "klimat",
             include_domains=["źródło.pl", "münchen.de"],
             exclude_domains=["xn--rdo-gna01bwk.pl"],
@@ -62,7 +62,7 @@ def test_filters_accept_idn_domains_and_send_unicode_to_search(fake_upstream):
 
 def test_filters_reject_bad_date(fake_upstream):
     _install_search(fake_upstream)
-    result = asyncio.run(server.deepseek_web_search("test", after="2024-02-31"))
+    result = asyncio.run(server.deepseek_search("test", after="2024-02-31"))
     assert result["ok"] is False
     assert result["error"]["code"] == "bad_date"
 
@@ -72,7 +72,7 @@ def test_filters_budget_guard_rejects_overflow(fake_upstream):
     # 80 chars query + 60 chars filter = > 128 chars
     long_query = "a" * 80
     result = asyncio.run(
-        server.deepseek_web_search(
+        server.deepseek_search(
             long_query,
             include_domains=["longdomainname1.org", "longdomainname2.org"],
             after="2024-01-01",
@@ -83,7 +83,7 @@ def test_filters_budget_guard_rejects_overflow(fake_upstream):
     assert "when filters" in result["error"]["message"]
 
 
-def test_research_supports_filters(fake_upstream):
+def test_search_full_supports_filters(fake_upstream):
     _install_search(
         fake_upstream,
         [
@@ -95,8 +95,9 @@ def test_research_supports_filters(fake_upstream):
         ],
     )
     result = asyncio.run(
-        server.deepseek_research(
+        server.deepseek_search(
             "quantum",
+            content="full",
             include_domains=["arxiv.org"],
             after="2024-01-01",
         )

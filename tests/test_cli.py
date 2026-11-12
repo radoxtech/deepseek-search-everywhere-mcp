@@ -43,7 +43,6 @@ def test_check_reports_balance_without_key_details(
         return {"ok": True, "balance": "1.00"}
 
     monkeypatch.setattr(server, "deepseek_check_balance", balance)
-    monkeypatch.setattr(server, "deepseek_balance", balance)
     with pytest.raises(SystemExit) as exc:
         cli.main(["--check"])
     assert exc.value.code == 0

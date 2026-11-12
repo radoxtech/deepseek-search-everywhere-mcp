@@ -46,12 +46,10 @@ def clocked(monkeypatch, fake_clock, fake_upstream):
 
 
 CALLS = {
-    "web_search": lambda: server.deepseek_web_search("q", count=1),
-    "search_and_read": lambda: server.deepseek_search_and_read("q", count=1),
+    "search": lambda: server.deepseek_search("q", count=1),
     "fetch": lambda: server.deepseek_fetch("https://example.com/x"),
     "fetch_many": lambda: server.deepseek_fetch_many(["https://example.com/x"]),
-    "research": lambda: server.deepseek_research("q", max_pages=1),
-    "balance": lambda: server.deepseek_balance(),
+    "balance": lambda: server.deepseek_check_balance(),
 }
 
 
@@ -75,7 +73,7 @@ def test_error_envelope_reports_elapsed_ms(clocked, name):
 
 
 def test_local_rejection_reports_elapsed_ms():
-    envelope = asyncio.run(server.deepseek_web_search("   "))
+    envelope = asyncio.run(server.deepseek_search("   "))
     assert envelope["error"]["code"] == "empty_query"
     assert isinstance(envelope["elapsed_ms"], int) and envelope["elapsed_ms"] >= 0
 

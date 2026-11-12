@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from live_judge import assert_quality, judge_answerable, judge_items
+from live_judge import assert_quality, judge_items
 from repeat_runner import repeat_llm
 
 from deepseek_search_everywhere_mcp import server
@@ -56,15 +56,15 @@ def _assert_results(envelope: dict[str, Any], minimum: int) -> list[dict[str, An
 
 async def test_web_search_returns_relevant_results() -> None:
     query = "Python asyncio TaskGroup exception handling"
-    envelope = await server.deepseek_web_search(query, count=5)
+    envelope = await server.deepseek_search(query, count=5, content="snippets")
     results = _assert_results(envelope, 3)
     assert_quality(await judge_items("web_search", query, results))
 
 
 async def test_search_and_read_returns_relevant_content() -> None:
     query = "PostgreSQL VACUUM FULL versus regular VACUUM"
-    envelope = await server.deepseek_search_and_read(
-        query, count=3, max_chars_per_result=1500, max_total_chars=4500
+    envelope = await server.deepseek_search(
+        query, count=3, content="full", max_chars_per_result=1500, max_total_chars=4500
     )
     results = _assert_results(envelope, 2)
     with_content = [item for item in results if item.get("content")]
@@ -85,8 +85,8 @@ def _ui_labels(content: str) -> list[str]:
 
 async def test_reddit_threads_come_back_without_site_ui() -> None:
     query = "site:reddit.com ADHD social media"
-    envelope = await server.deepseek_search_and_read(
-        query, count=2, max_chars_per_result=50000, max_total_chars=100000
+    envelope = await server.deepseek_search(
+        query, count=2, content="full", max_chars_per_result=50000, max_total_chars=100000
     )
     _assert_ok(envelope)
     threads = [item for item in envelope["results"] if rules_for(item["url"]) and item.get("content")]
@@ -95,8 +95,13 @@ async def test_reddit_threads_come_back_without_site_ui() -> None:
     for item in threads:
         assert _ui_labels(item["content"]) == [], item["url"]
     # The raw variant is served from the same cache entry, so it costs nothing.
-    raw = await server.deepseek_search_and_read(
-        query, count=2, max_chars_per_result=50000, max_total_chars=100000, strip_boilerplate=False
+    raw = await server.deepseek_search(
+        query,
+        count=2,
+        content="full",
+        max_chars_per_result=50000,
+        max_total_chars=100000,
+        strip_boilerplate=False,
     )
     assert raw["cached"] is True
     stripped = {item["url"]: item["content"] for item in threads}
@@ -114,7 +119,7 @@ async def test_reddit_threads_come_back_without_site_ui() -> None:
     ids=["es", "ja"],
 )
 async def test_non_english_query_with_lang(query: str, lang: str) -> None:
-    envelope = await server.deepseek_web_search(query, count=4, lang=lang)
+    envelope = await server.deepseek_search(query, count=4, lang=lang)
     results = _assert_results(envelope, 3)
     assert f"lang:{lang}" in envelope["query_used"]
     assert_quality(await judge_items(f"web_search[{lang}]", query, results))
@@ -122,7 +127,7 @@ async def test_non_english_query_with_lang(query: str, lang: str) -> None:
 
 async def test_rewrite_keeps_results_relevant(upstream_calls: list[str]) -> None:
     query = "Wie installiere ich Docker unter Ubuntu"
-    envelope = await server.deepseek_web_search(query, count=4, rewrite=True)
+    envelope = await server.deepseek_search(query, count=4, rewrite=True)
     results = _assert_results(envelope, 3)
     assert "/v1/chat/completions" in upstream_calls, "rewrite did not call the model"
     assert envelope.get("query_original") == query, f"query was not rewritten; notes: {envelope['notes']}"
@@ -174,23 +179,20 @@ async def test_fetch_many_keeps_order_and_dedupes(upstream_calls: list[str]) -> 
 
 async def test_research_sources_can_answer_the_question() -> None:
     question = "What is the difference between TCP and UDP?"
-    envelope = await server.deepseek_research(question, max_pages=3, per_page_chars=1500, total_chars=4500)
+    envelope = await server.deepseek_research(question, depth="low")
     _assert_ok(envelope)
-    sources = [source for source in envelope["sources"] if source["content"]]
-    assert len(sources) >= 2, f"expected >= 2 sources with content; notes: {envelope['notes']}"
-    assert envelope["requests_used"] >= 1
-    record = await judge_answerable("research", question, sources)
-    assert_quality(record, min_mean=3.0, min_share=1.0)
+    assert envelope["synthesized"] is True
+    assert envelope["report"]
 
 
 async def test_repeated_search_is_served_from_cache(upstream_calls: list[str]) -> None:
     query = "HTTP 418 I'm a teapot status code"
-    first = await server.deepseek_web_search(query, count=3)
+    first = await server.deepseek_search(query, count=3)
     _assert_results(first, 1)
     assert first["cached"] is False
     assert upstream_calls == [server.SEARCH_PATH]
 
-    second = await server.deepseek_web_search(query, count=3)
+    second = await server.deepseek_search(query, count=3)
     _assert_ok(second)
     assert second["cached"] is True
     assert upstream_calls == [server.SEARCH_PATH], "the repeat made another upstream call"
@@ -236,10 +238,9 @@ async def test_extract_live() -> None:
 
 async def test_deep_research_live() -> None:
     topic = "What are HTTP/3 0-RTT connection resumption security implications?"
-    envelope = await server.deepseek_deep_research(
+    envelope = await server.deepseek_research(
         topic,
-        max_queries=2,
-        max_pages_per_query=2,
+        depth="low",
     )
     _assert_ok(envelope)
     assert len(envelope["subqueries"]) >= 1

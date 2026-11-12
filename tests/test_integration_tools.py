@@ -69,23 +69,21 @@ async def test_mixed_batch_makes_one_upstream_call_and_reports_two_errors(fake_u
     assert sorted(upstream.fetches) == sorted([PUBLIC, OTHER])
 
 
-async def test_research_marks_internal_source_ssrf_blocked_and_still_succeeds(fake_upstream: Any) -> None:
+async def test_search_marks_internal_source_ssrf_blocked_and_still_succeeds(fake_upstream: Any) -> None:
     results = [_result(PUBLIC, SHORT), _result(INTERNAL, SHORT), _result(OTHER, LONG)]
     upstream = fake_upstream(Upstream(results))
-    result = await server.deepseek_research("internal source question")
+    result = await server.deepseek_search("internal source question", content="full")
     assert result["ok"] is True
-    by_url = {source["url"]: source for source in result["sources"]}
+    by_url = {item["url"]: item for item in result["results"]}
     assert by_url[INTERNAL]["error"]["code"] == "ssrf_blocked"
-    assert by_url[INTERNAL]["origin"] == "search"
-    assert by_url[PUBLIC]["origin"] == "fetch" and by_url[PUBLIC]["error"] is None
-    assert by_url[OTHER]["origin"] == "search"
+    assert by_url[PUBLIC].get("error") is None
     assert upstream.fetches == [PUBLIC]
 
 
 async def test_search_content_is_not_served_as_a_fetch_cache_hit(fake_upstream: Any) -> None:
     results = [_result(PUBLIC, LONG)]
     upstream = fake_upstream(Upstream(results))
-    search = await server.deepseek_search_and_read("topic")
+    search = await server.deepseek_search("topic", content="full")
     assert search["ok"] is True and search["cached"] is False
     fetched = await server.deepseek_fetch(PUBLIC)
     assert fetched["ok"] is True
@@ -94,7 +92,7 @@ async def test_search_content_is_not_served_as_a_fetch_cache_hit(fake_upstream: 
     assert len(server._get_search_cache()) == 1
     assert len(server._get_fetch_cache()) == 1
     assert (await server.deepseek_fetch(PUBLIC))["cached"] is True
-    assert (await server.deepseek_search_and_read("topic"))["cached"] is True
+    assert (await server.deepseek_search("topic", content="full"))["cached"] is True
     assert len(upstream.searches) == 1 and upstream.fetches == [PUBLIC]
 
 

@@ -1660,91 +1660,6 @@ async def deepseek_search_many(
     }
 
 
-async def deepseek_web_search(
-    query: str,
-    count: int = 10,
-    ori_question: str | None = None,
-    need_content: bool = False,
-    lang: str | None = None,
-    max_chars_per_result: int = 4000,
-    max_total_chars: int = 40000,
-    dedupe: bool = True,
-    rewrite: bool = False,
-    *,
-    localization: str | None = None,
-    exclude_terms: list[str] | None = None,
-    exact_phrases: list[str] | None = None,
-    after: str | None = None,
-    before: str | None = None,
-    include_domains: list[str] | None = None,
-    exclude_domains: list[str] | None = None,
-    refresh: bool = False,
-    summary_chars: int | None = None,
-    strip_boilerplate: bool = True,
-) -> dict[str, Any]:
-    """Deprecated alias for deepseek_search(..., need_content=False)."""
-    return await deepseek_search(
-        query,
-        count=count,
-        ori_question=ori_question,
-        content="full" if need_content else "snippets",
-        lang=lang,
-        max_chars_per_result=max_chars_per_result,
-        max_total_chars=max_total_chars,
-        dedupe=dedupe,
-        rewrite=rewrite,
-        localization=localization,
-        exclude_terms=exclude_terms,
-        exact_phrases=exact_phrases,
-        after=after,
-        before=before,
-        include_domains=include_domains,
-        exclude_domains=exclude_domains,
-        refresh=refresh,
-        summary_chars=summary_chars,
-        strip_boilerplate=strip_boilerplate,
-    )
-
-
-async def deepseek_search_and_read(
-    query: str,
-    count: int = 5,
-    ori_question: str | None = None,
-    lang: str | None = None,
-    max_chars_per_result: int = 4000,
-    max_total_chars: int = 30000,
-    dedupe: bool = True,
-    rewrite: bool = False,
-    *,
-    after: str | None = None,
-    before: str | None = None,
-    include_domains: list[str] | None = None,
-    exclude_domains: list[str] | None = None,
-    refresh: bool = False,
-    summary_chars: int | None = None,
-    strip_boilerplate: bool = True,
-) -> dict[str, Any]:
-    """Deprecated alias for deepseek_search(..., need_content=True)."""
-    return await deepseek_search(
-        query,
-        count=count,
-        ori_question=ori_question,
-        content="full",
-        lang=lang,
-        max_chars_per_result=max_chars_per_result,
-        max_total_chars=max_total_chars,
-        dedupe=dedupe,
-        rewrite=rewrite,
-        after=after,
-        before=before,
-        include_domains=include_domains,
-        exclude_domains=exclude_domains,
-        refresh=refresh,
-        summary_chars=summary_chars,
-        strip_boilerplate=strip_boilerplate,
-    )
-
-
 def _reject_url(url: str) -> dict[str, Any] | None:
     """Statically validate ``url``; return an error envelope if it is rejected, else ``None``.
 
@@ -2496,129 +2411,20 @@ async def _fill_gaps(
     return fill
 
 
-def _budget_sources(sources: list[dict[str, Any]], per_page_chars: int, total_chars: int) -> bool:
-    """Cut source content to the per-source and total budgets in order; return whether any was cut."""
-    trimmed = False
-    remaining = total_chars
-    for source in sources:
-        allowed = min(per_page_chars, remaining)
-        if len(source["content"]) > allowed:
-            source["content"] = source["content"][:allowed]
-            trimmed = True
-        source["chars"] = len(source["content"])
-        remaining -= source["chars"]
-    return trimmed
-
-
-def _research_envelope(
-    question: str, sources: list[dict[str, Any]], search: dict[str, Any], fill: _GapFill, trimmed: bool
-) -> dict[str, Any]:
-    """Build the ``deepseek_research`` envelope from the search, the gap fill and the budget pass."""
-    notes: list[str] = list(search["notes"])
-    if fill.fetched:
-        notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
-    if fill.failed:
-        notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
-    if trimmed and TRUNCATED_NOTE not in notes:
-        notes.append(TRUNCATED_NOTE)
-    requests_used = (0 if search["cached"] else 1) + fill.requests_used
-    cached_count = (1 if search["cached"] else 0) + fill.cached_count
-    cost = round(requests_used * COST_PER_REQUEST, 5)
-    envelope: dict[str, Any] = {
-        "ok": True,
-        "question": question,
-        "query_used": search["query_used"],
-        "sources": sources,
-        "requests_used": requests_used,
-        "cached": _all_cached(requests_used, cached_count),
-        "cached_count": cached_count,
-        "cost_usd": cost,
-        "untrusted_content": True,
-        "notes": notes,
-        "failed_count": fill.failed,
-        "partial": fill.failed > 0,
-        "_meta": _envelope_meta(cost, untrusted_content=True),
-    }
-    if "query_original" in search:
-        envelope["query_original"] = search["query_original"]
-    return envelope
+_DEPTH_TIERS: dict[str, tuple[int, int]] = {
+    "low": (2, 2),
+    "medium": (3, 3),
+    "high": (4, 4),
+    "max": (4, 5),
+}
 
 
 @_timed
 async def deepseek_research(
-    question: str,
-    max_pages: int = 5,
-    per_page_chars: int = RESEARCH_PAGE_CHARS,
-    total_chars: int = RESEARCH_TOTAL_CHARS,
-    *,
-    after: str | None = None,
-    before: str | None = None,
-    include_domains: list[str] | None = None,
-    exclude_domains: list[str] | None = None,
-    lang: str | None = None,
-    rewrite: bool = False,
-    dedupe: bool = True,
-    refresh: bool = False,
-    strip_boilerplate: bool = True,
-) -> dict[str, Any]:
-    """Single-pass source gathering: search with page content and auto-fetch stub pages.
-
-    Gathers candidate sources for research. It does not iterate, refine the query or summarise:
-    one search returning raw content. Auto-fetches stub results in parallel.
-
-    Args:
-        question: Query, max 128 chars.
-        max_pages: Results, 1-50 (default 5).
-        per_page_chars: Cap per source (default 6000).
-        total_chars: Total content cap (default 30000).
-        after: Date on or after (YYYY-MM-DD).
-        before: Date on or before (YYYY-MM-DD).
-        include_domains: Restrict domains (e.g. ['arxiv.org']).
-        exclude_domains: Exclude domains (e.g. ['wikipedia.org']).
-        lang: Language filter (e.g. 'pl', 'es').
-        rewrite: Translate query via deepseek-flash (default False).
-        dedupe: Collapse duplicate results (default True).
-        refresh: Bypass cache (default False).
-        strip_boilerplate: Remove site UI lines (default True).
-    """
-    if per_page_chars < 1 or total_chars < 1:
-        return _fail("bad_request", "per_page_chars and total_chars must be at least 1.")
-    search = await _search(
-        question,
-        max_pages,
-        None,
-        True,
-        lang,
-        per_page_chars,
-        per_page_chars * max_pages,
-        dedupe,
-        rewrite,
-        after=after,
-        before=before,
-        include_domains=include_domains,
-        exclude_domains=exclude_domains,
-        refresh=refresh,
-        strip_boilerplate=strip_boilerplate,
-    )
-    if search.get("ok") is False:
-        return search
-
-    sources = [
-        _research_source(index, item, search["cached"]) for index, item in enumerate(search["results"], 1)
-    ]
-    gaps = await _fill_gaps(sources, per_page_chars, total_chars, refresh, strip_boilerplate)
-    trimmed = _budget_sources(sources, per_page_chars, total_chars) or gaps.trimmed
-    return _research_envelope(question, sources, search, gaps, trimmed)
-
-
-@_timed
-async def deepseek_deep_research(
     topic: str,
     *,
-    max_queries: int = 3,
-    max_pages_per_query: int = 3,
+    depth: Literal["low", "medium", "high", "max"] = "medium",
     lang: str | None = None,
-    dedupe: bool = True,
     refresh: bool = False,
     strip_boilerplate: bool = True,
 ) -> dict[str, Any]:
@@ -2626,14 +2432,12 @@ async def deepseek_deep_research(
 
     Decomposes topic into subqueries, retrieves sources concurrently, and synthesizes
     a cited report [1], [2]. Use for deep topic synthesis. Do not use for simple lookups
-    (use deepseek_search/deepseek_research) or reading known URLs (use deepseek_fetch).
+    (use deepseek_search) or reading known URLs (use deepseek_fetch).
 
     Args:
         topic: Research subject, max 500 chars.
-        max_queries: Subqueries to run (2-4, default 3).
-        max_pages_per_query: Sources per subquery (1-5, default 3).
+        depth: Research depth tier ('low', 'medium', 'high', 'max', default 'medium').
         lang: Language filter (e.g. 'en', 'pl').
-        dedupe: Collapse duplicates across subqueries (default True).
         refresh: Bypass response cache (default False).
         strip_boilerplate: Strip site UI text (default True).
     """
@@ -2642,13 +2446,15 @@ async def deepseek_deep_research(
         return _fail("empty_query", "topic must not be empty.")
     if len(clean_topic) > MAX_TOPIC:
         return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.")
+    if depth not in _DEPTH_TIERS:
+        return _fail("bad_request", f"depth must be one of: {', '.join(_DEPTH_TIERS.keys())}")
 
-    clamped_queries = max(2, min(4, max_queries))
-    clamped_pages = max(1, min(5, max_pages_per_query))
+    max_queries, max_pages_per_query = _DEPTH_TIERS[depth]
+    dedupe = True
     t0 = _clock()
 
     # Step 1: Decompose topic into subqueries
-    dec_messages = build_decomposition_messages(clean_topic, max_queries=clamped_queries)
+    dec_messages = build_decomposition_messages(clean_topic, max_queries=max_queries)
     dec_res = await _chat_request(
         messages=dec_messages,
         thinking={"type": "disabled"},
@@ -2661,7 +2467,7 @@ async def deepseek_deep_research(
     dec_cost = dec_res.get("cost_usd", 0.0) if dec_res.get("ok") else 0.0
     if dec_res.get("ok") and dec_res.get("content"):
         raw_dec = dec_res["content"]
-        subqueries = parse_subqueries(raw_dec, clean_topic, max_queries=clamped_queries)
+        subqueries = parse_subqueries(raw_dec, clean_topic, max_queries=max_queries)
     else:
         fallback_subq, _ = fit_query(clean_topic)
         subqueries = [fallback_subq]
@@ -2670,12 +2476,12 @@ async def deepseek_deep_research(
     search_coros = [
         _search(
             subq,
-            clamped_pages,
+            max_pages_per_query,
             None,
-            True,
+            "full",
             lang,
             RESEARCH_PAGE_CHARS,
-            RESEARCH_PAGE_CHARS * clamped_pages,
+            RESEARCH_PAGE_CHARS * max_pages_per_query,
             dedupe,
             False,
             refresh=refresh,
@@ -2728,6 +2534,7 @@ async def deepseek_deep_research(
         return {
             "ok": True,
             "topic": clean_topic,
+            "depth": depth,
             "subqueries": subqueries,
             "report": None,
             "synthesized": False,
@@ -2754,6 +2561,7 @@ async def deepseek_deep_research(
         return {
             "ok": True,
             "topic": clean_topic,
+            "depth": depth,
             "subqueries": subqueries,
             "report": None,
             "synthesized": False,
@@ -2791,6 +2599,7 @@ async def deepseek_deep_research(
         return {
             "ok": True,
             "topic": clean_topic,
+            "depth": depth,
             "subqueries": subqueries,
             "report": None,
             "synthesized": False,
@@ -2821,6 +2630,7 @@ async def deepseek_deep_research(
     return {
         "ok": True,
         "topic": clean_topic,
+        "depth": depth,
         "subqueries": subqueries,
         "report": clean_report,
         "synthesized": True,
@@ -3226,17 +3036,12 @@ async def deepseek_check_balance(*, clear_cache: bool = False) -> dict[str, Any]
     return resp
 
 
-# Backward compatibility alias for v1.x
-deepseek_balance = deepseek_check_balance
-
-
 TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_search,
     deepseek_search_many,
     deepseek_fetch,
     deepseek_fetch_many,
     deepseek_research,
-    deepseek_deep_research,
     deepseek_extract,
     deepseek_extract_many,
     deepseek_check_balance,
@@ -3256,9 +3061,6 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
     ),
     "deepseek_research": ToolAnnotations(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
-    ),
-    "deepseek_deep_research": ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
     ),
     "deepseek_extract": ToolAnnotations(

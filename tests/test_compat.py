@@ -14,7 +14,6 @@ TOOL_NAMES = {
     "deepseek_fetch",
     "deepseek_fetch_many",
     "deepseek_research",
-    "deepseek_deep_research",
     "deepseek_extract",
     "deepseek_extract_many",
     "deepseek_check_balance",
@@ -34,7 +33,7 @@ def test_search_accepts_nine_positional_arguments(fake_upstream):
 
 def test_tool_names_are_stable():
     tools = asyncio.run(server.mcp.list_tools())
-    assert TOOL_NAMES <= {tool.name for tool in tools}
+    assert {tool.name for tool in tools} == TOOL_NAMES
 
 
 @pytest.mark.parametrize(
@@ -43,10 +42,8 @@ def test_tool_names_are_stable():
         "_search",
         "deepseek_search",
         "deepseek_search_many",
-        "deepseek_web_search",
-        "deepseek_search_and_read",
         "deepseek_fetch",
-        "deepseek_deep_research",
+        "deepseek_research",
         "deepseek_extract",
         "deepseek_extract_many",
     ],
@@ -85,7 +82,7 @@ def test_search_parameter_order_is_unchanged():
     ],
 )
 def test_search_error_codes(kwargs, code):
-    assert asyncio.run(server.deepseek_web_search(**kwargs))["error"]["code"] == code
+    assert asyncio.run(server.deepseek_search(**kwargs))["error"]["code"] == code
 
 
 @pytest.mark.parametrize(
@@ -100,14 +97,14 @@ def test_fetch_error_codes(url, code):
 
 
 def test_missing_api_key_error_code():
-    result = asyncio.run(server.deepseek_web_search("q"))
+    result = asyncio.run(server.deepseek_search("q"))
     assert result["error"]["code"] == "missing_api_key"
 
 
 def test_dedupe_note(fake_upstream):
     item = {"title": "T", "url": "https://a.test/x", "site_name": "a.test"}
     _install_fake_request(fake_upstream, [item, dict(item, url="https://a.test/x?utm_source=z")])
-    result = asyncio.run(server._search("q", 5, None, False, None, 1000, 4000))
+    result = asyncio.run(server._search("q", 5, None, "snippets", None, 1000, 4000))
     assert "deduped 1 duplicate result(s)" in result["notes"]
 
 
@@ -117,14 +114,14 @@ def test_rewrite_note(monkeypatch, fake_upstream):
 
     monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
     _install_fake_request(fake_upstream, [])
-    result = asyncio.run(server._search("q", 5, None, False, None, 1000, 4000, True, True))
+    result = asyncio.run(server._search("q", 5, None, "snippets", None, 1000, 4000, True, True))
     assert "query rewritten (flash): 'better query'" in result["notes"]
 
 
 def test_truncation_note_is_shared(fake_upstream):
     item = {"title": "T", "url": "https://a.test/x", "site_name": "a.test", "content": "y" * 500}
     _install_fake_request(fake_upstream, [item])
-    result = asyncio.run(server._search("q", 5, None, True, None, 100, 4000))
+    result = asyncio.run(server._search("q", 5, None, "full", None, 100, 4000))
     expected = "Some page content was truncated to respect the character budget."
     assert server.TRUNCATED_NOTE == expected
     assert expected in result["notes"]
@@ -141,9 +138,3 @@ def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
 
     total_chars = sum(len(tool.description) for tool in tools.values())
     assert total_chars < 7500
-
-
-def test_legacy_v1_tool_aliases_callable():
-    assert callable(server.deepseek_web_search)
-    assert callable(server.deepseek_search_and_read)
-    assert server.deepseek_balance == server.deepseek_check_balance

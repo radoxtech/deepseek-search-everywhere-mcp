@@ -32,7 +32,7 @@ def _realistic_results(n: int = 3) -> list[dict[str, Any]]:
 
 def _search(fake_upstream, **kwargs: Any) -> dict[str, Any]:
     fake_upstream(default={"ok": True, "data": {"results": _realistic_results()}})
-    return asyncio.run(server.deepseek_web_search("asyncio tasks", count=3, **kwargs))
+    return asyncio.run(server.deepseek_search("asyncio tasks", count=3, **kwargs))
 
 
 def _size(envelope: dict[str, Any]) -> int:
@@ -70,7 +70,7 @@ def test_negative_summary_chars_is_rejected(fake_upstream):
 
 
 def test_content_is_unaffected_by_summary_chars(fake_upstream):
-    envelope = _search(fake_upstream, need_content=True, summary_chars=0)
+    envelope = _search(fake_upstream, content="full", summary_chars=0)
     assert all(len(item["content"]) > server.SEARCH_SUMMARY_CHARS for item in envelope["results"])
     assert all("summary" not in item for item in envelope["results"])
 
@@ -79,19 +79,17 @@ def test_fallback_summary_with_content_keeps_max_chars_per_result(fake_upstream)
     results = [dict(item, content="") for item in _realistic_results(1)]
     fake_upstream(default={"ok": True, "data": {"results": results}})
     envelope = asyncio.run(
-        server.deepseek_search_and_read("asyncio tasks", count=1, max_chars_per_result=2000)
+        server.deepseek_search("asyncio tasks", count=1, content="full", max_chars_per_result=2000)
     )
     assert 2000 <= len(envelope["results"][0]["summary"]) < 2100
 
     capped = asyncio.run(
-        server.deepseek_search_and_read("asyncio tasks", count=1, summary_chars=0, refresh=True)
+        server.deepseek_search("asyncio tasks", count=1, content="full", summary_chars=0, refresh=True)
     )
     assert "summary" not in capped["results"][0]
 
 
-@pytest.mark.parametrize(
-    "name", ["deepseek_search", "deepseek_web_search", "deepseek_search_and_read", "_search"]
-)
+@pytest.mark.parametrize("name", ["deepseek_search", "_search"])
 def test_summary_chars_is_keyword_only(name):
     parameter = inspect.signature(getattr(server, name)).parameters["summary_chars"]
     assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
