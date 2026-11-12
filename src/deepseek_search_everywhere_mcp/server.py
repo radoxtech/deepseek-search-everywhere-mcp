@@ -37,9 +37,11 @@ from .cache import SingleFlight, TTLCache
 from .deep_research import (
     DEPTH_CONFIG,
     ResearchJob,
+    apply_token_guard,
     build_decomposition_messages,
     build_r2_gap_messages,
     build_synthesis_messages,
+    filter_synthesis_output,
     get_job_store,
     parse_subqueries,
     rank_and_diversify_sources,
@@ -68,7 +70,12 @@ from .sanitize import (
     sanitize_untrusted_text,
     strip_hidden_unicode,
 )
-from .settings import DEFAULT_LOG_LEVEL, get_pricing_period, get_settings
+from .settings import (
+    DEFAULT_LLM_PRICING,
+    DEFAULT_LOG_LEVEL,
+    get_pricing_period,
+    get_settings,
+)
 from .snippets import extract_snippets, split_sections
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
@@ -2826,9 +2833,11 @@ async def _execute_research_pipeline(
     if fill.failed:
         notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
 
-    # Step 5: Select synthesis context
+    # Step 5: Select synthesis context and guard token limits
     job.progress = {"phase": "synthesis", "step": 4, "of": 4}
     synthesis_context = select_synthesis_context(sources, depth=depth)
+    synthesis_context, guard_notes = apply_token_guard(synthesis_context)
+    notes.extend(guard_notes)
     fetch_cost = fill.requests_used * COST_PER_REQUEST
     if not synthesis_context:
         total_llm_cost = round(dec_cost, 6)
@@ -2852,7 +2861,51 @@ async def _execute_research_pipeline(
                 "llm": total_llm_cost,
             },
             "untrusted_content": True,
+            "derived_from_untrusted": True,
+            "injection_suspected": 0,
             "notes": notes + ["No readable source content available for synthesis."],
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
+        }
+
+    # S7: Cost ceiling guard
+    total_source_chars = sum(len(s.get("content") or "") for s in synthesis_context)
+    est_input_tokens = total_source_chars // 2
+    pricing = DEFAULT_LLM_PRICING.peak
+    est_synth_cost = (est_input_tokens / 1_000_000) * pricing.cache_miss_per_1m + (
+        cfg.max_tokens / 1_000_000
+    ) * pricing.output_per_1m
+    already_spent = search_cost + fetch_cost + dec_cost
+    est_total_call_cost = already_spent + est_synth_cost
+    ceiling = get_settings().research_cost_ceiling_usd
+    if est_total_call_cost > ceiling:
+        total_llm_cost = round(dec_cost, 6)
+        total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
+        return {
+            "ok": True,
+            "status": "done",
+            "topic": clean_topic,
+            "depth": depth,
+            "subqueries": subqueries,
+            "report": None,
+            "synthesized": False,
+            "sources": sources,
+            "requests_used": requests_used,
+            "cached": _all_cached(requests_used, cached_count),
+            "cached_count": cached_count,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(search_cost, 6),
+                "fetch": round(fetch_cost, 6),
+                "llm": total_llm_cost,
+            },
+            "untrusted_content": True,
+            "derived_from_untrusted": True,
+            "injection_suspected": 0,
+            "notes": notes
+            + [
+                f"Estimated research cost (${est_total_call_cost:.4f}) exceeds ceiling "
+                f"of ${ceiling:.2f}; returning gathered sources without synthesis."
+            ],
             "_meta": _envelope_meta(total_cost, untrusted_content=True),
         }
 
@@ -2880,12 +2933,17 @@ async def _execute_research_pipeline(
                 "llm": total_llm_cost,
             },
             "untrusted_content": True,
+            "derived_from_untrusted": True,
+            "injection_suspected": 0,
             "notes": notes + ["Synthesis deadline reached; returning gathered sources."],
             "_meta": _envelope_meta(total_cost, untrusted_content=True),
         }
 
-    # Step 6: Synthesize cited briefing report
-    synthesis_messages = build_synthesis_messages(clean_topic, synthesis_context, depth=depth)
+    # Step 6: Synthesize cited briefing report with nonce delimiter
+    synth_nonce = uuid.uuid4().hex[:12]
+    synthesis_messages = build_synthesis_messages(
+        clean_topic, synthesis_context, depth=depth, nonce=synth_nonce
+    )
     synth_timeout = max(10.0, rem_synth - 2.0)
     synth_kwargs: dict[str, Any] = {
         "messages": synthesis_messages,
@@ -2956,6 +3014,8 @@ async def _execute_research_pipeline(
                 "llm": total_llm_cost,
             },
             "untrusted_content": True,
+            "derived_from_untrusted": True,
+            "injection_suspected": 0,
             "notes": notes
             + [
                 f"Synthesis model call failed: {synth_res.get('error', {}).get('message', 'unknown')}; "
@@ -2965,8 +3025,13 @@ async def _execute_research_pipeline(
         }
 
     report_text = synth_res.get("content", "")
-    clean_report = sanitize_citations(report_text, max_id=len(synthesis_context))
+    allowed_urls = {
+        s["url"].strip() for s in synthesis_context if isinstance(s.get("url"), str) and s["url"].strip()
+    }
+    filtered_report, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
+    clean_report = sanitize_citations(filtered_report, max_id=len(synthesis_context))
     clean_report, s_notes = sanitize_untrusted_text(clean_report)
+    notes.extend(filter_notes)
     notes.extend(s_notes)
 
     return {
@@ -3000,6 +3065,8 @@ async def _execute_research_pipeline(
             "llm": total_llm_cost,
         },
         "untrusted_content": True,
+        "derived_from_untrusted": True,
+        "injection_suspected": injection_suspected,
         "notes": notes,
         "_meta": _envelope_meta(total_cost, untrusted_content=True),
     }
