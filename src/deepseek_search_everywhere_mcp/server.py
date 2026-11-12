@@ -35,6 +35,7 @@ from .boilerplate import remove_boilerplate
 from .budget import DailyBudgetTracker, Reservation
 from .cache import SingleFlight, TTLCache
 from .deep_research import (
+    DEPTH_CONFIG,
     ResearchJob,
     build_decomposition_messages,
     build_synthesis_messages,
@@ -2492,6 +2493,7 @@ async def _fill_gaps(
     total_chars: int,
     refresh: bool,
     strip_boilerplate: bool = True,
+    deadline: float | None = None,
 ) -> _GapFill:
     """Fetch sources with missing or short content and merge the fetched pages in place."""
     fill = _GapFill()
@@ -2504,7 +2506,7 @@ async def _fill_gaps(
         max_total_chars=total_chars,
         refresh=refresh,
         strip_boilerplate=strip_boilerplate,
-        deadline=get_settings().research_gap_deadline,
+        deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
     )
     fill.requests_used = batch["requests_used"]
     fill.cached_count = batch["cached_count"]
@@ -2523,14 +2525,6 @@ async def _fill_gaps(
                 source["date"], source["date_source"] = found, "content"
             fill.fetched += 1
     return fill
-
-
-_DEPTH_TIERS: dict[str, tuple[int, int]] = {
-    "low": (2, 2),
-    "medium": (3, 3),
-    "high": (4, 4),
-    "max": (4, 5),
-}
 
 
 @_timed
@@ -2575,8 +2569,8 @@ async def deepseek_research(
         return _fail("empty_query", "topic must not be empty.")
     if len(clean_topic) > MAX_TOPIC:
         return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.")
-    if depth not in _DEPTH_TIERS:
-        return _fail("bad_request", f"depth must be one of: {', '.join(_DEPTH_TIERS.keys())}")
+    if depth not in DEPTH_CONFIG:
+        return _fail("bad_request", f"depth must be one of: {', '.join(DEPTH_CONFIG.keys())}")
 
     settings = get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
@@ -2733,20 +2727,35 @@ async def _execute_research_pipeline(
     refresh: bool,
     strip_boilerplate: bool,
 ) -> dict[str, Any]:
-    max_queries, max_pages_per_query = _DEPTH_TIERS[depth]
-    dedupe = True
+    cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
+    max_queries = cfg.subqueries
+    max_pages_per_query = cfg.count
+    deadline_total = cfg.deadline_s
     t0 = _clock()
+    deadline_at = t0 + deadline_total
+
+    synthesis_reserve = {
+        "low": 20.0,
+        "medium": 30.0,
+        "high": 45.0,
+        "max": 60.0,
+    }.get(depth, 30.0)
+
+    dedupe = True
 
     # Step 1: Decompose topic into subqueries
     job.progress = {"phase": "decomposition", "step": 1, "of": 4}
+    rem1 = deadline_at - _clock()
+    dec_timeout = min(20.0, max(5.0, rem1 - synthesis_reserve))
     dec_messages = build_decomposition_messages(clean_topic, max_queries=max_queries)
     dec_res = await _chat_request(
         messages=dec_messages,
         thinking={"type": "disabled"},
         model=REWRITE_MODEL,
-        temperature=0,
-        max_tokens=256,
-        timeout=CHAT_TIMEOUT,
+        temperature=0.0,
+        max_tokens=1024,
+        timeout=dec_timeout,
+        deadline=dec_timeout,
         attempts=2,
     )
     dec_cost = dec_res.get("cost_usd", 0.0) if dec_res.get("ok") else 0.0
@@ -2759,19 +2768,24 @@ async def _execute_research_pipeline(
 
     # Step 2: Concurrently execute search across subqueries
     job.progress = {"phase": "retrieval", "step": 2, "of": 4}
+    rem2 = deadline_at - _clock()
+    search_timeout = min(30.0, max(5.0, rem2 - synthesis_reserve))
     search_coros = [
-        _search(
-            subq,
-            max_pages_per_query,
-            None,
-            "full",
-            lang,
-            RESEARCH_PAGE_CHARS,
-            RESEARCH_PAGE_CHARS * max_pages_per_query,
-            dedupe,
-            False,
-            refresh=refresh,
-            strip_boilerplate=strip_boilerplate,
+        asyncio.wait_for(
+            _search(
+                subq,
+                max_pages_per_query,
+                None,
+                "full",
+                lang,
+                cfg.per_page_char_cap,
+                cfg.per_page_char_cap * max_pages_per_query,
+                dedupe,
+                False,
+                refresh=refresh,
+                strip_boilerplate=strip_boilerplate,
+            ),
+            timeout=search_timeout,
         )
         for subq in subqueries
     ]
@@ -2801,7 +2815,16 @@ async def _execute_research_pipeline(
 
     # Step 4: Gap-fill stub pages
     job.progress = {"phase": "gap_fill", "step": 3, "of": 4}
-    fill = await _fill_gaps(sources, RESEARCH_PAGE_CHARS, 30000, refresh, strip_boilerplate)
+    rem4 = deadline_at - _clock()
+    gap_timeout = min(30.0, max(5.0, rem4 - synthesis_reserve))
+    fill = await _fill_gaps(
+        sources,
+        cfg.per_page_char_cap,
+        30000,
+        refresh,
+        strip_boilerplate,
+        deadline=gap_timeout,
+    )
     requests_used += fill.requests_used
     cached_count += fill.cached_count
 
@@ -2811,9 +2834,9 @@ async def _execute_research_pipeline(
     if fill.failed:
         notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
 
-    # Step 5: Select synthesis context (capped at 6 sources, 24k chars)
+    # Step 5: Select synthesis context
     job.progress = {"phase": "synthesis", "step": 4, "of": 4}
-    synthesis_context = select_synthesis_context(sources)
+    synthesis_context = select_synthesis_context(sources, depth=depth)
     search_cost = sum(s.get("cost_usd", 0.0) for s in successful_searches)
     fetch_cost = fill.requests_used * COST_PER_REQUEST
     if not synthesis_context:
@@ -2842,9 +2865,9 @@ async def _execute_research_pipeline(
             "_meta": _envelope_meta(total_cost, untrusted_content=True),
         }
 
-    # Soft deadline check before synthesis
-    elapsed = _clock() - t0
-    if elapsed > RESEARCH_DEADLINE - 5.0:
+    # Deadline check before synthesis
+    rem_synth = deadline_at - _clock()
+    if rem_synth < 5.0:
         total_llm_cost = round(dec_cost, 6)
         total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
         return {
@@ -2872,20 +2895,57 @@ async def _execute_research_pipeline(
 
     # Step 6: Synthesize cited briefing report
     synthesis_messages = build_synthesis_messages(clean_topic, synthesis_context, depth=depth)
-    synth_res = await _chat_request(
-        messages=synthesis_messages,
-        thinking={"type": "disabled"},
-        model=REWRITE_MODEL,
-        temperature=0.2,
-        max_tokens=2048,
-        timeout=SYNTHESIS_TIMEOUT,
-        attempts=2,
+    synth_timeout = max(10.0, rem_synth - 2.0)
+    synth_kwargs: dict[str, Any] = {
+        "messages": synthesis_messages,
+        "model": REWRITE_MODEL,
+        "max_tokens": cfg.max_tokens,
+        "timeout": synth_timeout,
+        "deadline": synth_timeout,
+        "attempts": 1,
+    }
+    if cfg.thinking:
+        synth_kwargs["thinking"] = {"type": "enabled"}
+        if cfg.reasoning_effort:
+            synth_kwargs["reasoning_effort"] = cfg.reasoning_effort
+    else:
+        synth_kwargs["thinking"] = {"type": "disabled"}
+        synth_kwargs["temperature"] = 0.0
+
+    synth_res = await _chat_request(**synth_kwargs)
+
+    # Retry policy: If finish_reason == "length" or empty content, retry once with thinking OFF
+    needs_retry = (
+        not synth_res.get("ok")
+        or synth_res.get("finish_reason") == "length"
+        or not (synth_res.get("content") or "").strip()
     )
+    rem_retry = deadline_at - _clock()
+    if needs_retry and rem_retry >= 8.0:
+        notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
+        retry_kwargs = {
+            "messages": synthesis_messages,
+            "thinking": {"type": "disabled"},
+            "temperature": 0.0,
+            "model": REWRITE_MODEL,
+            "max_tokens": min(cfg.max_tokens, 16_384),
+            "timeout": max(5.0, rem_retry - 2.0),
+            "deadline": max(5.0, rem_retry - 2.0),
+            "attempts": 1,
+        }
+        retry_res = await _chat_request(**retry_kwargs)
+        if (
+            retry_res.get("ok")
+            and (retry_res.get("content") or "").strip()
+            and retry_res.get("finish_reason") != "length"
+        ):
+            synth_res = retry_res
+
     synth_cost = synth_res.get("cost_usd", 0.0) if synth_res.get("ok") else 0.0
     total_llm_cost = round(dec_cost + synth_cost, 6)
     total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
 
-    if not synth_res.get("ok"):
+    if not synth_res.get("ok") or not (synth_res.get("content") or "").strip():
         return {
             "ok": True,
             "status": "done",

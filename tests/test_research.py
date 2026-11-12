@@ -356,3 +356,183 @@ async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytes
     check_res = await server.deepseek_check_research(job_id)
     assert check_res["ok"] is False
     assert check_res["error"]["code"] == "job_not_found"
+
+
+@pytest.mark.parametrize(
+    ("depth", "expected_thinking", "expected_effort", "expected_max_tokens", "expect_temp"),
+    [
+        ("low", {"type": "disabled"}, None, 16384, True),
+        ("medium", {"type": "enabled"}, "low", 32768, False),
+        ("high", {"type": "enabled"}, "high", 65536, False),
+        ("max", {"type": "enabled"}, "max", 131072, False),
+    ],
+)
+async def test_synthesis_tier_payload_contracts(
+    depth: str,
+    expected_thinking: dict[str, str],
+    expected_effort: str | None,
+    expected_max_tokens: int,
+    expect_temp: bool,
+    fake_upstream: Any,
+) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research(f"topic for {depth}", depth=depth)  # type: ignore[arg-type]
+    assert res["ok"] is True
+    assert res["status"] == "done"
+    assert len(upstream.chats) >= 2
+    synth_payload = upstream.chats[1]
+    assert synth_payload["thinking"] == expected_thinking
+    if expected_effort is not None:
+        assert synth_payload["reasoning_effort"] == expected_effort
+    else:
+        assert "reasoning_effort" not in synth_payload
+    assert synth_payload["max_tokens"] == expected_max_tokens
+    if expect_temp:
+        assert synth_payload.get("temperature") == 0.0
+    else:
+        assert "temperature" not in synth_payload
+    assert "budget_tokens" not in synth_payload
+
+
+async def test_synthesis_retry_on_length_truncation(fake_upstream: Any) -> None:
+    class TruncatingUpstream(DeepResearchUpstream):
+        def __init__(self) -> None:
+            super().__init__()
+            self.synth_calls = 0
+
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                self.chats.append(kwargs.get("payload") or {})
+                if len(self.chats) == 1:
+                    return {
+                        "ok": True,
+                        "data": {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": json.dumps({"queries": ["q1"]}),
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                self.synth_calls += 1
+                if self.synth_calls == 1:
+                    return {
+                        "ok": True,
+                        "data": {
+                            "choices": [
+                                {
+                                    "finish_reason": "length",
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "",
+                                        "reasoning_content": "INTERNAL THOUGHTS SHOULD NEVER BE REPORT",
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                else:
+                    return {
+                        "ok": True,
+                        "data": {
+                            "choices": [
+                                {
+                                    "finish_reason": "stop",
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "Retry report content [1].",
+                                    },
+                                }
+                            ]
+                        },
+                    }
+            return await super().__call__(method, path, **kwargs)
+
+    upstream = TruncatingUpstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research("retry test topic", depth="medium")
+    assert res["ok"] is True
+    assert res["synthesized"] is True
+    assert "INTERNAL THOUGHTS" not in (res["report"] or "")
+    assert "Retry report content [1]" in (res["report"] or "")
+    assert any("retrying with thinking disabled" in note for note in res["notes"])
+    assert len(upstream.chats) == 3
+    assert upstream.chats[2]["thinking"] == {"type": "disabled"}
+    assert upstream.chats[2].get("temperature") == 0.0
+
+
+async def test_synthesis_failure_never_leaks_reasoning_content(fake_upstream: Any) -> None:
+    class FailingUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                self.chats.append(kwargs.get("payload") or {})
+                if len(self.chats) == 1:
+                    return {
+                        "ok": True,
+                        "data": {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": json.dumps({"queries": ["q1"]}),
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                return {
+                    "ok": True,
+                    "data": {
+                        "choices": [
+                            {
+                                "finish_reason": "length",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "",
+                                    "reasoning_content": "SECRET REASONING NEVER LEAKS",
+                                },
+                            }
+                        ]
+                    },
+                }
+            return await super().__call__(method, path, **kwargs)
+
+    upstream = FailingUpstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research("leak test topic", depth="medium")
+    assert res["ok"] is True
+    assert res["synthesized"] is False
+    assert res["report"] is None
+    assert "SECRET REASONING" not in str(res)
+
+
+async def test_deadline_budgeter_shrinks_phases_and_aborts_synthesis_if_too_late(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    curr_time = 100.0
+
+    def fake_clock() -> float:
+        nonlocal curr_time
+        return curr_time
+
+    monkeypatch.setattr(server, "_clock", fake_clock)
+
+    class AdvancingUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            nonlocal curr_time
+            curr_time += 30.0
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(AdvancingUpstream())
+
+    res = await server.deepseek_research("late topic", depth="low")
+    assert res["ok"] is True
+    assert res["synthesized"] is False
+    assert any("deadline reached" in note for note in res["notes"])

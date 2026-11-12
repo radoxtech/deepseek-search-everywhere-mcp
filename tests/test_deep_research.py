@@ -35,14 +35,21 @@ def test_parse_subqueries_fallback_on_invalid():
 
 def test_select_synthesis_context_caps_at_sources_and_chars():
     sources = [
-        {"id": i, "title": f"T{i}", "url": f"https://a.test/{i}", "content": "x" * 10000, "rerank_score": 2.0}
-        for i in range(1, 10)
+        {"id": i, "title": f"T{i}", "url": f"https://a.test/{i}", "content": "x" * 5000, "rerank_score": 2.0}
+        for i in range(1, 30)
     ]
-    selected = select_synthesis_context(sources)
-    assert len(selected) <= 6
-    total_chars = sum(len(s["content"]) for s in selected)
-    assert total_chars <= 24000
-    assert [s["id"] for s in selected] == list(range(1, len(selected) + 1))
+    selected_low = select_synthesis_context(sources, depth="low")
+    assert len(selected_low) == 6
+    total_chars_low = sum(len(s["content"]) for s in selected_low)
+    assert total_chars_low <= 60000
+    assert [s["id"] for s in selected_low] == list(range(1, len(selected_low) + 1))
+
+    huge_sources = [
+        {"id": i, "title": f"T{i}", "url": f"https://a.test/{i}", "content": "x" * 30000, "rerank_score": 2.0}
+        for i in range(1, 30)
+    ]
+    selected_huge = select_synthesis_context(huge_sources, depth="low")
+    assert sum(len(s["content"]) for s in selected_huge) <= 60000
 
 
 def test_build_synthesis_messages():

@@ -236,8 +236,12 @@ def parse_subqueries(response_text: str, fallback_topic: str, max_queries: int =
     return queries[:max_queries]
 
 
-def select_synthesis_context(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Select up to 6 non-empty sources and cap total content at 24,000 characters."""
+def select_synthesis_context(
+    sources: list[dict[str, Any]],
+    depth: str = "medium",
+) -> list[dict[str, Any]]:
+    """Select up to tier K non-empty sources and cap per-page and total characters."""
+    cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
     valid_sources = [s for s in sources if s.get("content")]
     # Prioritize by rerank score / authority if present
     valid_sources.sort(
@@ -246,12 +250,13 @@ def select_synthesis_context(sources: list[dict[str, Any]]) -> list[dict[str, An
     )
     selected: list[dict[str, Any]] = []
     total_chars = 0
-    for idx, s in enumerate(valid_sources[:MAX_SYNTHESIS_SOURCES], 1):
+    for idx, s in enumerate(valid_sources[: cfg.k_sources], 1):
         content = s.get("content") or ""
-        remaining = MAX_SYNTHESIS_CHARS - total_chars
+        page_content = content[: cfg.per_page_char_cap]
+        remaining = cfg.total_source_chars - total_chars
         if remaining <= 0:
             break
-        cut_content = content[:remaining]
+        cut_content = page_content[:remaining]
         total_chars += len(cut_content)
         selected.append(
             {
