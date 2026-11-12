@@ -1,130 +1,89 @@
 <p align="center">
-  <img src="assets/banner.jpg" alt="DeepSeek Search Everywhere MCP Banner" width="100%">
+  <img src="assets/banner.jpg" alt="DeepSeek Search Everywhere MCP banner" width="100%">
 </p>
 
 # DeepSeek Search Everywhere MCP
 
 <p align="center">
   <a href="https://pypi.org/project/deepseek-search-everywhere-mcp/"><img src="https://img.shields.io/pypi/v/deepseek-search-everywhere-mcp.svg" alt="PyPI version"></a>
-  <a href="https://pypistats.org/packages/deepseek-search-everywhere-mcp"><img src="https://img.shields.io/pypi/dw/deepseek-search-everywhere-mcp?color=blue&label=pypi%20downloads" alt="PyPI Downloads"></a>
-  <a href="https://pypi.org/project/deepseek-search-everywhere-mcp/"><img src="https://img.shields.io/pypi/pyversions/deepseek-search-everywhere-mcp" alt="Python versions"></a>
-  <a href="https://registry.modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP%20Registry-listed-brightgreen.svg" alt="MCP Registry"></a>
-  <a href="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml"><img src="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypistats.org/packages/deepseek-search-everywhere-mcp"><img src="https://img.shields.io/pypi/dw/deepseek-search-everywhere-mcp?color=blue&label=pypi%20downloads" alt="PyPI downloads per week"></a>
+  <a href="https://pypi.org/project/deepseek-search-everywhere-mcp/"><img src="https://img.shields.io/pypi/pyversions/deepseek-search-everywhere-mcp" alt="Supported Python versions"></a>
+  <a href="https://registry.modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP%20Registry-listed-brightgreen.svg" alt="Listed in the official MCP Registry"></a>
+  <a href="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml"><img src="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://glama.ai/mcp/servers/radoxtech/deepseek-search-everywhere-mcp"><img src="https://glama.ai/mcp/servers/radoxtech/deepseek-search-everywhere-mcp/badges/score.svg" alt="Glama score"></a>
 </p>
 
-> ⭐ **If you find this MCP server useful for your agent workflows, please star this repository!** It helps other developers discover this project and directly supports ongoing maintenance.
+**DeepSeek Search Everywhere** is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that gives AI agents web search, page fetch (web scraping to clean Markdown), structured data extraction and deep research with numbered citations, all through the DeepSeek Search & Fetch API. It runs over stdio or authenticated HTTP and works with Claude Code, Claude Desktop, Cursor, Cline, Windsurf, Zed, OpenCode and any other MCP client.
 
----
-
-**DeepSeek Search Everywhere** is the premier, research-grade [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server providing autonomous AI agents and coding assistants with real-time web search, concurrent batch fetching, structured JSON extraction, and deep multi-source research through the native DeepSeek Search & Fetch API.
-
-It gives AI agents (Cursor, Claude Code, Claude Desktop, Cline, Windsurf, Zed, OpenCode) the ability to deeply research the live web at **a fraction of a cent per query (up to 95% cheaper than Tavily, Perplexity, or Firecrawl)**, combining real-time web search and clean Markdown page fetching in a single lightweight tool with built-in boilerplate removal, token budgeting, and zero Cloudflare bot-blocking.
+You need one credential, a DeepSeek API key, and you pay DeepSeek directly per request: there is no separate subscription. It is a lower-cost alternative to Tavily, Perplexity, Firecrawl and Exa for agents that need live web access; see [Comparison](#comparison-with-tavily) for the numbers.
 
 <!-- mcp-name: io.github.radoxtech/deepseek-search-everywhere-mcp -->
 
 > Not affiliated with DeepSeek. This is an independent, community-maintained project.
 
-## Demo
-
 <p align="center">
-  <img src="assets/demo.gif" alt="DeepSeek Search Everywhere MCP in Action (OpenCode TUI)" width="100%">
+  <img src="assets/demo.gif" alt="OpenCode terminal session calling deepseek_search, deepseek_fetch_many, deepseek_extract and deepseek_research" width="100%">
 </p>
 <p align="center">
-  <em>Live multi-tool execution in OpenCode TUI: <code>deepseek_search</code> ➔ <code>deepseek_fetch_many</code> ➔ <code>deepseek_extract</code> ➔ <code>deepseek_deep_research</code> with cited sources. Works identically in Cursor, Claude Desktop, Cline, and Windsurf.</em>
+  <em>OpenCode calling <code>deepseek_search</code>, <code>deepseek_fetch_many</code>, <code>deepseek_extract</code> and <code>deepseek_research</code>. The same tools work in every MCP client.</em>
 </p>
 
-## Why DeepSeek Search Everywhere MCP?
+## Key features
 
-Most web search tools for AI agents force developers to choose between **fragile free scrapers** (which frequently break on Cloudflare or pollute context with cookie banners) and **overpriced commercial search APIs** (which charge steep recurring markups). 
+- **Web search** with snippets or full page text, domain and date filters, language selection and optional query rewrite.
+- **Page fetch to Markdown** for one URL or up to 10 in parallel, with section, snippet, offset and find-text selectors for long pages.
+- **Structured extraction**: pull named fields or a JSON schema from a page; each value must be backed by a verbatim quote from the page or it is returned as `null`.
+- **Deep research with citations**: four depth tiers (`low`, `medium`, `high`, `max`) produce a report with `[n]` citations that map to a `sources` array. Long runs continue in the background and are collected with `deepseek_check_research`.
+- **Cost reporting**: every response carries `cost_usd` and, where an LLM is involved, `cost_breakdown`; an optional daily budget blocks overspending.
+- **Hardened against prompt injection**: hidden Unicode stripped, markdown images and unsafe links neutralized, an egress guard for secret-like data, static SSRF filtering and no telemetry. See [Security](#security).
+- **Small footprint**: pure Python, no local browser, `uvx` zero-install, 9 tools.
 
-**DeepSeek Search Everywhere MCP** bridges this gap by communicating directly with DeepSeek's native infrastructure:
+## Tools
 
-| Feature / Metric | Free Scrapers (DDG, basic curl) | Commercial APIs (Tavily, Perplexity, Firecrawl) | **DeepSeek Search Everywhere MCP** |
-| :--- | :--- | :--- | :--- |
-| **Cost per query** | "Free" (unreliable, rate-limited) | **$0.005 – $0.010+** ($20–$100+/mo plans) | **~$0.0005** (Direct DeepSeek API cost, ~95% savings) |
-| **Context Hygiene** | Messy HTML, cookie banners, script tags | Clean text | **Automated boilerplate removal**, Markdown unescaping, strict token budgets |
-| **Anti-Bot / 403s** | Constantly blocked by Cloudflare / CAPTCHA | Handled | **Handled remotely** by DeepSeek backend infrastructure |
-| **1-Request Search & Content** | No (requires separate search + fetch) | Sometimes | **Yes** (`need_content=True` returns clean page text inline) |
-| **Concurrent Batch Fetch** | No | Extra cost | **Yes** (`deepseek_fetch_many` pulls up to 10 URLs in parallel) |
-| **Structured Data Extraction** | No | Requires external parsers | **Yes** (`deepseek_extract` extracts validated JSON schemas) |
-| **Deep Research & Synthesis** | No (single snippets only) | Proprietary / opaque | **Yes** (`deepseek_deep_research` multi-query decomposition with cited reports) |
+| Tool | What it does | Key parameters |
+|---|---|---|
+| `deepseek_search` | Search the web for one query; returns ranked results with snippets, or full page text | `query`, `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `include_domains`, `exclude_domains`, `after`, `before`, `exclude_terms`, `exact_phrases`, `rewrite`, `max_total_chars`, `refresh` |
+| `deepseek_search_many` | Run 1-5 searches concurrently; partial results are returned if the deadline hits | `queries`, plus the filters of `deepseek_search`, `deadline` |
+| `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `max_chars` (default 20000), one optional selector: `section`, `query` (+`max_snippets`), `offset`+`limit`, or `find_text`; `strip_boilerplate`, `fallback_to_search`, `refresh` |
+| `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url` (default 4000), `max_total_chars` (default 20000), `query`, `deadline` |
+| `deepseek_extract` | Extract structured JSON from one page, with evidence quotes | `url`, `fields` or `schema`, `instruction`, `max_chars` (default 40000) |
+| `deepseek_extract_many` | Extract structured JSON from 1-10 pages concurrently | `urls`, `fields` or `schema`, `instruction`, `max_chars_per_url`, `max_total_chars`, `deadline` |
+| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `lang`, `refresh` |
+| `deepseek_check_research` | Collect a research job that did not finish inside the inline wait | `job_id` |
+| `deepseek_check_balance` | Read-only: DeepSeek account balance and session metrics | none |
 
-> 💡 **Real-world cost impact:** For an active developer or autonomous agent executing 50–100 live searches and page fetches a day, this server costs **~$0.50 – $1.50 per month** in direct DeepSeek API tokens, compared to **$20 – $100+/month** for separate search and scraping subscriptions (Tavily, Perplexity, Firecrawl).
+Details that matter when calling the tools:
 
-### Why AI Models & Developers Recommend This Server
-- **Unified Search & Scraping (2-in-1):** Replaces the need for separate search engines (Tavily) and web scrapers (Firecrawl) by combining web search, concurrent batch URL fetching, and clean Markdown extraction in one standard protocol.
-- **Maximum Context Efficiency:** The built-in `boilerplate.py` engine strips site navigation, headers, footers, and cookie banners before passing content to the model, eliminating token bloat.
-- **Cost-to-Performance Ratio:** Eliminates SaaS middleware markups, providing enterprise-grade search and fetch at raw model token costs.
-- **Complete Research Toolchain:** Exposes 7 specialized tools ranging from instantaneous keyword search to multi-stage recursive synthesis and structured schema extraction.
-- **Zero Local Footprint:** Pure stdio/HTTP implementation with static SSRF validation and no local browser or network proxy requirements.
+- `query` and each entry of `queries` are limited to 128 characters and accept `site:`, `-site:`, `"phrase"`, `lang:`, `after:` and `before:` operators. The explicit filter parameters (`include_domains`, `exclude_domains`, `exclude_terms`, `exact_phrases`, `after`, `before`) are compiled into operators and budget-checked against that limit together with the query. Dates use `YYYY-MM-DD`.
+- `content="snippets"` (default) returns a short snippet per result; `content="full"` returns page text and fetches pages whose search content is missing, which is reflected in `requests_used` and `cost_usd`.
+- `deepseek_fetch` selectors are mutually exclusive: combining `section`, `query`, `offset`/`limit` and `find_text` returns `bad_request`. `query` returns focused excerpts around matching terms (lexical matching, no LLM call). `offset`/`limit` page through long text and report `total_chars`.
+- `deepseek_fetch_many` skips blanks, fetches duplicate URLs once, keeps input order and reports a failing URL as an item with `ok: false`; the top-level envelope sets `partial: true`.
+- `deepseek_extract` takes either `fields` (list of names) or `schema` (JSON schema), never both. Fields whose evidence quote cannot be found in the page are set to `null` with a note; `extraction_truncated` is raised when the model output was cut off.
+- `lang` is an ISO code such as `en`, `de`, `pt-BR`. `rewrite=true` translates the query to English with `deepseek-flash` before searching and is skipped when `lang` is set.
+- `strip_boilerplate=true` removes known site interface text (for example the localized Reddit UI and cookie-consent dialogs at the start of a page) without touching article text or code blocks. Search results always get this treatment.
+- `fallback_to_search=true` (fetch tools) retrieves a document through the search index when a direct fetch returns 404 for a PDF or Reddit URL; only a result for the same page is accepted, and the result is marked `"source": "search_index"`.
 
-## Features
+Example calls:
 
-- **Search with content in one request**: `need_content` returns page text inline, so there is usually no
-  need for a second fetch per result.
-- **Batch fetch and research**: `deepseek_fetch_many` fetches up to 10 URLs concurrently;
-  `deepseek_research` gathers sources in a single pass: one search, then direct fetches for pages whose search
-  content is missing. It does not iterate or summarise.
-- **Deep research and structured extraction**: `deepseek_deep_research` decomposes topics into subqueries and
-  synthesizes cited briefing reports; `deepseek_extract` extracts validated structured JSON matching schemas or fields.
-- **Result hygiene**: canonical-URL and title/site deduplication, per-result and total character budgets,
-  Markdown unescaping.
-- **Optional query rewrite** to English through `deepseek-flash` (thinking disabled), plus an explicit `lang`
-  operator for non-English queries.
-- **Cache and limiter**: TTL + LRU cache with single-flight, per-endpoint token buckets, `refresh` to bypass.
-- **Safe by default**: static SSRF checks, secret redaction, no telemetry. See [Security](#security).
-
-## Requirements
-
-- Python 3.11 or newer
-- A DeepSeek API key (`DEEPSEEK_API_KEY`) from the [DeepSeek platform](https://platform.deepseek.com)
-
-## Install
-
-The server is published on [PyPI](https://pypi.org/project/deepseek-search-everywhere-mcp/) and listed in the
-[official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=deepseek-search-everywhere)
-as `io.github.radoxtech/deepseek-search-everywhere-mcp`.
-
-```bash
-# Run without installing (uv)
-uvx deepseek-search-everywhere-mcp
-
-# Or install with pip
-pip install deepseek-search-everywhere-mcp
-```
-
-The HTTP transport needs the `http` extra (it pulls in `uvicorn`):
-
-```bash
-pip install "deepseek-search-everywhere-mcp[http]"
-```
-
-To run the latest unreleased code from `main`, or from a source checkout:
-
-```bash
-uvx --from git+https://github.com/radoxtech/deepseek-search-everywhere-mcp deepseek-search-everywhere-mcp
-
-git clone https://github.com/radoxtech/deepseek-search-everywhere-mcp.git
-cd deepseek-search-everywhere-mcp
-pip install -e ".[http]"
-```
-
-Check that the key and connectivity work (prints your balance, then exits):
-
-```bash
-export DEEPSEEK_API_KEY=sk-...
-deepseek-search-everywhere-mcp --check
+```text
+deepseek_search(query="rust async runtime comparison", count=5)
+deepseek_search(query="gobierno de España presupuestos 2026", lang="es")
+deepseek_search(query="tokio runtime", include_domains=["docs.rs"], content="full")
+deepseek_fetch(url="https://docs.rs/tokio/latest/tokio/", max_chars=15000)
+deepseek_fetch(url="https://example.com/long-article", query="rate limits")
+deepseek_fetch_many(urls=["https://example.com/a", "https://example.com/b"])
+deepseek_extract(url="https://news.ycombinator.com", fields=["top_story", "points", "author"])
+deepseek_research(topic="Raft vs Paxos consensus: trade-offs in practice", depth="high")
+deepseek_check_research(job_id="<job_id from a running response>")
+deepseek_check_balance()
 ```
 
 ## Quick start
 
-All examples use stdio (zero-install via `uvx`). Replace `sk-...` with your key from [platform.deepseek.com](https://platform.deepseek.com).
-
-### Cursor
-
-In your project root, create or edit `.cursor/mcp.json` (or add via **Settings -> Features -> MCP -> Add new MCP server**):
+1. Create a DeepSeek API key at [platform.deepseek.com](https://platform.deepseek.com) and add a small balance.
+2. Install [uv](https://docs.astral.sh/uv/) (or use `pip`; Python 3.11 or newer is required).
+3. Add the server to your MCP client. The minimal configuration is:
 
 ```json
 {
@@ -132,17 +91,44 @@ In your project root, create or edit `.cursor/mcp.json` (or add via **Settings -
     "deepseek-search-everywhere": {
       "command": "uvx",
       "args": ["deepseek-search-everywhere-mcp"],
-      "env": {
-        "DEEPSEEK_API_KEY": "sk-..."
-      }
+      "env": { "DEEPSEEK_API_KEY": "sk-..." }
     }
   }
 }
+```
+
+4. Optional: verify the key and connectivity from a terminal. This prints your balance and exits:
+
+```bash
+export DEEPSEEK_API_KEY=sk-...
+uvx deepseek-search-everywhere-mcp --check
+```
+
+The package is on [PyPI](https://pypi.org/project/deepseek-search-everywhere-mcp/) and in the
+[official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=deepseek-search-everywhere) as
+`io.github.radoxtech/deepseek-search-everywhere-mcp`. The console script is `deepseek-search-everywhere-mcp`;
+`python -m deepseek_search_everywhere_mcp` is equivalent.
+
+```bash
+pip install deepseek-search-everywhere-mcp              # or: uvx deepseek-search-everywhere-mcp
+pip install "deepseek-search-everywhere-mcp[http]"      # adds uvicorn for the HTTP transport
+uvx --from git+https://github.com/radoxtech/deepseek-search-everywhere-mcp deepseek-search-everywhere-mcp  # latest main
+```
+
+## Install in your MCP client
+
+All stdio examples use `uvx`, so nothing is installed globally. Replace `sk-...` with your key.
+
+### Claude Code
+
+```bash
+claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- \
+  uvx deepseek-search-everywhere-mcp
 ```
 
 ### Claude Desktop
 
-Edit `claude_desktop_config.json` (**Settings -> Developer -> Edit Config**):
+Edit `claude_desktop_config.json` (Settings, Developer, Edit Config):
 
 ```json
 {
@@ -150,17 +136,15 @@ Edit `claude_desktop_config.json` (**Settings -> Developer -> Edit Config**):
     "deepseek-search-everywhere": {
       "command": "uvx",
       "args": ["deepseek-search-everywhere-mcp"],
-      "env": {
-        "DEEPSEEK_API_KEY": "sk-..."
-      }
+      "env": { "DEEPSEEK_API_KEY": "sk-..." }
     }
   }
 }
 ```
 
-### Cline / Roo Code (VS Code)
+### Cursor
 
-In your Cline MCP settings (`cline_mcp_settings.json`):
+Create or edit `.cursor/mcp.json` in your project (or `~/.cursor/mcp.json` for all projects):
 
 ```json
 {
@@ -168,23 +152,28 @@ In your Cline MCP settings (`cline_mcp_settings.json`):
     "deepseek-search-everywhere": {
       "command": "uvx",
       "args": ["deepseek-search-everywhere-mcp"],
-      "env": {
-        "DEEPSEEK_API_KEY": "sk-..."
-      },
+      "env": { "DEEPSEEK_API_KEY": "sk-..." }
+    }
+  }
+}
+```
+
+### Cline and Roo Code (VS Code)
+
+In the MCP settings file (`cline_mcp_settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "deepseek-search-everywhere": {
+      "command": "uvx",
+      "args": ["deepseek-search-everywhere-mcp"],
+      "env": { "DEEPSEEK_API_KEY": "sk-..." },
       "disabled": false,
       "autoApprove": []
     }
   }
 }
-```
-
-### Claude Code
-
-Run directly in your terminal:
-
-```bash
-claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- \
-  uvx deepseek-search-everywhere-mcp
 ```
 
 ### Windsurf
@@ -197,15 +186,30 @@ In `~/.codeium/windsurf/mcp_config.json`:
     "deepseek-search-everywhere": {
       "command": "uvx",
       "args": ["deepseek-search-everywhere-mcp"],
-      "env": {
-        "DEEPSEEK_API_KEY": "sk-..."
-      }
+      "env": { "DEEPSEEK_API_KEY": "sk-..." }
     }
   }
 }
 ```
 
-### opencode
+### Zed
+
+In Zed `settings.json`, under `context_servers`:
+
+```json
+{
+  "context_servers": {
+    "deepseek-search-everywhere": {
+      "source": "custom",
+      "command": "uvx",
+      "args": ["deepseek-search-everywhere-mcp"],
+      "env": { "DEEPSEEK_API_KEY": "sk-..." }
+    }
+  }
+}
+```
+
+### OpenCode
 
 In `opencode.json`:
 
@@ -223,9 +227,9 @@ In `opencode.json`:
 }
 ```
 
-### Any stdio client (Antigravity, Zed, Gemini CLI, etc.)
+### Any other stdio client (Antigravity, Gemini CLI and others)
 
-Any MCP client accepting an `mcpServers` block works with the `uvx` form above. If the package is already installed locally, you can also point directly to the console script:
+Any client that accepts an `mcpServers` block works with the `uvx` form above. With the package installed locally, point at the console script:
 
 ```json
 {
@@ -238,11 +242,9 @@ Any MCP client accepting an `mcpServers` block works with the `uvx` form above. 
 }
 ```
 
-`python -m deepseek_search_everywhere_mcp` is equivalent.
-
 ### Streamable HTTP
 
-For clients that connect over HTTP. A bearer token is **always** required; the server refuses to start without one.
+For clients and platforms that connect over HTTP. A bearer token is always required and the server refuses to start without `MCP_BEARER_TOKEN`.
 
 ```bash
 pip install "deepseek-search-everywhere-mcp[http]"
@@ -251,9 +253,7 @@ export MCP_BEARER_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsaf
 deepseek-search-everywhere-mcp --transport streamable-http   # http://127.0.0.1:8000/mcp
 ```
 
-Options: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--path` (default `/mcp`). The token is read
-from the environment only, never from the command line. The server runs stateless and answers with JSON
-(no SSE streams). Client entry:
+Options: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--path` (default `/mcp`). The token is read from the environment only, never from the command line. The server is stateless and answers with JSON (no SSE streams). Client entry:
 
 ```json
 {
@@ -266,18 +266,24 @@ from the environment only, never from the command line. The server runs stateles
 }
 ```
 
-Claude Code: `claude mcp add --transport http deepseek-search-everywhere http://127.0.0.1:8000/mcp --header "Authorization: Bearer $MCP_BEARER_TOKEN"`.
-The server speaks plain HTTP; when binding beyond loopback, put TLS in front of it (see [SECURITY.md](SECURITY.md)).
+Claude Code over HTTP:
+
+```bash
+claude mcp add --transport http deepseek-search-everywhere http://127.0.0.1:8000/mcp \
+  --header "Authorization: Bearer $MCP_BEARER_TOKEN"
+```
+
+The server speaks plain HTTP; when binding beyond loopback, put TLS in front of it (see [SECURITY.md](SECURITY.md)). HTTP mode is single-process: research jobs, caches and the rate limiter live in that process.
 
 ### Docker
 
-An official container image is available on GitHub Container Registry (`ghcr.io`):
+A container image is published on GitHub Container Registry. It runs as an unprivileged user (UID 10001).
 
 ```bash
 docker pull ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest
 ```
 
-**Stdio mode (Claude Desktop, Cursor, local IDEs):**
+Stdio mode for desktop clients:
 
 ```json
 {
@@ -294,7 +300,7 @@ docker pull ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest
 }
 ```
 
-**Remote HTTP hosting (Docker Compose, VPS, n8n, Dify, cloud agents):**
+Remote HTTP hosting:
 
 ```bash
 docker run -d --name deepseek-mcp -p 8000:8000 \
@@ -304,246 +310,299 @@ docker run -d --name deepseek-mcp -p 8000:8000 \
   --transport streamable-http --host 0.0.0.0 --port 8000
 ```
 
-The container runs as an unprivileged non-root user (`UID 10001`) with dependencies isolated from the host.
+## Deep research
 
-## Tools
+`deepseek_research(topic, depth=...)` turns a question into a cited report. It decomposes the topic into subqueries, searches them concurrently, ranks and de-duplicates sources (at most 2 per registered domain, with hosts from the source denylist skipped), reads the top pages, and has `deepseek-flash` write a report whose `[n]` citations match the ids in the returned `sources` array. Synthesis runs on the server, so the consuming agent receives a short report and a list of sources instead of tens of thousands of characters of page text.
 
-| Tool | Purpose | Parameters (defaults) |
+### Depth tiers
+
+| | `low` | `medium` (default) | `high` | `max` |
+|---|---|---|---|---|
+| Subqueries | 2 | 3 | 4 | 4, plus a gap-analysis round |
+| Results per subquery | 6 | 8 | 10 | 10 |
+| Sources read (K) | 6 | 10 | 16 | 24 |
+| Characters per source page (cap) | 15,000 | 20,000 | 25,000 | 30,000 |
+| Total source context | 60,000 chars | 150,000 chars | 300,000 chars | 500,000 chars |
+| Reasoning in synthesis | off | on, effort `low` | on, effort `high` | on, effort `max` |
+| Synthesis `max_tokens` | 16,384 | 32,768 | 65,536 | 131,072 |
+| Report length target | about 400 words | about 800 | about 1,200 | about 1,800 |
+| Report length ceiling (+20%) | 480 | 960 | 1,440 | 2,160 |
+| Total deadline | 60 s | 90 s | 150 s | 240 s |
+
+When to pick each tier:
+
+- **`low`**: a quick factual overview or a sanity check with a handful of sources; fastest and cheapest.
+- **`medium`**: the default for most questions: comparisons, "how does X work", state of a technology.
+- **`high`**: decisions that depend on several viewpoints, such as architecture choices, vendor evaluations or regulatory questions.
+- **`max`**: broad or contested topics where coverage matters more than speed; the extra round looks for gaps in the first round and searches again.
+
+If the model's reasoning uses up its token allowance or returns an empty answer, the server retries once with reasoning off; if that also fails, the envelope has `synthesized: false` and returns source snippets only. An over-length report gets one cheap condensing pass.
+
+### Long-running research
+
+Many MCP clients cancel a tool call after about 60 seconds, which is shorter than the `high` and `max` deadlines. `deepseek_research` therefore never blocks past an inline wait of 45 seconds:
+
+1. The research runs as a background job inside the server process, not inside the tool call. A client timeout or a cancelled call does not stop the job.
+2. If the report is ready within 45 s, `deepseek_research` returns it inline with `status: "done"` and `delivery: "inline"`.
+3. Otherwise it returns `ok: true`, `status: "running"`, a `job_id`, `elapsed_ms`, a `progress` object (`phase`, `step`, `of`) and a `next_action` telling the agent to call `deepseek_check_research` with that `job_id` and not to start a new research.
+4. `deepseek_check_research(job_id)` waits up to another 45 s and returns either the same final envelope (`status: "done"`, `delivery: "polled"`) or `status: "running"` again. Repeat until it is done. An unknown or expired id returns `job_not_found`; start the research again in that case (the job may have been lost on a server restart).
+
+Behavior to know:
+
+- An identical request (same topic, depth and language) made while a job is running joins that job and gets the same `job_id`, so a retry never doubles the cost.
+- A finished result is reused for 30 minutes at zero cost (`cached: true`, `cost_usd: 0`); pass `refresh=true` to run again.
+- At most 3 research jobs run at the same time; further requests return `rate_limited_local`.
+- Jobs live in memory in one server process. They are cancelled when the server shuts down.
+
+## Costs
+
+Search and Fetch are billed by DeepSeek per successful request, not per returned result, so `count` does not change the price of a call. Extraction and research add `deepseek-flash` token costs on top of the requests they make. Cache hits cost nothing.
+
+| Item | Price |
+|---|---|
+| Search and Fetch API | $0.75 per 1,000 successful requests ($0.00075 each) |
+| `deepseek-flash` input, cache hit | $0.003 per 1M tokens |
+| `deepseek-flash` input, cache miss | $0.15 per 1M tokens |
+| `deepseek-flash` output | $0.60 per 1M tokens |
+
+*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
+
+Measured cost and wall time of one `deepseek_research` call per tier (live runs):
+
+| Depth | Typical cost | Typical time |
 |---|---|---|
-| `deepseek_search` | Search the web; returns inline page text (default) or snippets and metadata | `query`, `count=5` (1-50), `ori_question`, `need_content=True`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `localization=None`, `exclude_terms=None`, `exact_phrases=None`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True` |
-| `deepseek_search_many` | Search the web with 1-5 queries concurrently; returns ranked snippets (default) or full text | `queries`, `count=5` (1-50), `need_content=False`, `lang`, `max_chars_per_result=4000`, `max_total_chars=30000`, `dedupe=True`, `rewrite=False`, `localization=None`, `exclude_terms=None`, `exact_phrases=None`, `after`, `before`, `include_domains`, `exclude_domains`, `refresh=False`, `summary_chars`, `strip_boilerplate=True`, `deadline=None` |
-| `deepseek_fetch` | Fetch one known URL as Markdown (supports lexical snippet extraction, sectional reading and windowed pagination) | `url`, `clean=True`, `max_chars=20000`, `offset=None`, `limit=None`, `find_text=None`, `query=None`, `section=None`, `max_snippets=3`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url=4000`, `max_total_chars=20000`, `clean=True`, `query`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_research` | Single-pass source gathering: search with content and auto-fetch stub pages (< 200 chars). No iteration, no summary | `question`, `max_pages=5` (1-50), `per_page_chars=6000`, `total_chars=30000`, `after`, `before`, `include_domains`, `exclude_domains`, `lang`, `rewrite=False`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_deep_research` | Multi-angle research on a topic; decomposes subqueries, gathers sources, and synthesizes a cited report | `topic`, `max_queries=3` (2-4), `max_pages_per_query=3` (1-5), `lang`, `dedupe=True`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_extract` | Extract structured JSON from a web page conforming to target fields or a schema | `url`, `fields=None`, `schema=None`, `instruction=None`, `clean=True`, `max_chars=40000`, `refresh=False`, `strip_boilerplate=True` |
-| `deepseek_extract_many` | Extract structured JSON from 1-10 web pages concurrently conforming to fields or schema | `urls`, `fields=None`, `schema=None`, `instruction=None`, `clean=True`, `max_chars_per_url=20000`, `max_total_chars=60000`, `refresh=False`, `strip_boilerplate=True`, `deadline=None` |
-| `deepseek_check_balance` | Account balance, session metrics and cache management (purges memory cache on clear_cache=True) | `clear_cache=False` |
+| `low` | about $0.003 | about 6 s |
+| `medium` | about $0.008 | about 18-29 s |
+| `high` | about $0.012 | about 39 s |
+| `max` | about $0.024-0.031 | about 50-110 s |
 
-Notes on the parameters:
+*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-- `query` and `question` are limited to 128 characters and support `site:`, `-site:`, `"phrase"`, `lang:`,
-  `after:` and `before:`. `ori_question` (max 128 characters) is the natural-language question and improves ranking.
-  `localization` is an optional IP address used by DeepSeek to localize search results.
-- `after`, `before`, `include_domains`, `exclude_domains`, `exclude_terms` and `exact_phrases` are explicit
-  filter parameters for search tools. Multiple `include_domains` are joined with `OR` (`site:a.com OR site:b.com`),
-  `exclude_domains` compiles to `-site:`, `exclude_terms` to `-term`, `exact_phrases` to `"phrase"`, and dates to
-  `after:YYYY-MM-DD` / `before:YYYY-MM-DD`. Filters and query are budget-guarded together to stay within DeepSeek's
-  128-character limit.
-- `offset` (0-based start index) and `limit` in `deepseek_fetch` enable character-level windowed pagination for long pages,
-  reporting `total_chars` and `has_more`. `find_text` locates a case-insensitive substring and sets `offset` to its position.
-- `query` in `deepseek_fetch` and `deepseek_fetch_many` extracts ranked relevant excerpts using a BM25-lite
-  scoring engine without invoking an LLM. `section` (1-based index) enables sectional reading of long documents
-  with `has_more` and `total_sections` pagination metadata. Both operate in-memory on cached pages.
-- `deepseek_deep_research` decomposes topics into 2-4 subqueries via `deepseek-flash`, searches concurrently,
-  merges and dedupes candidate sources, and synthesizes a cited report with numbered bracket citations `[1]`, `[2]`
-  capped at 6 sources / 24,000 characters. If the synthesis deadline is approached, it gracefully falls back
-  to returning the gathered sources.
-- `deepseek_extract` uses `deepseek-flash` to extract structured JSON matching either `fields: list[str]` or
-  a `schema: dict` without ingesting the full page text into client context. Missing requested fields are populated
-  with `null`, and pages with no readable text fast-fail with zero LLM token consumption.
-- `deepseek_check_balance` (and legacy alias `deepseek_balance`) includes a `session` block with uptime, total queries handled, cache hit rate, and estimated
-  cost and savings (at $0.00075 per request).
-- `lang` is an explicit language operator such as `es`, `de`, `ja` or `pt-BR`. Without it, results for
-  non-English queries may be mixed-language; for named entities, compare with and without it.
-- With `dedupe=True`, searches ask the upstream for a few extra results (`max(2, ceil(count * 0.5))`, capped at 50)
-  and trim to `count` after removing duplicates, so you still get `count` results when the index returns repeats.
-  With `dedupe=False` exactly `count` are requested.
-- Without `need_content`, each search result carries a short `summary` instead of page text. It is capped at
-  `summary_chars` (default 400) and never longer than `max_chars_per_result`; `summary_chars=0` leaves it out.
-  With content, a `summary` only stands in for a result that came back without content, and `summary_chars`
-  then defaults to `max_chars_per_result`. Summaries count towards `max_total_chars`.
-- `rewrite=True` (also in `deepseek_research`) translates the query to English with `deepseek-flash` before searching. It is skipped when `lang`
-  is set and falls back silently to the original query if the rewrite fails.
-- `clean=True` (fetch tools and search content) removes backslash escapes from every ASCII punctuation character
-  (`\(`, `\-`, `\[`, `\/`, `\#`...). Fenced code blocks and inline code spans are left untouched.
-- Search results (content, `snippet`, `summary`, and so `deepseek_research` sources) also get JSON string
-  escapes decoded when the search index returns a page's text still JSON-escaped (`Kr\u00f3tkie` becomes
-  `Krótkie`, `<\/p>` becomes `</p>`), outside code. Simple attribute-less HTML tags left in snippets and
-  summaries (`<p>`, `<br>`, `</h2>`...) are replaced with a space.
-- `strip_boilerplate=True` (keyword-only, on every tool that returns page content) removes known site-interface
-  lines. DeepSeek returns Reddit threads with the site UI localised to Chinese whatever the thread's language:
-  the comment-sort menu (`排序方式：`, `最佳`, `新`...), the `# 评论区域` heading, the archived-post banner,
-  `[已删除]` author lines and the sign-up footer. Rules are per site (Reddit only for now, matched on
-  `reddit.com` and its subdomains) and only drop lines that consist entirely of a known label, so user text,
-  Chinese included, and code blocks are kept. One rule applies to every site: a cookie-consent (CMP) dialog
-  at the very start of the content ("Informacje o prywatności", "We value your privacy", "Wir verwenden
-  Cookies"...) is removed when its first line opens with a known consent phrase and the run of lines shows a
-  dialog control ("Accept all", "Zarządzaj preferencjami zgody"...). Removal stops at the first line that is
-  not part of the dialog, and text further down is never touched, so an article about privacy is kept. When a
-  fetched page is nothing but the banner, `content` is empty and a note says so. It runs after `clean` and
-  before the character caps, so budgets count the cleaned text; it does not change caching. `strip_boilerplate=False` returns the content as fetched.
-- `deepseek_fetch_many` skips empty entries, fetches duplicate URLs (same canonical URL) once, keeps the input
-  order, and reports a failing URL as an item with `ok: false` instead of failing the batch. All fetches share
-  a 120 s deadline; URLs still pending then are reported as `deadline_exceeded`. Each page gets at most
-  `min(max_chars_per_url, max_total_chars // number of URLs)` characters.
-- `deepseek_research` is single-pass source gathering, not an agent: it makes exactly one search plus the gap
-  fetches, never refines the query or searches again, and does no summarising. It takes the same `lang`,
-  `rewrite` and `dedupe` options as search; the envelope's `query_used`
-  shows the query that was sent. It does no summarising and makes no model call unless `rewrite=True`: it returns sources for the caller to synthesise.
-  Each source carries `title`, `url`, `date` and `site` (both null when the upstream gave none), `date_source`,
-  `authority` and `rerank_score`, so stale or off-topic sources are visible without opening them.
-- `deepseek_research` is for reconnaissance: finding candidate sources. There is no quality filter, so results
-  can include low-quality or secondary pages (student papers, aggregators, clickbait). Verify facts in the
-  primary source before citing them. To reach primary sources, ask in English for the primary study (for
-  example "original study on X, journal article") and use `site:` for Polish or other local sources
-  (`site:cbos.pl ...`).
-- `authority` is passed through from the upstream index as is. Its meaning is not documented and it does not
-  track credibility (a student PDF and a reference database can score alike), so do not use it to judge or
-  filter sources.
+Other tools: `deepseek_search` and `deepseek_fetch` cost one request each ($0.00075); `content="full"` and `deepseek_fetch_many` add one request per page fetched; `deepseek_extract` costs about $0.002 per page (one fetch plus the LLM call). `rewrite=true` on the search tools adds one small `deepseek-flash` call.
 
-Example calls:
+*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-```text
-deepseek_search(query="rust async runtime comparison", count=5)
-deepseek_search(query="gobierno de España presupuestos 2026", lang="es", need_content=False)
-deepseek_fetch(url="https://docs.rs/tokio/latest/tokio/", max_chars=15000)
-deepseek_fetch_many(urls=["https://example.com/a", "https://example.com/b"], max_total_chars=12000)
-deepseek_research(question="how does HTTP/3 connection migration work", max_pages=4)
-deepseek_deep_research(topic="comparing Raft vs Paxos consensus mechanisms in distributed systems")
-deepseek_extract(url="https://news.ycombinator.com", fields=["top_story", "points", "author"])
-deepseek_check_balance()
-```
+Every response reports its own `cost_usd`, and tools that call an LLM add `cost_breakdown` with `search`, `fetch` and `llm` parts. Set `DEEPSEEK_DAILY_BUDGET_USD` to cap daily spend (see [Configuration](#configuration)).
 
-### Response envelope
+## Comparison with Tavily
+
+Figures as of 2026-11-12. Tavily pay-as-you-go is $0.008 per credit; a basic search costs 1 credit, an advanced search 2 credits, and a basic extract 1 credit per 5 URLs ([Tavily API credits](https://docs.tavily.com/documentation/api-credits)). Tavily also has a free tier of 1,000 credits per month, which covers light use at no cost.
+
+| Operation | Tavily (pay-as-you-go) | This server (Search and Fetch API) | Ratio |
+|---|---|---|---|
+| Basic search | $0.008 | $0.00075 | about 10.7x cheaper |
+| Advanced search | $0.016 | $0.00075 | about 21x cheaper |
+| Page fetch, per URL (basic extract) | $0.0016 | $0.00075 | about 2.1x cheaper |
+
+*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
+
+The comparison covers raw retrieval prices only. It does not compare result quality, and structured extraction and research in this server add `deepseek-flash` token costs shown in [Costs](#costs). Tavily, Perplexity, Firecrawl and Exa each have features this server does not (for example site crawling or hosted answer engines); this server covers search, fetch, extraction and research in a single MCP server.
+
+## Security
+
+Web pages, search snippets and titles are attacker-controlled. The server treats everything it retrieves as untrusted and applies these controls (full threat model in [SECURITY.md](SECURITY.md)):
+
+- **Untrusted-content handling.** Hidden Unicode (tag characters, bidi controls, zero-width characters) is stripped from content, snippets, titles, reports and extracted values. Markdown images are rewritten to plain `[image: alt](url)` text and links with non-http(s) targets are dropped. Every response that carries web data sets `untrusted_content: true`; research and extraction output, which is model-written from untrusted pages, also sets `derived_from_untrusted: true`.
+- **Injection-resistant synthesis.** The server's own LLM calls have no tool calling and no secrets in their prompts. Sources are wrapped in per-call random delimiters and declared to be data, and the report is filtered afterwards: links that are not in the source list, images, raw HTML and sentences addressed to an AI agent are removed (counted in `injection_suspected`).
+- **Egress guard.** Outgoing search queries and fetch URLs that contain secret-like data (`sk-` keys, bearer tokens, JWTs, AWS access keys, `api_key=`/`token=`/`password=` pairs, URL credentials) are rejected with `egress_blocked`. Optional domain allow and deny lists and a high-entropy check are available through [environment variables](#configuration).
+- **Static SSRF filter.** Non-http(s) schemes, internal hostnames, private and loopback addresses and URLs with embedded credentials return `ssrf_blocked`. The server never resolves DNS locally; DeepSeek performs the fetch, so this is a filter and not network isolation.
+- **No telemetry.** The server does not phone home or collect usage data.
+- **Data flow.** Search queries, URLs you ask it to fetch, and page content selected for extraction or research are sent to the DeepSeek API; nothing else leaves the machine, and the API key is only sent in the `Authorization` header to the configured base URL. Do not put secrets in queries or URLs.
+- **HTTP transport.** Every request needs the bearer token (constant-time comparison, never logged). Bind to loopback or put TLS in front of the server.
+
+The consuming agent must still treat returned content as untrusted: no filter can guarantee that a page contains no instructions. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+## Configuration
+
+The server reads configuration from environment variables. It does not read `.env` files itself; export the variables or set them in your MCP client's `env` block.
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `DEEPSEEK_API_KEY` | yes | none | DeepSeek platform key |
+| `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com` | API base URL |
+| `DEEPSEEK_AUTH_JSON` | no | `~/.local/share/opencode/auth.json` | Legacy key fallback: path to an opencode credentials file (`{"deepseek": {"key": "..."}}`), used only when `DEEPSEEK_API_KEY` is unset |
+| `MCP_BEARER_TOKEN` | HTTP only | none | Token clients must send as `Authorization: Bearer ...`; the HTTP transport refuses to start without it |
+| `DEEPSEEK_MCP_CACHE` | no | `1` | `1` keeps in-memory response caches on, `0` disables all caches |
+| `DEEPSEEK_MCP_LOG_LEVEL` | no | `WARNING` | stderr log level of the server, the MCP SDK and uvicorn: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `DEEPSEEK_DAILY_BUDGET_USD` | no | unlimited | Daily spend limit in USD (for example `5.00`), covering Search, Fetch and LLM costs; once reached, calls fail with `budget_exceeded` |
+| `DEEPSEEK_STATE_DIR` | no | `~/.cache/deepseek-search-everywhere-mcp` | Directory for the budget state file (`budget.json`) |
+| `DEEPSEEK_SOURCE_DENYLIST` | no | `*.ezproxy.*` | Comma-separated hosts that research never uses as sources. An entry matches the host and its subdomains; an entry containing `*` is a glob matched against the whole host; `none` disables the list |
+| `DEEPSEEK_FETCH_ALLOW_DOMAINS` | no | unset | Comma-separated domains; when set, fetch tools only accept URLs on these domains (and subdomains) |
+| `DEEPSEEK_FETCH_DENY_DOMAINS` | no | unset | Comma-separated domains the fetch tools refuse (and their subdomains) |
+| `DEEPSEEK_EGRESS_ENTROPY_CHECK` | no | off | `1`, `true` or `yes` also rejects queries and URL paths that contain a token longer than 32 characters with high entropy |
+
+Command-line options of `deepseek-search-everywhere-mcp`: `--transport {stdio,streamable-http}` (default `stdio`), `--host` (default `127.0.0.1`), `--port` (default `8000`), `--path` (default `/mcp`), `--check` (verify credentials and print the balance; stdio only) and `--version`.
+
+Local limits that are not configurable through the environment:
+
+| | Search | Fetch | Query rewrite |
+|---|---|---|---|
+| Cache TTL | 5 min | 30 min | 24 h |
+| Entry limit | 128 | 128 | 1024 |
+| Rate limit (sustained / burst) | 10 / s, 20 | 5 / s, 10 | LLM calls: 10 / s, 20 |
+
+Only successful, non-empty responses are cached and errors are never cached. Identical concurrent calls share one upstream request. `refresh=true` bypasses the cache for one call. If a rate-limit token would take longer than 5 s, the call fails with `rate_limited_local`. HTTP 429 and gateway 5xx responses are retried once within the call's deadline.
+
+## Response format
 
 Every tool returns a JSON object with `ok`.
 
 | Field | Where | Meaning |
 |---|---|---|
 | `ok` | all | `true` on success, `false` on failure |
-| `cached` | all tools except balance; also per item in `deepseek_fetch_many` and per source in `deepseek_research` | `true` when the response came from the in-memory cache. For `deepseek_fetch_many` and `deepseek_research` it is `true` only when no upstream request was made and at least one response came from the cache |
-| `cached_count` | `deepseek_fetch_many`, `deepseek_research` | how many responses in this call were served from the cache |
-| `requests_used` | `deepseek_fetch_many`, `deepseek_research` | upstream requests actually made (cache hits are free) |
-| `elapsed_ms` | all, including errors | wall time of the tool call in milliseconds (monotonic clock); a cache hit reports its own, near-zero time |
-| `notes` | all success envelopes | human-readable remarks: dedupe counts, rewrite applied or failed, `lang` applied, truncation ("Some page content was truncated to respect the character budget.") |
-| `error` | failures | `{ "code", "message", "status"? }`; `status` is the upstream HTTP status when there was one |
-| `cost_usd` | all retrieval tools | estimated upstream API cost in USD ($0.00075 per upstream call, $0.0 for cache hits) |
-| `untrusted_content` | all tools returning web content | `true`; marks fetched web data as untrusted to defend against prompt injection |
-| `_meta` | all retrieval tools | metadata object `{ "cost_usd": float, "untrusted_content": bool }` for MCP client telemetry |
-| `partial` | `deepseek_fetch_many`, `deepseek_research` | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
-| `failed_count` | `deepseek_fetch_many`, `deepseek_research` | number of failed items or sources |
+| `error` | failures | `{ "code", "message", "status"?, "upstream_code"?, "upstream_message"? }`; `code` is always one of the [closed error codes](#error-codes) |
+| `elapsed_ms` | all | wall time of the call in milliseconds |
+| `cost_usd` | retrieval tools | cost of the call in USD; `0` for cache hits |
+| `cost_breakdown` | extract, research | `{ "search", "fetch", "llm" }` in USD |
+| `requests_used` | search, fetch_many, research | upstream requests actually made |
+| `cached`, `cached_count` | retrieval tools | whether the response (or how many items) came from the cache |
+| `notes` | success envelopes | human-readable remarks: dedupe counts, trimmed queries, truncation, applied filters |
+| `partial`, `failed_count` | batch tools, research | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
+| `untrusted_content` | tools returning web content | always `true`; the content is data, not instructions |
+| `derived_from_untrusted`, `injection_suspected` | research | model-written output built from untrusted pages; number of sentences removed by the output filter |
+| `status`, `delivery`, `job_id`, `progress`, `next_action` | research, check_research | job state: `done` (with `delivery` `inline` or `polled`) or `running` |
+| `_meta` | retrieval tools | `{ "cost_usd", "untrusted_content" }` for clients that read MCP metadata |
 
-Search results carry `title` (the URL host without `www.` when the upstream title is blank; a title repeated around ` - `, such as Reddit's `X - X`, is collapsed to `X`), `url`, `date`, `authority` (0-4, -1 unknown; an upstream field, not a credibility score), `rerank_score`, `site`, `snippet`,
-and `content` with `chars` or `summary` where available. When the upstream gives no `date`, a `YYYY-MM-DD` date
-(a valid calendar date, year 1990 to next year) found in the title or the first 600 characters of the text is
-used instead. Without one, a full English or Polish month name next to a year (`September 2025`,
-`wrzesień 2025`, PubMed-style `2025 September`) gives the first of that month, and a day written with it (`15 września 2025`,
-`September 15, 2025`) gives that day; Polish names are matched in the nominative and genitive, abbreviations
-and a bare year are ignored; `date_source` is `"upstream"`, `"content"` or `null` (no date), on search results and research
-sources alike. `deepseek_fetch` returns `url`, `title`, `content`, `chars`,
-`truncated`. `deepseek_deep_research` returns `topic`, `subqueries`, `report` (with bracketed citations `[1]`, `[2]`),
-`synthesized`, and `sources`. `deepseek_extract` returns `url`, `title`, and `data` (the extracted JSON matching the
-requested fields or schema). `chars` is always the length of the `content` returned, in every tool.
+Tool-specific results:
+
+- **Search**: `results[]` with `title`, `url`, `date`, `date_source` (`upstream`, `content` or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
+- **Fetch**: `url`, `title`, `content`, `chars`, `total_chars`, `truncated`, `source` (`fetch` or `search_index`); selectors add `has_more` or section metadata.
+- **Extract**: `data` (requested fields or schema), `evidence` (verbatim quotes), `extraction_truncated`.
+- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations), `synthesized`, `sources[]` of `{ id, title, url, date }` where `id` equals `n`. There is no references list inside the report and no page content in the envelope.
+- **Balance**: `is_available`, `balances`, and a `session` block with uptime, request and cache counts.
 
 ### Error codes
 
-| Code | Meaning |
+`error.code` comes from a closed set. Upstream DeepSeek errors are mapped to it and the original code and message (redacted) are kept in `error.upstream_code` and `error.upstream_message`.
+
+| Group | Codes |
 |---|---|
-| `missing_api_key` | no key in `DEEPSEEK_API_KEY` or the fallback file |
-| `ssrf_blocked` | URL rejected locally: internal host, literal private/loopback address, or embedded credentials |
-| `bad_url`, `invalid_url`, `empty_url`, `url_too_long` | malformed or oversized URL |
-| `empty_query`, `query_too_long`, `bad_count`, `bad_lang`, `bad_request` | invalid arguments |
-| `bad_term`, `bad_phrase`, `bad_domain`, `bad_date`, `filters_too_long` | invalid or oversized search filter options |
-| `budget_exceeded` | local daily spend limit (`DEEPSEEK_DAILY_BUDGET_USD`) exceeded |
-| `rate_limited_local` | no local rate-limit token became available within the maximum wait |
-| `response_too_large` | upstream body exceeded the cap (8 MiB search, 32 MiB fetch) |
-| `deadline_exceeded` | batch item not finished within the shared batch deadline |
-| `timeout`, `network_error`, `request_failed`, `invalid_json` | transport-level failures |
-| `internal_error` | unexpected exception while fetching one batch item |
-| other / `http_error` | upstream API errors keep the code from DeepSeek (or `http_error`) and set `error.status` |
+| Upstream, mapped | `auth_failed`, `insufficient_balance`, `upstream_rate_limited`, `upstream_timeout`, `upstream_error`, `not_found`, `blocked_by_site` |
+| Local and transport | `missing_api_key`, `rate_limited_local`, `timeout`, `deadline_exceeded`, `response_too_large`, `invalid_json`, `network_error`, `request_failed`, `internal_error` |
+| Budget | `budget_exceeded` (status 402) |
+| Input validation | `bad_request`, `empty_query`, `query_too_long`, `topic_too_long`, `bad_count`, `bad_lang`, `bad_url`, `empty_url`, `url_too_long`, `bad_domain`, `bad_date`, `bad_term`, `bad_phrase`, `filters_too_long` |
+| Security | `ssrf_blocked`, `egress_blocked`, `disallowed_url`, `private_url`, `disallowed_protocol` |
+| Tool specific | `empty_page`, `extraction_failed`, `extraction_truncated`, `job_not_found` |
 
-## Response size and cost
+## Migration from 2.x
 
-Serialized JSON size of one response per mode, measured on 2026-10-28 against the live API with the default
-parameters of each tool (compact JSON, UTF-8 bytes):
+Version 3.0 is a breaking release: tool names, parameters, envelope fields and error codes changed. Tool surface and parameters are summarized below; update your prompts, allow-lists and any code that parses envelopes.
 
-| Call | Size |
-|---|---|
-| `deepseek_search`, `count=3`, `need_content=false` (default `summary_chars`) | 3.7 KB |
-| `deepseek_search`, `count=3`, `need_content=false`, `summary_chars=0` | 2.3 KB |
-| `deepseek_search`, `count=3`, `need_content=true` (default) | 15.1 KB |
-| `deepseek_fetch`, one documentation page (default `max_chars`) | 20.9 KB |
-| `deepseek_fetch_many`, 3 documentation pages | 13.3 KB |
-| `deepseek_research`, `max_pages=3` | 20.1 KB |
+### Tools
 
-These are single samples, not guarantees: sizes vary with the query and the pages returned, and are bounded by
-`max_chars_per_result`, `max_total_chars` and the other character budgets, not by a fixed number.
-
-Cost: DeepSeek bills Search and Fetch per successful request, not per returned result, so `count` does not change
-the price of a call. See the [DeepSeek Search & Fetch guide](https://api-docs.deepseek.com/guides/search) for
-current prices, billing rules and limits; they may change and this project does not track them. A tool call that
-needs several upstream requests (for example `deepseek_research` fetching pages whose search content is missing,
-or `deepseek_fetch_many`) is billed for each of them, and `rewrite=true` additionally uses `deepseek-flash` tokens.
-Cache hits are not billed.
-
-## Cache and rate limiting
-
-The cache and the limiter live in the server process and are not shared between processes.
-
-| | Search | Fetch | Query rewrite |
-|---|---|---|---|
-| Cache TTL | 5 min | 30 min | 24 h |
-| Entry limit | 128 | 128 | 1024 |
-| Size limit | 16 MiB | 32 MiB | 1 MiB |
-| Rate limit (sustained / burst) | 10 / s, 20 | 5 / s, 10 | not limited |
-
-- Only successful, non-empty responses are cached. Errors are never cached.
-- Identical concurrent calls share one upstream request (single-flight); only the one that made the request pays a limiter token, and none of them reports `cached: true`.
-- `refresh=true` skips the cache read for that call and replaces the stored entry.
-- `dedupe` changes the upstream request (the search over-fetches), so `dedupe=true` and `dedupe=false` calls do not share a cache entry.
-- Cache hits and rewrite calls cost no limiter token. One logical call takes one token, retries included.
-- If a token would take longer than 5 s to become available, the call fails immediately with `rate_limited_local`
-  rather than queueing indefinitely.
-- Transient failures (HTTP 429 and gateway 5xx) are retried once.
-- `DEEPSEEK_MCP_CACHE=0` disables all caches.
-
-## Configuration
-
-| Variable | Required | Purpose |
+| 2.x | 3.0 | Notes |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | yes | DeepSeek platform key |
-| `DEEPSEEK_BASE_URL` | no | API base URL (default `https://api.deepseek.com`) |
-| `MCP_BEARER_TOKEN` | HTTP only | token clients must send as `Authorization: Bearer ...` |
-| `DEEPSEEK_MCP_CACHE` | no | `1` (default) or `0` to disable caching |
-| `DEEPSEEK_MCP_LOG_LEVEL` | no | stderr log level for the server, the MCP SDK and uvicorn: `DEBUG`, `INFO`, `WARNING` (default), `ERROR`, `CRITICAL` |
-| `DEEPSEEK_DAILY_BUDGET_USD` | no | optional daily spending limit in USD (e.g. `5.00`); blocks upstream queries with `budget_exceeded` once reached |
-| `DEEPSEEK_STATE_DIR` | no | directory to persist local state files (defaults to `~/.cache/deepseek-search-everywhere-mcp`) |
-| `DEEPSEEK_AUTH_JSON` | no | path to a JSON file used as the key fallback (see [Security](#security)) |
+| `deepseek_deep_research` | `deepseek_research` | Parameters `max_queries` and `max_pages_per_query` are replaced by `depth` (`low`, `medium`, `high`, `max`) |
+| `deepseek_research` (single-pass source gathering) | `deepseek_search` with `content="full"`, or `deepseek_search_many` | The old tool returned raw sources without a model call; research now means the cited report |
+| `deepseek_web_search` (alias) | `deepseek_search` | Alias removed |
+| `deepseek_search_and_read` (alias) | `deepseek_search` with `content="full"` | Alias removed |
+| `deepseek_balance` (alias) | `deepseek_check_balance` | Alias removed |
+| none | `deepseek_check_research` | New: collects long-running research jobs |
 
-`.env.example` lists the same variables. The server does not read `.env` files itself; export the variables or
-set them in your MCP client's `env`.
+### Parameters
 
-## Security
+| 2.x | 3.0 |
+|---|---|
+| `need_content=True` / `False` (search tools) | `content="full"` / `"snippets"` |
+| `ori_question` | removed |
+| `localization` | removed |
+| `max_chars_per_result`, `summary_chars` | removed; the per-result budget is derived from `max_total_chars` and `count`, snippets are capped at 400 characters |
+| `dedupe`, `strip_boilerplate` (search tools) | removed; always on |
+| `clear_cache` (`deepseek_check_balance`) | removed; the tool is read-only |
+| `question`, `max_pages`, `per_page_chars`, `total_chars` (old `deepseek_research`) | `topic` and `depth` of the new `deepseek_research` |
+| `max_queries`, `max_pages_per_query` (`deepseek_deep_research`) | `depth` |
+| Positional optional arguments | all parameters after the first are keyword-only |
+| Combining fetch selectors | `section`, `query`, `offset`/`limit` and `find_text` are mutually exclusive; combining them returns `bad_request` |
+| none | `fallback_to_search` on the fetch tools (default `true`) |
 
-Full policy and reporting instructions: [SECURITY.md](SECURITY.md).
+### Envelope fields
 
-- **Static SSRF checks only.** URLs are validated before the cache, the limiter or the network are touched:
-  non-http(s) schemes, internal hostnames, literal private/loopback/link-local addresses and URLs with embedded
-  credentials return `ssrf_blocked`. The server **does not resolve DNS**, and DeepSeek performs the actual fetch,
-  so this is not network isolation.
-- **Key handling.** The key is sent only in the `Authorization` header to the configured API base URL. Keys,
-  bearer tokens and similar secrets are redacted from error messages and notes.
-- **HTTP transport** requires the bearer token on every request (constant-time comparison, never logged).
-- **No telemetry.** The only outbound destination is the DeepSeek API.
-- **Legacy opencode fallback.** If `DEEPSEEK_API_KEY` is unset, the server reads the key from
-  `~/.local/share/opencode/auth.json` (`{"deepseek": {"key": "..."}}`), or from the file named by
-  `DEEPSEEK_AUTH_JSON`. This exists only for opencode users; prefer the environment variable.
-- Tool inputs (queries, URLs) are sent to DeepSeek to do the work. Do not pass secrets in them.
+| 2.x | 3.0 |
+|---|---|
+| `need_content` field in search envelopes | `content` |
+| `summary` next to a non-empty `snippet` in snippet mode | omitted; `summary` appears only for results without a snippet |
+| `raw_sources` and page content inside research `sources` | removed; `sources` holds `id`, `title`, `url`, `date` (plus a short snippet if synthesis fell back) |
+| `## References` section appended to the research report | removed; use the `sources` array (ids match the `[n]` citations) |
+| `cache_cleared`, `cache_evicted` (balance) | removed |
+| none | `status`, `delivery`, `job_id`, `progress`, `next_action` (research), `cost_breakdown`, `derived_from_untrusted`, `injection_suspected`, `evidence` and `extraction_truncated` (extract), `depth` |
+
+### Error code changes
+
+| 2.x | 3.0 |
+|---|---|
+| `http_404` | `not_found` |
+| `http_429` | `upstream_rate_limited` |
+| `http_error` and other raw upstream codes | `upstream_error` (5xx) or `bad_request` (other 4xx); the original is in `error.upstream_code` |
+| HTTP 401 from any endpoint | `auth_failed` |
+| HTTP 403 from the fetch endpoint | `blocked_by_site` |
+| HTTP 403 from other endpoints | `auth_failed` |
+| HTTP 402 | `insufficient_balance` |
+| HTTP 504 | `upstream_timeout` |
+| `invalid_url` | `bad_url` |
+| `budget_exceeded` with status 429 | `budget_exceeded` with status 402 |
+| none | `egress_blocked`, `extraction_truncated`, `job_not_found`, `topic_too_long` |
+
+Behavior changes: extracted values without a verifiable evidence quote are returned as `null`; fetch no longer substitutes a different page when a URL returns 404 (only a result for the same page is accepted); research and extraction output is sanitized and flagged as derived from untrusted content.
+
+## FAQ
+
+### How do I add web search to Claude Code?
+
+Run `claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- uvx deepseek-search-everywhere-mcp`. Claude Code then has `deepseek_search`, `deepseek_fetch`, `deepseek_extract`, `deepseek_research` and the other tools of this server. You need a DeepSeek API key and `uv` installed; see [Quick start](#quick-start).
+
+### Is there a cheaper alternative to Tavily for MCP?
+
+For retrieval, yes: this server passes through DeepSeek's Search and Fetch price of $0.75 per 1,000 successful requests, against Tavily's $0.008 per basic search credit, which is about 10.7x cheaper for basic search and about 21x for advanced search as of 2026-11-12. Tavily's free tier of 1,000 credits per month may still be enough for light use. See [Comparison](#comparison-with-tavily) for the sources and caveats.
+
+*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
+
+### How does deepseek_research handle long-running research?
+
+It runs the research as a background job and returns the finished report inline if it is ready within 45 seconds. Otherwise it returns `status: "running"` with a `job_id` and a `next_action`, and the agent calls `deepseek_check_research(job_id)` until the status is `done`. The job survives client timeouts and cancelled calls, identical requests join the running job, and finished results are reused for 30 minutes at zero cost. See [Long-running research](#long-running-research).
+
+### Does it work with Cursor, Cline and Windsurf?
+
+Yes. It is a standard MCP server using stdio (or authenticated streamable HTTP), so any client that can launch a command or connect to a URL can use it. Ready-made configuration for Cursor, Cline and Roo Code, Windsurf, Zed, OpenCode, Claude Desktop and Claude Code is in [Install in your MCP client](#install-in-your-mcp-client).
+
+### How much does a search cost?
+
+A search or a page fetch costs one DeepSeek request, $0.00075, regardless of how many results are returned. A research call costs roughly $0.003 (`low`) to $0.03 (`max`) including model tokens, and a structured extraction about $0.002 per page. Every response reports `cost_usd` so the agent and you can see the actual cost.
+
+*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
+
+### Can it read PDFs and JavaScript-rendered pages?
+
+Pages are fetched by DeepSeek's service, not by a local browser, and the result is returned as Markdown. Whether a given PDF or script-heavy page yields text depends on that service. When a direct fetch of a PDF or Reddit URL returns 404, the server retrieves the document through the search index instead; when a page comes back empty, the response says so and suggests `deepseek_search`.
+
+### Can I extract structured data from a web page?
+
+Yes. `deepseek_extract` takes a URL and either a list of `fields` or a JSON `schema` and returns `data` plus an `evidence` quote for each value. A value whose quote cannot be found in the page is returned as `null`, so invented values do not pass silently. `deepseek_extract_many` does the same for up to 10 URLs at once.
+
+### Is my data sent anywhere?
+
+Search queries, the URLs you fetch and the page content used for extraction or research go to the DeepSeek API, which performs the work; there is no other outbound destination and no telemetry. Queries and URLs that contain secret-like strings are blocked before they leave the machine. Details are in [Security](#security) and [SECURITY.md](SECURITY.md).
+
+### How do I limit spending?
+
+Set `DEEPSEEK_DAILY_BUDGET_USD` (for example `5.00`) in the server's environment. Once the day's spend reaches the limit, calls return `budget_exceeded` until the next day. Use `depth="low"` for research when speed and cost matter, and check `deepseek_check_balance` for the account balance.
+
+### Can the server run remotely, for example in Docker or n8n?
+
+Yes. Start it with `--transport streamable-http` and set `MCP_BEARER_TOKEN`; the official image `ghcr.io/radoxtech/deepseek-search-everywhere-mcp` supports this. The HTTP transport is stateless, single-process and plain HTTP, so put TLS in front of it when exposing it beyond loopback.
+
+### Is this an official DeepSeek project?
+
+No. It is an independent, community-maintained MCP server that calls the public DeepSeek Search & Fetch API and the `deepseek-flash` chat model with your own API key.
 
 ## Limitations
 
-- Direct page fetch does not render raw binary files (such as PDFs) natively; `deepseek_fetch`
-  automatically falls back to search index retrieval when direct fetch is unavailable on documents.
-- Fetch returns only title and content: no final URL, status code or publication date.
-- Fetch latency is DeepSeek's page render, not this server: an already rendered page returns in about 0.5 s,
-  others take 3-10 s, and a missing page (HTTP 404) still takes 3-5 s before DeepSeek reports it. A 404 is
-  not retried. `deepseek_fetch_many` runs up to 5 fetches at once, so a batch takes about as long as its
-  slowest page; plan for that with larger batches.
-- Search and fetch only. No site mapping or crawling, no asynchronous jobs, a single provider (DeepSeek).
-- The cache and rate limiter are per process; running several server processes multiplies the effective rate.
+- Fetch latency is DeepSeek's page render: an already rendered page returns in about 0.5 s, others take 3-10 s, and a missing page still takes 3-5 s before DeepSeek reports it.
+- Direct fetch does not render raw binary files such as PDFs natively; see the PDF fallback above.
+- Fetch returns title and content only: no final URL, status code or publication date.
+- Search and fetch only: no site mapping or crawling, and a single provider (DeepSeek). Native MCP Tasks are not used; long research uses `deepseek_check_research`.
+- The cache, rate limiter and research job store are per process; several server processes multiply the effective rate.
 - Local rate limits are conservative defaults and do not replace DeepSeek's own quotas.
-- The HTTP transport is plain HTTP, stateless and JSON-only; there are no OAuth and no SSE streams.
+- The HTTP transport is plain HTTP, stateless and JSON-only; there is no OAuth and no SSE stream.
 
 ## Development
 
@@ -553,97 +612,15 @@ cd deepseek-search-everywhere-mcp
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[test,lint,http]" build twine
 
-pytest -q                     # offline suite; no network, no key needed
-ruff check .                  # lint
-python -m build               # sdist + wheel in dist/
-python -m twine check dist/*  # validate package metadata
+pytest -q                       # offline suite; no network and no key needed
+ruff check . && ruff format --check .
+python -m build && twine check dist/*
+python scripts/validate_server_json.py
 ```
 
-The offline tests clear `DEEPSEEK_*` variables and point the key fallback at a nonexistent file, so they cannot
-reach the network. CI runs lint, tests and build on Python 3.11, 3.12 and 3.13.
+Live tests (`pytest -m live`, plus the `live_llm` and `live_e2e` suites) call the real API with your own key and are opt-in. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and commit conventions and [AGENTS.md](AGENTS.md) for the code layout and project invariants. Releases are automated with [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), and `server.json` is published to the [MCP Registry](https://modelcontextprotocol.io/registry) by the release workflow; the `mcp-name` comment near the top of this file is used by the registry to verify package ownership.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow and commit conventions.
-
-### Live tests
-
-The live suite calls the real DeepSeek API end to end and uses `deepseek-flash` as an LLM judge to grade whether
-results are relevant and answer the question. It is excluded from the default run, skips itself without a key,
-and a full run costs a few cents at most (it also makes `deepseek-flash` judge calls).
-
-```bash
-cp .env.example .env          # then put your key in DEEPSEEK_API_KEY=
-set -a && . ./.env && set +a  # export the variables; tests do not read .env themselves
-pytest -m live
-```
-
-Judge scores and reasons are printed after the run. `.env` is git-ignored; never commit it.
-
-### Releasing
-
-Versions follow [Semantic Versioning](https://semver.org/) and are automated with
-[release-please](https://github.com/googleapis/release-please) from
-[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Everything runs in
-`.github/workflows/release.yml`:
-
-1. Every push to `main` runs release-please. It opens (or updates) a release PR that bumps the version in
-   `pyproject.toml`, `server.json` and `.release-please-manifest.json` and prepends a section to `CHANGELOG.md`.
-   Standard Semantic Versioning applies: `fix` bumps the patch version, `feat` bumps the minor, and
-   breaking changes (`feat!:`) bump the major version; `feat`, `fix`, `perf`, `refactor`, `docs` and `deps`
-   appear in the changelog.
-2. Merging the release PR makes release-please tag `vX.Y.Z` and create the GitHub Release.
-3. The same workflow run then builds the tagged commit, checks that the tag equals the versions in
-   `pyproject.toml` and `server.json`, runs `twine check` and a clean-wheel smoke test, publishes to PyPI through
-   [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no tokens), attaches the artifacts to
-   the GitHub Release and updates the MCP Registry.
-
-Publishing happens in the same workflow because tags and PRs created with `GITHUB_TOKEN` do not trigger other
-workflows.
-
-Manual fallback: bump the version in `pyproject.toml`, `server.json` and `.release-please-manifest.json`
-(`tests/test_version_sync.py` checks the first two agree), update `CHANGELOG.md`, commit, and push a tag. The
-workflow then publishes and creates the GitHub Release itself.
-
-```bash
-git tag -a v2.0.0 -m "v2.0.0" && git push origin v2.0.0
-bash scripts/smoke_package.sh   # optional local check: build, install into a clean venv, run the CLI
-```
-
-Running the workflow manually (`workflow_dispatch`) builds and verifies the package and publishes to TestPyPI
-only.
-
-One-time repository setup:
-
-- Settings, Actions, General: enable "Allow GitHub Actions to create and approve pull requests" so
-  release-please can open its PR.
-- Settings, Environments: create a `pypi` environment (and `testpypi` for manual runs); adding required
-  reviewers there gates every PyPI publish.
-- On PyPI (and TestPyPI), add a trusted publisher for this repository with workflow `release.yml` and
-  environment `pypi` (`testpypi` on TestPyPI).
-
-### Publishing to the MCP Registry manually
-
-`server.json` describes the PyPI package for the [MCP Registry](https://modelcontextprotocol.io/registry). The
-README carries an `mcp-name` comment that the registry uses to verify package ownership. The release workflow
-does this automatically; to publish by hand:
-
-```bash
-python scripts/validate_server_json.py   # structural checks; also runs `mcp-publisher validate` if installed
-mcp-publisher login github               # the io.github.radoxtech namespace requires GitHub authentication
-mcp-publisher publish
-```
-
-Publish to PyPI first: the registry checks that the package version exists. release-please keeps `pyproject.toml`
-and `server.json` in step; `tests/test_version_sync.py` fails when they drift apart.
-
-## Support the Project
-
-⭐ **If you find this MCP server valuable, please star this repository on [GitHub](https://github.com/radoxtech/deepseek-search-everywhere-mcp)!** 
-
-Starring takes 2 seconds and helps other developers and autonomous agents discover the project. It also signals to AI directory maintainers that this is an actively maintained, community-backed project.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
