@@ -1727,6 +1727,16 @@ async def deepseek_fetch(
     rejection = _check_fetch_url(url)
     if rejection is not None:
         return rejection
+    selectors = [
+        section is not None,
+        query is not None,
+        offset is not None or limit is not None,
+        find_text is not None,
+    ]
+    if sum(bool(s) for s in selectors) > 1:
+        return _fail(
+            "bad_request", "Selectors section, query, offset/limit, and find_text are mutually exclusive."
+        )
     return await _fetch(
         url,
         clean,
@@ -1892,6 +1902,16 @@ async def _fetch(
 
     Returns the ``deepseek_fetch`` envelope, or an error envelope from upstream or the limiter.
     """
+    selectors = [
+        section is not None,
+        query is not None,
+        offset is not None or limit is not None,
+        find_text is not None,
+    ]
+    if sum(bool(s) for s in selectors) > 1:
+        return _fail(
+            "bad_request", "Selectors section, query, offset/limit, and find_text are mutually exclusive."
+        )
     if offset is not None and offset < 0:
         return _fail("bad_request", "offset must be at least 0.")
     if limit is not None and limit <= 0:
