@@ -14,6 +14,7 @@ TOOL_NAMES = {
     "deepseek_fetch",
     "deepseek_fetch_many",
     "deepseek_research",
+    "deepseek_check_research",
     "deepseek_extract",
     "deepseek_extract_many",
     "deepseek_check_balance",
@@ -183,7 +184,7 @@ def test_tool_annotations_are_truthful() -> None:
         assert ann.readOnlyHint is True
         assert ann.destructiveHint is False
         assert ann.idempotentHint is True
-        if name == "deepseek_check_balance":
+        if name in ("deepseek_check_balance", "deepseek_check_research"):
             assert ann.openWorldHint is False
         else:
             assert ann.openWorldHint is True

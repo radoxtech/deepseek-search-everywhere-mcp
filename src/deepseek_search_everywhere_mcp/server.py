@@ -2639,6 +2639,75 @@ async def deepseek_research(
     }
 
 
+async def deepseek_check_research(
+    job_id: Annotated[
+        str,
+        Field(description="Unique UUID identifier of the research job to poll (from deepseek_research)"),
+    ],
+) -> dict[str, Any]:
+    """Poll a long-running research job until completion or timeout.
+
+    Long-polls an active background research task up to the inline wait limit (45s).
+    Returns the completed synthesis report when done, updated progress while running,
+    or a job_not_found error if expired or missing.
+
+    When NOT to use: Do not use to start a new research investigation (use deepseek_research).
+    Do not restart research when status is running; continue polling with this tool.
+
+    Returns: {"ok": True, "status": "done"|"running", "job_id": str, ...}.
+    """
+    clean_id = job_id.strip() if isinstance(job_id, str) else ""
+    if not clean_id:
+        return _fail("bad_request", "job_id must not be empty.")
+
+    settings = get_settings()
+    store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
+    store.prune_expired(_clock())
+
+    job = store.get(clean_id)
+    if job is None:
+        return _fail(
+            "job_not_found",
+            "Research job not found or expired. Restart the research with deepseek_research.",
+        )
+
+    if job.task is not None and job.task.done():
+        if job.exception is not None:
+            return _fail("internal_error", f"Research job failed: {job.exception}")
+        res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+        if res.get("ok"):
+            res["status"] = "done"
+            res["delivery"] = "polled"
+        return res
+
+    inline_wait = settings.research_inline_wait
+    assert job.task is not None
+    try:
+        done, _ = await asyncio.wait([job.task], timeout=inline_wait)
+    except asyncio.CancelledError:
+        raise
+
+    if job.task in done:
+        if job.exception is not None:
+            return _fail("internal_error", f"Research job failed: {job.exception}")
+        res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+        if res.get("ok"):
+            res["status"] = "done"
+            res["delivery"] = "polled"
+        return res
+
+    elapsed_ms = int((_clock() - job.created_at) * 1000)
+    return {
+        "ok": True,
+        "status": "running",
+        "job_id": job.job_id,
+        "depth": job.depth,
+        "elapsed_ms": elapsed_ms,
+        "progress": job.progress,
+        "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
+    }
+
+
 async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
     try:
         res = await _execute_research_pipeline(job=job, **kwargs)
@@ -3370,6 +3439,7 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_fetch,
     deepseek_fetch_many,
     deepseek_research,
+    deepseek_check_research,
     deepseek_extract,
     deepseek_extract_many,
     deepseek_check_balance,
@@ -3390,6 +3460,9 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     ),
     "deepseek_research": ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    ),
+    "deepseek_check_research": ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
     ),
     "deepseek_extract": ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True

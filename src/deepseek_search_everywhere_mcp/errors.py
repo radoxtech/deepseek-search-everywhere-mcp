@@ -56,6 +56,7 @@ CLOSED_ERROR_CODES: frozenset[str] = frozenset(
         "empty_page",
         "extraction_failed",
         "extraction_truncated",
+        "job_not_found",
     }
 )
 

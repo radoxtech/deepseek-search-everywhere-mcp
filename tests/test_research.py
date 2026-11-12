@@ -281,3 +281,78 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
     res4 = await server.deepseek_research("topic 4", depth="low")
     assert res4["ok"] is False
     assert res4["error"]["code"] == "rate_limited_local"
+
+
+async def test_check_research_long_poll_returns_polled_done(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+
+    class SlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                await asyncio.sleep(0.08)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(SlowUpstream())
+
+    running_env = await server.deepseek_research("check poll topic", depth="low")
+    assert running_env["status"] == "running"
+    job_id = running_env["job_id"]
+
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.20))
+    polled_env = await server.deepseek_check_research(job_id)
+    assert polled_env["ok"] is True
+    assert polled_env["status"] == "done"
+    assert polled_env["delivery"] == "polled"
+    assert polled_env["topic"] == "check poll topic"
+
+
+async def test_check_research_returns_running_when_still_not_done(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.02))
+
+    class VerySlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                await asyncio.sleep(0.20)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(VerySlowUpstream())
+
+    running1 = await server.deepseek_research("still running topic", depth="low")
+    assert running1["status"] == "running"
+    job_id = running1["job_id"]
+
+    running2 = await server.deepseek_check_research(job_id)
+    assert running2["ok"] is True
+    assert running2["status"] == "running"
+    assert running2["job_id"] == job_id
+    assert "Call deepseek_check_research" in running2["next_action"]
+
+
+async def test_check_research_unknown_or_expired_job_id() -> None:
+    res = await server.deepseek_check_research("non-existent-uuid")
+    assert res["ok"] is False
+    assert res["error"]["code"] == "job_not_found"
+    assert "deepseek_research" in res["error"]["message"]
+
+    res_empty = await server.deepseek_check_research("   ")
+    assert res_empty["ok"] is False
+    assert res_empty["error"]["code"] == "bad_request"
+
+
+async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_upstream(DeepResearchUpstream())
+    res = await server.deepseek_research("ttl topic", depth="low")
+    assert res["status"] == "done"
+
+    store = get_job_store()
+    job = list(store._jobs.values())[0]
+    job_id = job.job_id
+
+    monkeypatch.setattr(server, "_clock", lambda: job.completed_at + 1801.0)
+    check_res = await server.deepseek_check_research(job_id)
+    assert check_res["ok"] is False
+    assert check_res["error"]["code"] == "job_not_found"
