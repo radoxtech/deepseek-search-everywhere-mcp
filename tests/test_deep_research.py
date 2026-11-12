@@ -199,3 +199,64 @@ def test_rank_dedupes_urls_that_differ_only_by_fragment_or_challenge_params() ->
     ]
     selected, _ = rank_and_diversify_sources(results, k_sources=5)
     assert [i["url"] for i in selected] == ["https://dl.example/x.pdf#1#1", "https://other.example/y"]
+
+
+def test_rank_prefers_higher_authority_within_each_round_then_rerank_score():
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    results = [
+        [
+            {"url": "https://a1.example/1", "title": "A1", "authority": 0.2, "rerank_score": 0.9},
+            {"url": "https://a2.example/1", "title": "A2", "authority": 0.9, "rerank_score": 0.1},
+        ],
+        [
+            {"url": "https://b1.example/1", "title": "B1", "authority": 0.8, "rerank_score": 0.1},
+            {"url": "https://b2.example/1", "title": "B2", "authority": 0.9, "rerank_score": 0.5},
+        ],
+        [
+            {"url": "https://c1.example/1", "title": "C1", "authority": 0.8, "rerank_score": 0.7},
+            {"url": "https://c2.example/1", "title": "C2"},
+        ],
+    ]
+    selected, _ = rank_and_diversify_sources(results, k_sources=6)
+    # Round 1: B1 and C1 tie on authority 0.8 (C1 wins on rerank), A1 trails; round 2: B2/A2 tie 0.9.
+    assert [s["title"] for s in selected] == ["C1", "B1", "A1", "B2", "A2", "C2"]
+
+
+def test_rank_without_authority_keeps_round_robin_order():
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    results = [
+        [{"url": "https://a.example/1", "title": "A1"}, {"url": "https://a.example/2", "title": "A2"}],
+        [{"url": "https://b.example/1", "title": "B1"}],
+    ]
+    selected, _ = rank_and_diversify_sources(results, k_sources=3)
+    assert [s["title"] for s in selected] == ["A1", "B1", "A2"]
+
+
+def test_rank_drops_denylisted_hosts_with_note():
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+    from deepseek_search_everywhere_mcp.settings import DEFAULT_SOURCE_DENYLIST
+
+    results = [
+        [
+            {"url": "https://feedly.com/i/entry/1", "title": "feedly"},
+            {"url": "https://www.hn.nuxt.dev/item", "title": "hn"},
+            {"url": "https://sub.docketalarm.com/x", "title": "docket"},
+            {"url": "https://lib.ezproxy.uni.edu/login?url=x", "title": "ezproxy"},
+            {"url": "https://notfeedly.com/p", "title": "keep1"},
+            {"url": "https://good.example/p", "title": "keep2"},
+        ]
+    ]
+    selected, notes = rank_and_diversify_sources(results, k_sources=10, denylist=DEFAULT_SOURCE_DENYLIST)
+    assert [s["title"] for s in selected] == ["keep1", "keep2"]
+    assert any("4" in n and "denylist" in n.lower() for n in notes)
+
+
+def test_rank_denylist_configurable_to_empty():
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    results = [[{"url": "https://feedly.com/i/1", "title": "feedly"}]]
+    selected, notes = rank_and_diversify_sources(results, k_sources=3, denylist=())
+    assert [s["title"] for s in selected] == ["feedly"]
+    assert notes == []

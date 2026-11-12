@@ -21,6 +21,11 @@ ENV_DAILY_BUDGET = "DEEPSEEK_DAILY_BUDGET_USD"
 ENV_FETCH_ALLOW_DOMAINS = "DEEPSEEK_FETCH_ALLOW_DOMAINS"
 ENV_FETCH_DENY_DOMAINS = "DEEPSEEK_FETCH_DENY_DOMAINS"
 ENV_EGRESS_ENTROPY_CHECK = "DEEPSEEK_EGRESS_ENTROPY_CHECK"
+ENV_SOURCE_DENYLIST = "DEEPSEEK_SOURCE_DENYLIST"
+
+# Research never uses these hosts as sources (aggregators, mirrors, library proxies). An entry matches
+# the host itself and its subdomains; an entry containing "*" is a glob matched against the whole host.
+DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ("feedly.com", "hn.nuxt.dev", "docketalarm.com", "*.ezproxy.*")
 
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"
@@ -127,6 +132,9 @@ class Settings:
     fetch_deny_domains: tuple[str, ...] | None = None
     egress_entropy_check: bool = False
 
+    # Research source denylist (empty tuple disables it).
+    source_denylist: tuple[str, ...] = DEFAULT_SOURCE_DENYLIST
+
     def __post_init__(self) -> None:
         for field in fields(self):
             value = getattr(self, field.name)
@@ -179,6 +187,12 @@ class Settings:
                 if not isinstance(d, str) or not d.strip() or "/" in d or ":" in d:
                     raise ValueError(f"fetch_deny_domains must contain valid domain names, got {d!r}")
 
+        if not isinstance(self.source_denylist, tuple):
+            object.__setattr__(self, "source_denylist", tuple(self.source_denylist))
+        for d in self.source_denylist:
+            if not isinstance(d, str) or not d.strip() or "/" in d or ":" in d:
+                raise ValueError(f"source_denylist must contain valid host names or globs, got {d!r}")
+
     @classmethod
     def from_env(cls) -> Settings:
         """Build settings from defaults plus ``DEEPSEEK_MCP_CACHE`` and ``DEEPSEEK_MCP_LOG_LEVEL``."""
@@ -211,6 +225,14 @@ class Settings:
         entropy = os.environ.get(ENV_EGRESS_ENTROPY_CHECK, "").strip().lower()
         if entropy:
             overrides["egress_entropy_check"] = entropy in {"1", "true", "yes"}
+        denylist = os.environ.get(ENV_SOURCE_DENYLIST, "").strip()
+        if denylist:
+            if denylist.lower() == "none":
+                overrides["source_denylist"] = ()
+            else:
+                overrides["source_denylist"] = tuple(
+                    d.strip().lower() for d in denylist.split(",") if d.strip()
+                )
         return cls(**overrides)
 
 

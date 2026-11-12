@@ -1645,3 +1645,23 @@ async def test_research_sources_have_clean_urls_titles_and_dates(fake_upstream: 
     titles = {s["title"] for s in by_id.values()}
     assert titles == {"dl.acm.org", "Refinement based safety proofs"}
     assert {s["date"] for s in by_id.values()} == {"2026-02-03", "2026-01-10"}
+
+
+async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_denylist(
+    fake_upstream: Any,
+) -> None:
+    from deepseek_search_everywhere_mcp.settings import Settings, set_settings
+
+    results = [
+        {"title": "Feed", "url": "https://feedly.com/i/entry/1", "content": "Feed aggregator text. " * 20},
+        {"title": "Real", "url": "https://physics.org/qec", "content": "Surface codes text. " * 20},
+    ]
+    fake_upstream(DeepResearchUpstream(search_results=results))
+    res = await server.deepseek_research("denylist topic", depth="low")
+    assert [s["url"] for s in res["sources"]] == ["https://physics.org/qec"]
+    assert any("denylist" in n.lower() for n in res["notes"])
+
+    set_settings(Settings(source_denylist=()))
+    fake_upstream(DeepResearchUpstream(search_results=results))
+    res = await server.deepseek_research("denylist topic two", depth="low")
+    assert {s["url"] for s in res["sources"]} == {"https://feedly.com/i/entry/1", "https://physics.org/qec"}

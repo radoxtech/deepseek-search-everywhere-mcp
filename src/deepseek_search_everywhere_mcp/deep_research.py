@@ -7,7 +7,9 @@ budgets merged retrieval contexts, and generates factual briefings with [n] cita
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import urlparse, urlsplit, urlunsplit
@@ -401,24 +403,63 @@ def validate_r2_queries(
     return valid_queries
 
 
+def _denylisted(url: str, denylist: Sequence[str]) -> bool:
+    host = _url_host(url)
+    if not host:
+        return False
+    for entry in denylist:
+        pattern = entry.strip().lower().removeprefix("www.")
+        if not pattern:
+            continue
+        if "*" in pattern:
+            if fnmatch.fnmatchcase(host, pattern):
+                return True
+        elif host == pattern or host.endswith(f".{pattern}"):
+            return True
+    return False
+
+
+def _authority_key(item: dict[str, Any]) -> tuple[float, float]:
+    """Sort key (descending): upstream authority first, rerank score as tie-break; unknown ranks last."""
+    authority = item.get("authority")
+    rerank = item.get("rerank_score")
+    return (
+        float(authority) if isinstance(authority, int | float) else -1.0,
+        float(rerank) if isinstance(rerank, int | float) else -1.0,
+    )
+
+
 def rank_and_diversify_sources(
     subquery_results: list[list[dict[str, Any]]],
     k_sources: int,
+    denylist: Sequence[str] = (),
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Round-robin interleave across subqueries, deduplicate canonically, cap per eTLD+1, take top K.
 
-    1. Interleave results round-robin across subqueries.
-    2. Deduplicate canonically (http and https schemes are considered equal).
+    0. Drop results whose host matches ``denylist`` (aggregators and proxies; note added).
+    1. Interleave results round-robin across subqueries; within each round the higher upstream
+       ``authority`` comes first (tie-break ``rerank_score``, then subquery order).
+    2. Deduplicate canonically (http and https schemes are considered equal; fragments and
+       challenge/tracking parameters are ignored).
     3. Apply domain cap of at most 2 sources per eTLD+1.
     4. If the capped pool has fewer than ``k_sources`` and overflow exists, relax the domain cap
        to meet the target source count and add a note.
     """
+    denied = 0
+    if denylist:
+        filtered: list[list[dict[str, Any]]] = []
+        for r in subquery_results:
+            kept = [it for it in r if not _denylisted(clean_source_url(it.get("url") or ""), denylist)]
+            denied += len(r) - len(kept)
+            filtered.append(kept)
+        subquery_results = filtered
+
     max_len = max((len(r) for r in subquery_results), default=0)
     interleaved: list[dict[str, Any]] = []
     for i in range(max_len):
-        for r in subquery_results:
-            if i < len(r):
-                interleaved.append(r[i])
+        round_items = [r[i] for r in subquery_results if i < len(r)]
+        round_items.sort(key=_authority_key, reverse=True)
+        interleaved.extend(round_items)
 
     deduped: list[dict[str, Any]] = []
     seen_canons: set[str] = set()
@@ -452,6 +493,8 @@ def rank_and_diversify_sources(
         if overflow and needed > 0:
             selected.extend(overflow[:needed])
             notes.append("Relaxed domain cap to meet target source count.")
+    if denied:
+        notes.append(f"Skipped {denied} result(s) from denylisted source hosts (aggregators and proxies).")
 
     return selected, notes
 

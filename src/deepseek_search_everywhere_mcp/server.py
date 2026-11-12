@@ -2977,7 +2977,9 @@ async def _execute_research_pipeline(
                 r2_notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
 
     # Step 3: Round-robin interleave across subqueries, dedupe, domain cap, top K
-    selected_items, rank_notes = rank_and_diversify_sources(subquery_result_lists, k_sources=cfg.k_sources)
+    selected_items, rank_notes = rank_and_diversify_sources(
+        subquery_result_lists, k_sources=cfg.k_sources, denylist=get_settings().source_denylist
+    )
     sources = [
         _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected_items, 1)
     ]
