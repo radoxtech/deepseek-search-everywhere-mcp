@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * *"
 
 permissions:
   contents: read
@@ -68,24 +71,42 @@ jobs:
 
   live-tests:
     name: Live LLM tests
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
     steps:
       - uses: actions/checkout@v5
 
+      - name: Check for API key
+        id: key
+        run: |
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::DEEPSEEK_API_KEY is not available; skipping live tests."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-python@v6
+        if: steps.key.outputs.present == 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
 
       - name: Install
+        if: steps.key.outputs.present == 'true'
         run: python -m pip install -e ".[test]"
 
-      - name: Run live LLM judge tests
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      - name: Run live tests
+        if: steps.key.outputs.present == 'true'
         run: pytest -q -m live
+
+      - name: Run live LLM judge tests
+        if: steps.key.outputs.present == 'true'
+        run: pytest -q -m live_llm
 
       - name: Upload live test report
         if: always()
@@ -95,3 +116,45 @@ jobs:
           path: build/live-report.json
           if-no-files-found: ignore
 
+  live-e2e:
+    name: Live end-to-end tests
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check for API key
+        id: key
+        run: |
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::DEEPSEEK_API_KEY is not available; skipping live e2e tests."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.key.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        if: steps.key.outputs.present == 'true'
+        run: python -m pip install -e ".[test]"
+
+      - name: Run live e2e tests
+        if: steps.key.outputs.present == 'true'
+        run: pytest -q -s -m live_e2e
+
+      - name: Upload live e2e report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-e2e-report
+          path: build/live-report.json
+          if-no-files-found: ignore
