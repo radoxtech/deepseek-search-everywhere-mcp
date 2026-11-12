@@ -178,3 +178,15 @@ def test_tool_annotations_are_truthful() -> None:
             assert ann.openWorldHint is False
         else:
             assert ann.openWorldHint is True
+
+
+def test_every_tool_input_schema_property_has_description() -> None:
+    tools = asyncio.run(server.mcp.list_tools())
+    for tool in tools:
+        props = tool.inputSchema.get("properties", {})
+        for prop_name, prop in props.items():
+            desc = prop.get("description")
+            assert desc, f"Tool '{tool.name}' property '{prop_name}' is missing description."
+            assert len(desc) <= 120, (
+                f"Tool '{tool.name}' property '{prop_name}' description exceeds 120 chars: {len(desc)}"
+            )

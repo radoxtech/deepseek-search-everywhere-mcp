@@ -23,10 +23,11 @@ import urllib.parse
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Literal, ParamSpec
+from typing import Annotated, Any, Literal, ParamSpec
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from ._version import __version__
 from .boilerplate import remove_boilerplate
@@ -1390,25 +1391,76 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
 
 @_timed
 async def deepseek_search(
-    query: str,
+    query: Annotated[
+        str,
+        Field(description="Search terms or question; operators like site: or lang: supported (<= 128 chars)"),
+    ],
     *,
-    count: int = 5,
-    content: Literal["snippets", "full"] = "snippets",
-    lang: str | None = None,
-    max_chars_per_result: int = 4000,
-    max_total_chars: int = 30000,
-    dedupe: bool = True,
-    rewrite: bool = False,
-    localization: str | None = None,
-    exclude_terms: list[str] | None = None,
-    exact_phrases: list[str] | None = None,
-    after: str | None = None,
-    before: str | None = None,
-    include_domains: list[str] | None = None,
-    exclude_domains: list[str] | None = None,
-    refresh: bool = False,
-    summary_chars: int | None = None,
-    strip_boilerplate: bool = True,
+    count: Annotated[int, Field(description="Number of ranked results to return (1-20, default 5)")] = 5,
+    content: Annotated[
+        Literal["snippets", "full"],
+        Field(description="Result format: 'snippets' (default, 400 chars) or 'full' (gap-filled page text)"),
+    ] = "snippets",
+    lang: Annotated[
+        str | None,
+        Field(description="Restrict results to ISO language code like 'en', 'de', 'pl' (default None)"),
+    ] = None,
+    max_chars_per_result: Annotated[
+        int,
+        Field(description="Max characters of page text per result with content='full' (default 4000)"),
+    ] = 4000,
+    max_total_chars: Annotated[
+        int,
+        Field(description="Max total characters of page text across results (default 30000)"),
+    ] = 30000,
+    dedupe: Annotated[
+        bool,
+        Field(description="Remove duplicate URLs across result list (default True)"),
+    ] = True,
+    rewrite: Annotated[
+        bool,
+        Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
+    ] = False,
+    localization: Annotated[
+        str | None,
+        Field(description="Optional country code or client IP for regional search bias (default None)"),
+    ] = None,
+    exclude_terms: Annotated[
+        list[str] | None,
+        Field(description="Terms that must not appear in search results (default None)"),
+    ] = None,
+    exact_phrases: Annotated[
+        list[str] | None,
+        Field(description="Phrases that must appear verbatim in search results (default None)"),
+    ] = None,
+    after: Annotated[
+        str | None,
+        Field(description="Filter results published on or after YYYY-MM-DD date (default None)"),
+    ] = None,
+    before: Annotated[
+        str | None,
+        Field(description="Filter results published on or before YYYY-MM-DD date (default None)"),
+    ] = None,
+    include_domains: Annotated[
+        list[str] | None,
+        Field(description="Restrict search to specific domains or sites (default None)"),
+    ] = None,
+    exclude_domains: Annotated[
+        list[str] | None,
+        Field(description="Exclude specific domains from search results (default None)"),
+    ] = None,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and fetch fresh results from API (default False)"),
+    ] = False,
+    summary_chars: Annotated[
+        int | None,
+        Field(description="Max summary characters per snippet; 0 omits summary (default 400)"),
+    ] = None,
+    strip_boilerplate: Annotated[
+        bool,
+        Field(description="Remove cookie banners, headers and site UI boilerplate (default True)"),
+    ] = True,
 ) -> dict[str, Any]:
     """Search the web with DeepSeek index and return ranked results, snippets, and page text.
 
@@ -1461,26 +1513,80 @@ async def deepseek_search(
 
 @_timed
 async def deepseek_search_many(
-    queries: list[str],
+    queries: Annotated[
+        list[str],
+        Field(description="Search queries to execute concurrently (max 10 queries, each <= 128 chars)"),
+    ],
     *,
-    count: int = 5,
-    content: Literal["snippets", "full"] = "snippets",
-    lang: str | None = None,
-    max_chars_per_result: int = 4000,
-    max_total_chars: int = 30000,
-    dedupe: bool = True,
-    rewrite: bool = False,
-    localization: str | None = None,
-    exclude_terms: list[str] | None = None,
-    exact_phrases: list[str] | None = None,
-    after: str | None = None,
-    before: str | None = None,
-    include_domains: list[str] | None = None,
-    exclude_domains: list[str] | None = None,
-    refresh: bool = False,
-    summary_chars: int | None = None,
-    strip_boilerplate: bool = True,
-    deadline: float | None = None,
+    count: Annotated[int, Field(description="Number of ranked results to return (1-20, default 5)")] = 5,
+    content: Annotated[
+        Literal["snippets", "full"],
+        Field(description="Result format: 'snippets' (default, 400 chars) or 'full' (gap-filled page text)"),
+    ] = "snippets",
+    lang: Annotated[
+        str | None,
+        Field(description="Restrict results to ISO language code like 'en', 'de', 'pl' (default None)"),
+    ] = None,
+    max_chars_per_result: Annotated[
+        int,
+        Field(description="Max characters of page text per result with content='full' (default 4000)"),
+    ] = 4000,
+    max_total_chars: Annotated[
+        int,
+        Field(description="Max total characters of page text across results (default 30000)"),
+    ] = 30000,
+    dedupe: Annotated[
+        bool,
+        Field(description="Remove duplicate URLs across result list (default True)"),
+    ] = True,
+    rewrite: Annotated[
+        bool,
+        Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
+    ] = False,
+    localization: Annotated[
+        str | None,
+        Field(description="Optional country code or client IP for regional search bias (default None)"),
+    ] = None,
+    exclude_terms: Annotated[
+        list[str] | None,
+        Field(description="Terms that must not appear in search results (default None)"),
+    ] = None,
+    exact_phrases: Annotated[
+        list[str] | None,
+        Field(description="Phrases that must appear verbatim in search results (default None)"),
+    ] = None,
+    after: Annotated[
+        str | None,
+        Field(description="Filter results published on or after YYYY-MM-DD date (default None)"),
+    ] = None,
+    before: Annotated[
+        str | None,
+        Field(description="Filter results published on or before YYYY-MM-DD date (default None)"),
+    ] = None,
+    include_domains: Annotated[
+        list[str] | None,
+        Field(description="Restrict search to specific domains or sites (default None)"),
+    ] = None,
+    exclude_domains: Annotated[
+        list[str] | None,
+        Field(description="Exclude specific domains from search results (default None)"),
+    ] = None,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and fetch fresh results from API (default False)"),
+    ] = False,
+    summary_chars: Annotated[
+        int | None,
+        Field(description="Max summary characters per snippet; 0 omits summary (default 400)"),
+    ] = None,
+    strip_boilerplate: Annotated[
+        bool,
+        Field(description="Remove cookie banners, headers and site UI boilerplate (default True)"),
+    ] = True,
+    deadline: Annotated[
+        float | None,
+        Field(description="Overall timeout deadline in seconds; completed results returned if reached"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search the web with multiple queries concurrently and return ranked results per query.
 
@@ -1665,19 +1771,55 @@ def _check_fetch_url(url: str) -> dict[str, Any] | None:
 
 @_timed
 async def deepseek_fetch(
-    url: str,
+    url: Annotated[
+        str,
+        Field(description="HTTP or HTTPS URL to fetch (must be public, no private IP/intranet)"),
+    ],
     *,
-    clean: bool = True,
-    max_chars: int = 20000,
-    offset: int | None = None,
-    limit: int | None = None,
-    find_text: str | None = None,
-    query: str | None = None,
-    section: int | None = None,
-    max_snippets: int = 3,
-    refresh: bool = False,
-    strip_boilerplate: bool = True,
-    fallback_to_search: bool = True,
+    clean: Annotated[
+        bool,
+        Field(description="Clean HTML into structured markdown text (default True)"),
+    ] = True,
+    max_chars: Annotated[
+        int,
+        Field(description="Max characters of page text to return (default 20000)"),
+    ] = 20000,
+    offset: Annotated[
+        int | None,
+        Field(description="Character offset to start reading from (mutually exclusive with selectors)"),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Field(description="Max characters to return from offset (mutually exclusive with selectors)"),
+    ] = None,
+    find_text: Annotated[
+        str | None,
+        Field(description="Locate text snippet and return surrounding context (mutually exclusive)"),
+    ] = None,
+    query: Annotated[
+        str | None,
+        Field(description="Search page content for query terms and extract best matching snippets"),
+    ] = None,
+    section: Annotated[
+        int | None,
+        Field(description="1-based section number to extract from document (mutually exclusive)"),
+    ] = None,
+    max_snippets: Annotated[
+        int,
+        Field(description="Max snippets to return when using query selector (1-10, default 3)"),
+    ] = 3,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and fetch fresh page from upstream (default False)"),
+    ] = False,
+    strip_boilerplate: Annotated[
+        bool,
+        Field(description="Remove cookie banners, navigation and site UI boilerplate (default True)"),
+    ] = True,
+    fallback_to_search: Annotated[
+        bool,
+        Field(description="On 404, fall back to searching exact URL in index (default True)"),
+    ] = True,
 ) -> dict[str, Any]:
     """Fetch one known URL and return its title and Markdown content.
 
@@ -2241,16 +2383,43 @@ def _assemble_batch(
 
 @_timed
 async def deepseek_fetch_many(
-    urls: list[str],
+    urls: Annotated[
+        list[str],
+        Field(description="List of HTTP/HTTPS URLs to fetch in parallel (max 10 URLs)"),
+    ],
     *,
-    max_chars_per_url: int = 4000,
-    max_total_chars: int = 20000,
-    clean: bool = True,
-    query: str | None = None,
-    refresh: bool = False,
-    strip_boilerplate: bool = True,
-    deadline: float | None = None,
-    fallback_to_search: bool = True,
+    max_chars_per_url: Annotated[
+        int,
+        Field(description="Max characters of page text returned per URL (default 4000)"),
+    ] = 4000,
+    max_total_chars: Annotated[
+        int,
+        Field(description="Max total characters across all fetched URLs (default 20000)"),
+    ] = 20000,
+    clean: Annotated[
+        bool,
+        Field(description="Clean HTML into structured markdown text (default True)"),
+    ] = True,
+    query: Annotated[
+        str | None,
+        Field(description="Optional query to extract relevant snippets from each page (default None)"),
+    ] = None,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and fetch fresh pages from upstream (default False)"),
+    ] = False,
+    strip_boilerplate: Annotated[
+        bool,
+        Field(description="Remove cookie banners and site UI boilerplate from content (default True)"),
+    ] = True,
+    deadline: Annotated[
+        float | None,
+        Field(description="Overall timeout deadline in seconds; partial results returned on expiry"),
+    ] = None,
+    fallback_to_search: Annotated[
+        bool,
+        Field(description="On 404, fall back to searching exact URL in index (default True)"),
+    ] = True,
 ) -> dict[str, Any]:
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
@@ -2402,12 +2571,27 @@ _DEPTH_TIERS: dict[str, tuple[int, int]] = {
 
 @_timed
 async def deepseek_research(
-    topic: str,
+    topic: Annotated[
+        str,
+        Field(description="Complex research topic or question to investigate (non-empty, max 500 chars)"),
+    ],
     *,
-    depth: Literal["low", "medium", "high", "max"] = "medium",
-    lang: str | None = None,
-    refresh: bool = False,
-    strip_boilerplate: bool = True,
+    depth: Annotated[
+        Literal["low", "medium", "high", "max"],
+        Field(description="Depth tier controlling queries, sources and reasoning (default 'medium')"),
+    ] = "medium",
+    lang: Annotated[
+        str | None,
+        Field(description="Two-letter ISO language code to restrict search sources to (default None)"),
+    ] = None,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and perform fresh research pipeline (default False)"),
+    ] = False,
+    strip_boilerplate: Annotated[
+        bool,
+        Field(description="Remove boilerplate from fetched source pages before synthesis (default True)"),
+    ] = True,
 ) -> dict[str, Any]:
     """Execute multi-angle research on a topic and generate a cited briefing report.
 
@@ -2825,15 +3009,39 @@ async def _extract_page(
 
 @_timed
 async def deepseek_extract(
-    url: str,
+    url: Annotated[
+        str,
+        Field(description="HTTP/HTTPS URL of the page from which to extract structured data"),
+    ],
     *,
-    fields: list[str] | None = None,
-    schema: dict[str, Any] | None = None,
-    instruction: str | None = None,
-    clean: bool = True,
-    max_chars: int = 40000,
-    refresh: bool = False,
-    strip_boilerplate: bool = True,
+    fields: Annotated[
+        list[str] | None,
+        Field(description="List of field names to extract (mutually exclusive with schema)"),
+    ] = None,
+    schema: Annotated[
+        dict[str, Any] | None,
+        Field(description="JSON schema describing desired output structure (mutually exclusive with fields)"),
+    ] = None,
+    instruction: Annotated[
+        str | None,
+        Field(description="Optional natural-language guidance for extraction (default None)"),
+    ] = None,
+    clean: Annotated[
+        bool,
+        Field(description="Clean HTML into structured markdown before extraction (default True)"),
+    ] = True,
+    max_chars: Annotated[
+        int,
+        Field(description="Max characters of page text to feed to the extractor LLM (default 40000)"),
+    ] = 40000,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and fetch fresh page from upstream (default False)"),
+    ] = False,
+    strip_boilerplate: Annotated[
+        bool,
+        Field(description="Remove cookie banners and site UI boilerplate before extraction (default True)"),
+    ] = True,
 ) -> dict[str, Any]:
     """Extract structured JSON from a web page conforming to target fields or a schema.
 
@@ -2896,17 +3104,47 @@ async def deepseek_extract(
 
 @_timed
 async def deepseek_extract_many(
-    urls: list[str],
+    urls: Annotated[
+        list[str],
+        Field(description="List of HTTP/HTTPS URLs to extract structured data from concurrently"),
+    ],
     *,
-    fields: list[str] | None = None,
-    schema: dict[str, Any] | None = None,
-    instruction: str | None = None,
-    clean: bool = True,
-    max_chars_per_url: int = 20000,
-    max_total_chars: int = 60000,
-    refresh: bool = False,
-    strip_boilerplate: bool = True,
-    deadline: float | None = None,
+    fields: Annotated[
+        list[str] | None,
+        Field(description="List of field names to extract (mutually exclusive with schema)"),
+    ] = None,
+    schema: Annotated[
+        dict[str, Any] | None,
+        Field(description="JSON schema describing output structure (mutually exclusive with fields)"),
+    ] = None,
+    instruction: Annotated[
+        str | None,
+        Field(description="Optional natural-language extraction guidance (default None)"),
+    ] = None,
+    clean: Annotated[
+        bool,
+        Field(description="Clean HTML into structured markdown text before extraction (default True)"),
+    ] = True,
+    max_chars_per_url: Annotated[
+        int,
+        Field(description="Max characters per page to feed to extraction LLM (default 20000)"),
+    ] = 20000,
+    max_total_chars: Annotated[
+        int,
+        Field(description="Max total characters across all pages for extraction (default 60000)"),
+    ] = 60000,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and fetch fresh pages from upstream (default False)"),
+    ] = False,
+    strip_boilerplate: Annotated[
+        bool,
+        Field(description="Remove cookie banners and boilerplate before extraction (default True)"),
+    ] = True,
+    deadline: Annotated[
+        float | None,
+        Field(description="Overall timeout deadline in seconds; partial results returned on expiry"),
+    ] = None,
 ) -> dict[str, Any]:
     """Extract structured JSON from multiple web pages concurrently conforming to target fields or a schema.
 
