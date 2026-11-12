@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from deepseek_search_everywhere_mcp.deep_research import (
+    DEPTH_CONFIG,
     build_decomposition_messages,
     build_synthesis_messages,
+    build_synthesis_system_prompt,
     parse_subqueries,
     sanitize_citations,
     select_synthesis_context,
@@ -56,3 +58,12 @@ def test_sanitize_citations_removes_hallucinated():
     assert "[1]" in cleaned
     assert "[2]" in cleaned
     assert "[99]" not in cleaned
+
+
+def test_synthesis_prompt_carries_tier_targets_and_ceilings():
+    for depth in ("low", "medium", "high", "max"):
+        cfg = DEPTH_CONFIG[depth]
+        prompt = build_synthesis_system_prompt(depth)
+        assert str(cfg.target_words) in prompt
+        assert str(cfg.max_words) in prompt
+        assert cfg.max_words == int(cfg.target_words * 1.2)

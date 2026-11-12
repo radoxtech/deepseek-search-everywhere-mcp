@@ -2703,7 +2703,7 @@ async def deepseek_research(
         }
 
     # Step 6: Synthesize cited briefing report
-    synthesis_messages = build_synthesis_messages(clean_topic, synthesis_context)
+    synthesis_messages = build_synthesis_messages(clean_topic, synthesis_context, depth=depth)
     synth_res = await _chat_request(
         messages=synthesis_messages,
         thinking={"type": "disabled"},
