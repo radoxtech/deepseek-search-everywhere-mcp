@@ -19,6 +19,15 @@ from .urls import _canonical_url, _url_etld1
 DepthLevel = Literal["low", "medium", "high", "max"]
 
 
+_TOPIC_EDGE_PUNCT_RE = re.compile(r"^[\W_]+|[\W_]+$")
+
+
+def normalize_topic_key(topic: str) -> str:
+    """Return the deduplication key for a topic: casefolded, single-spaced, without edge punctuation."""
+    collapsed = " ".join(topic.split()).casefold()
+    return _TOPIC_EDGE_PUNCT_RE.sub("", collapsed)
+
+
 @dataclass
 class ResearchJob:
     job_id: str
@@ -35,7 +44,7 @@ class ResearchJob:
     ctx: Any = None
 
     def normalize_key(self) -> tuple[str, str, str | None]:
-        return (self.topic.strip().lower(), self.depth, self.lang)
+        return (normalize_topic_key(self.topic), self.depth, self.lang)
 
 
 class ResearchJobStore:
@@ -57,7 +66,7 @@ class ResearchJobStore:
         return sum(1 for j in self._jobs.values() if j.task is not None and not j.task.done())
 
     def find_active_match(self, topic: str, depth: str, lang: str | None) -> ResearchJob | None:
-        target_key = (topic.strip().lower(), depth, lang)
+        target_key = (normalize_topic_key(topic), depth, lang)
         for job in self._jobs.values():
             if job.task is not None and not job.task.done():
                 if job.normalize_key() == target_key:
@@ -66,7 +75,7 @@ class ResearchJobStore:
 
     def find_finished_match(self, topic: str, depth: str, lang: str | None, now: float) -> ResearchJob | None:
         """Return the newest successfully finished job for the key that is still within the TTL."""
-        target_key = (topic.strip().lower(), depth, lang)
+        target_key = (normalize_topic_key(topic), depth, lang)
         best: ResearchJob | None = None
         for job in self._jobs.values():
             if job.completed_at is None or (now - job.completed_at) > self.ttl:

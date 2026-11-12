@@ -1441,3 +1441,23 @@ async def test_synthesis_retry_cost_includes_failed_first_attempt(
     assert res["cost_breakdown"]["llm"] == pytest.approx(0.012, abs=1e-6)
     breakdown = res["cost_breakdown"]
     assert res["cost_usd"] == pytest.approx(breakdown["search"] + breakdown["fetch"] + 0.012, abs=1e-6)
+
+
+def test_topic_key_normalization_joins_same_job() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ResearchJob, ResearchJobStore
+
+    def make_job(topic: str) -> ResearchJob:
+        return ResearchJob(job_id=uuid.uuid4().hex, topic=topic, depth="low", lang=None, created_at=0.0)
+
+    base = make_job("topic two").normalize_key()
+    assert make_job("topic  two").normalize_key() == base
+    assert make_job("topic two?").normalize_key() == base
+    assert make_job("Topic Two").normalize_key() == base
+    assert make_job("  Topic   Two!  ").normalize_key() == base
+
+    store = ResearchJobStore(ttl=100.0)
+    finished = make_job("topic two")
+    finished.completed_at = 1.0
+    finished.result = {"ok": True, "synthesized": True}
+    store.add(finished)
+    assert store.find_finished_match("topic  two?", "low", None, now=2.0) is finished
