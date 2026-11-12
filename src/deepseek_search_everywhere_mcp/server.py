@@ -43,9 +43,9 @@ from .deep_research import (
     build_synthesis_messages,
     filter_synthesis_output,
     get_job_store,
+    normalize_citations,
     parse_subqueries,
     rank_and_diversify_sources,
-    sanitize_citations,
     select_synthesis_context,
     validate_r2_queries,
 )
@@ -3029,7 +3029,9 @@ async def _execute_research_pipeline(
         s["url"].strip() for s in synthesis_context if isinstance(s.get("url"), str) and s["url"].strip()
     }
     filtered_report, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
-    clean_report = sanitize_citations(filtered_report, max_id=len(synthesis_context))
+    clean_report = normalize_citations(
+        filtered_report, max_id=len(synthesis_context), sources=synthesis_context
+    )
     clean_report, s_notes = sanitize_untrusted_text(clean_report)
     notes.extend(filter_notes)
     notes.extend(s_notes)

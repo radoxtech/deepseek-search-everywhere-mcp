@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from typing import Any
 
@@ -974,3 +975,119 @@ def test_synthesis_uses_nonce_delimiter_and_neutralizes_closing_source() -> None
     )
     assert "<\\/source>" in user_content
     assert 'nonce="neutralized"' in user_content
+
+
+def test_normalize_citations_all_variations() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import normalize_citations
+
+    text = (
+        "Standard [1], multi [1, 2], range [1-3], adjacent [1]-[3], "
+        "fullwidth 【1】, fullwidth multi 【1, 2】, fullwidth range 【1-3】, "
+        "citation prefix [citation:2], caret [^3]."
+    )
+    res = normalize_citations(text, max_id=3)
+    assert "[1]" in res
+    assert "[1][2]" in res
+    assert "[1][2][3]" in res
+    assert "【" not in res
+    assert "】" not in res
+    assert "[citation:" not in res
+    assert "[^" not in res
+
+
+def test_normalize_citations_element_wise_filtering() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import normalize_citations
+
+    text = "Valid [1], mixed list [1, 99], mixed range [1-5], out of bounds [99]."
+    res = normalize_citations(text, max_id=3)
+    assert "Valid [1]" in res
+    assert "mixed list [1]" in res
+    assert "mixed range [1][2][3]" in res
+    assert "[99]" not in res
+    assert "[4]" not in res
+    assert "[5]" not in res
+
+
+def test_normalize_citations_preserves_code_and_footnotes() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import normalize_citations
+
+    text = (
+        "Here is text [1-2].\n\n"
+        "```python\n"
+        "matrix = [1, 99, 100]\n"
+        "```\n\n"
+        "Inline `code [1-5]`.\n\n"
+        "[1]: https://example.com/source\n"
+        "[99]: https://example.com/out-of-bounds\n\n"
+        "Conclusion [2]."
+    )
+    res = normalize_citations(text, max_id=2)
+    assert "matrix = [1, 99, 100]" in res
+    assert "`code [1-5]`" in res
+    assert "[1]: https://example.com/source" in res
+    assert "[99]: https://example.com/out-of-bounds" in res
+    assert "Here is text [1][2]." in res
+    assert "Conclusion [2]." in res
+
+
+def test_normalize_citations_space_before_punctuation() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import normalize_citations
+
+    text = "Surface codes [99] . Next sentence [1] , and more."
+    res = normalize_citations(text, max_id=2)
+    assert "Surface codes. Next sentence [1], and more." == res
+
+
+def test_normalize_citations_strips_model_references_and_appends_server_list() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import normalize_citations
+
+    text = (
+        "# Quantum Report\n\n"
+        "Surface codes provide fault tolerance [1].\n\n"
+        "## References\n\n"
+        "[1] Hallucinated title - https://fake.test\n"
+        "[2] Fabricated url - https://hallucination.test\n"
+    )
+    sources = [
+        {"id": 1, "title": "Surface Codes Paper", "url": "https://nature.test/sc"},
+        {"id": 2, "title": "Threshold Benchmarks", "url": "https://arxiv.test/bench"},
+    ]
+    res = normalize_citations(text, max_id=2, sources=sources)
+    assert "Hallucinated title" not in res
+    assert "Fabricated url" not in res
+    assert "## References" in res
+    assert "[1] Surface Codes Paper - https://nature.test/sc" in res
+    assert "[2] Threshold Benchmarks - https://arxiv.test/bench" in res
+
+
+def test_normalize_citations_property_test_randomized() -> None:
+    import random
+
+    from deepseek_search_everywhere_mcp.deep_research import normalize_citations
+
+    rng = random.Random(42)
+    for _ in range(50):
+        max_id = rng.randint(1, 10)
+        tokens = []
+        for _ in range(10):
+            bracket_type = rng.choice(["standard", "range", "comma", "fullwidth", "prefix", "oob"])
+            if bracket_type == "standard":
+                tokens.append(f"[{rng.randint(1, 15)}]")
+            elif bracket_type == "range":
+                a = rng.randint(1, 10)
+                b = a + rng.randint(0, 5)
+                tokens.append(f"[{a}-{b}]")
+            elif bracket_type == "comma":
+                tokens.append(f"[{rng.randint(1, 15)}, {rng.randint(1, 15)}]")
+            elif bracket_type == "fullwidth":
+                tokens.append(f"【{rng.randint(1, 15)}】")
+            elif bracket_type == "prefix":
+                tokens.append(f"[citation:{rng.randint(1, 15)}]")
+            else:
+                tokens.append(f"[{rng.randint(max_id + 1, 99)}]")
+
+        sample_text = "Word " + " word ".join(tokens) + "."
+        cleaned = normalize_citations(sample_text, max_id=max_id)
+        for m in re.finditer(r"\[(\d+)\]", cleaned):
+            val = int(m.group(1))
+            assert 1 <= val <= max_id, f"Extracted invalid id {val} > max_id {max_id}"

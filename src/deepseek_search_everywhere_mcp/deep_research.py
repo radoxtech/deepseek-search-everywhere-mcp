@@ -547,14 +547,117 @@ def filter_synthesis_output(
     return cleaned_report, injection_suspected, notes
 
 
+_FENCED_CODE_RE = re.compile(r"```[a-zA-Z0-9_-]*\n[\s\S]*?```")
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+_FOOTNOTE_DEF_RE = re.compile(r"(?m)^\[\^?\d+\]:\s+\S+.*$")
+_MODEL_REF_HEADER_RE = re.compile(
+    r"(?mi)^(?:#{1,4}\s*(?:References|Sources|Bibliography)|References:|Sources:)\b[\s\S]*$",
+)
+_ADJACENT_BRACKET_RANGE_RE = re.compile(r"\[(\d+)\]\s*[\-–—]\s*\[(\d+)\]")
+_CITATION_BRACKET_RE = re.compile(r"\[(?:\^|citation:\s*)?([0-9\s,–—\-]+)\]")
+_PUNCT_SPACE_RE = re.compile(r"[ \t]+([.,;:!?])")
+
+
+def build_references_section(sources: list[dict[str, Any]]) -> str:
+    """Build an authoritative markdown References section from synthesis sources."""
+    lines = ["## References", ""]
+    for s in sources:
+        s_id = s.get("id", 1)
+        title = s.get("title") or "Untitled"
+        url = s.get("url") or ""
+        if url:
+            lines.append(f"[{s_id}] {title} - {url}")
+        else:
+            lines.append(f"[{s_id}] {title}")
+    return "\n".join(lines)
+
+
+def normalize_citations(
+    text: str,
+    max_id: int,
+    sources: list[dict[str, Any]] | None = None,
+) -> str:
+    """Normalize multi-index and full-width citations, filter IDs, and build References.
+
+    1. Preserves fenced code blocks, inline code, and footnote definitions.
+    2. Strips any model-written References/Sources section.
+    3. Normalizes full-width brackets 【n】 and expands ranges like [1-3] or [1]-[3] element-wise.
+    4. Filters out IDs <= 0 or > max_id; fixes spaces before punctuation after removals.
+    5. Appends the server-built References section if sources are provided.
+    """
+    if not text:
+        return text
+
+    # Step 1: Protect code blocks and footnote definitions
+    placeholders: list[str] = []
+
+    def _save_placeholder(match: re.Match[str]) -> str:
+        idx = len(placeholders)
+        placeholders.append(match.group(0))
+        return f"\x00PROTECTED_{idx}\x00"
+
+    protected = _FENCED_CODE_RE.sub(_save_placeholder, text)
+    protected = _INLINE_CODE_RE.sub(_save_placeholder, protected)
+    protected = _FOOTNOTE_DEF_RE.sub(_save_placeholder, protected)
+
+    # Step 2: Strip model-written References/Sources heading and following text
+    protected = _MODEL_REF_HEADER_RE.sub("", protected).rstrip()
+
+    # Step 3: Normalize full-width brackets 【...】 to [...]
+    normalized = re.sub(r"【([^】]+)】", r"[\1]", protected)
+
+    # Normalize adjacent bracket ranges: [1]-[3] -> [1-3]
+    normalized = _ADJACENT_BRACKET_RANGE_RE.sub(r"[\1-\2]", normalized)
+
+    # Step 4: Parse bracket citations and filter element-wise
+    def _parse_and_filter_citation(match: re.Match[str]) -> str:
+        raw_inner = match.group(1).strip()
+        parsed_ids: list[int] = []
+        for part in raw_inner.split(","):
+            part_str = part.strip()
+            if not part_str:
+                continue
+            range_match = re.match(r"^(\d+)\s*[-–—]\s*(\d+)$", part_str)
+            if range_match:
+                start_n = int(range_match.group(1))
+                end_n = int(range_match.group(2))
+                if 1 <= start_n <= end_n and (end_n - start_n) <= 25:
+                    parsed_ids.extend(range(start_n, end_n + 1))
+                else:
+                    parsed_ids.append(start_n)
+                    parsed_ids.append(end_n)
+            elif part_str.isdigit():
+                parsed_ids.append(int(part_str))
+
+        valid_ids: list[int] = []
+        seen_in_citation: set[int] = set()
+        for i in parsed_ids:
+            if 1 <= i <= max_id and i not in seen_in_citation:
+                seen_in_citation.add(i)
+                valid_ids.append(i)
+
+        if not valid_ids:
+            return ""
+        return "".join(f"[{i}]" for i in valid_ids)
+
+    cleaned = _CITATION_BRACKET_RE.sub(_parse_and_filter_citation, normalized)
+
+    # Step 5: Fix space before punctuation after removals
+    cleaned = _PUNCT_SPACE_RE.sub(r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+
+    # Step 6: Restore protected blocks
+    for idx, orig in enumerate(placeholders):
+        cleaned = cleaned.replace(f"\x00PROTECTED_{idx}\x00", orig)
+
+    # Step 7: Append server-built References section
+    if sources:
+        ref_section = build_references_section(sources)
+        cleaned = f"{cleaned.rstrip()}\n\n{ref_section}"
+
+    return cleaned
+
+
 def sanitize_citations(text: str, max_id: int) -> str:
-    """Normalize bracket citations, ensuring hallucinated IDs (> max_id or <= 0) are removed."""
-
-    def _replace_citation(match: re.Match[str]) -> str:
-        num = int(match.group(1))
-        if 1 <= num <= max_id:
-            return match.group(0)
-        return ""
-
-    cleaned = re.sub(r"\[(\d+)\]", _replace_citation, text)
-    return re.sub(r"[ \t]{2,}", " ", cleaned)
+    """Backward-compatible wrapper for normalize_citations."""
+    return normalize_citations(text, max_id)
