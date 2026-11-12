@@ -160,3 +160,57 @@ def test_fetch_conflicting_selectors_rejected(fake_upstream, kwargs):
         "Selectors section, query, offset/limit, and find_text are mutually exclusive."
         in result["error"]["message"]
     )
+
+
+def _long_page() -> str:
+    filler = "Routine maintenance paragraph with unrelated operational details only. " * 5
+    block = "\n\n".join([filler] * 30)
+    return (
+        block
+        + "\n\nAn incremental backup is created with pg_basebackup --incremental.\n\n"
+        + block
+        + "\n\nCombining an incremental backup requires pg_combinebackup.\n\n"
+        + block
+    )
+
+
+def test_fetch_query_returns_short_focused_excerpts(fake_upstream):
+    page = _long_page()
+    assert len(page) > 30_000
+    _install_fetch(fake_upstream, page)
+    result = asyncio.run(
+        server.deepseek_fetch(
+            "https://example.com/pg", query="incremental backup", max_snippets=2, max_chars=20_000
+        )
+    )
+    assert result["ok"] is True
+    assert result["snippets_count"] == 2
+    parts = [p for p in result["content"].split("\n\n---\n\n") if p.strip()]
+    assert len(parts) == 2
+    assert all("incremental backup" in p.lower() for p in parts)
+    assert all(len(p) <= 1700 for p in parts)
+    assert result["chars"] < 3500
+    assert result["truncated"] is False
+
+
+def test_fetch_query_without_matches_has_clear_note_and_empty_content(fake_upstream):
+    _install_fetch(fake_upstream, _long_page())
+    result = asyncio.run(server.deepseek_fetch("https://example.com/pg", query="kubernetes ingress"))
+    assert result["ok"] is True
+    assert result["content"] == ""
+    assert result["snippets_count"] == 0
+    assert any("No excerpt" in n and "kubernetes ingress" in n for n in result["notes"])
+    assert not any("PDF" in n for n in result["notes"])
+
+
+def test_fetch_many_query_returns_focused_excerpts(fake_upstream):
+    _install_fetch(fake_upstream, _long_page())
+    result = asyncio.run(
+        server.deepseek_fetch_many(
+            ["https://example.com/pg"], query="incremental backup", max_chars_per_url=20_000
+        )
+    )
+    item = result["results"][0]
+    assert item["ok"] is True
+    assert len(item["content"]) < 3500
+    assert "incremental backup" in item["content"].lower()

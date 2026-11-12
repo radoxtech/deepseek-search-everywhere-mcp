@@ -225,72 +225,140 @@ def split_sections(text: str, target_size: int = 1500) -> list[dict[str, Any]]:
     return sections
 
 
-def extract_snippets(text: str, query: str, max_snippets: int = 3) -> tuple[str, int]:
-    """Score sections against ``query`` using BM25-lite and return top formatted excerpts.
+EXCERPT_WINDOW = 600
+EXCERPT_CAP = 1500
+_TOKEN_RE = re.compile(r"\b[a-zA-Z0-9_\u0080-\uffff]{2,}\b")
+_MIN_PARTIAL_EXCERPT = 200
 
-    Returns ``(formatted_snippets, snippet_count)``.
+
+def _snap(text: str, start: int, end: int) -> tuple[int, int]:
+    """Move a cut window to word boundaries so it does not begin or end inside a word."""
+    if start > 0:
+        gap = text.find(" ", start, min(end, start + 40))
+        if gap != -1 and not text[start - 1].isspace():
+            start = gap + 1
+    if end < len(text):
+        gap = text.rfind(" ", max(start, end - 40), end)
+        if gap != -1 and not text[end].isspace():
+            end = gap
+    return start, end
+
+
+def _match_windows(content: str, q_terms: set[str], window: int, cap: int) -> list[dict[str, Any]]:
+    """Return merged ``+-window`` char windows around query-term hits in one section.
+
+    Overlapping windows merge as long as the merged span stays within ``cap``.
+    """
+    hits = [(m.start(), m.end(), m.group().lower()) for m in _TOKEN_RE.finditer(content)]
+    hits = [h for h in hits if h[2] in q_terms]
+    windows: list[dict[str, Any]] = []
+    for h_start, h_end, term in hits:
+        w_start, w_end = max(0, h_start - window), min(len(content), h_end + window)
+        last = windows[-1] if windows else None
+        if last is not None and w_start <= last["end"] and w_end - last["start"] <= cap:
+            last["end"] = w_end
+            last["hits"] += 1
+            last["terms"].add(term)
+        else:
+            windows.append({"start": w_start, "end": w_end, "hits": 1, "terms": {term}})
+    return windows
+
+
+def extract_snippets(
+    text: str,
+    query: str,
+    max_snippets: int = 3,
+    *,
+    window: int = EXCERPT_WINDOW,
+    excerpt_cap: int = EXCERPT_CAP,
+    max_chars: int | None = None,
+) -> tuple[str, int]:
+    """Return focused excerpts (``+-window`` chars around query-term matches) ranked by relevance.
+
+    Only excerpts that contain a query term are returned; windows within a section merge when they
+    overlap, each excerpt is capped at ``excerpt_cap`` characters and the total at ``max_chars``.
+    Windows never cross a section boundary. Without searchable query terms the leading sections
+    are returned instead (each capped). Returns ``(formatted_snippets, snippet_count)``; no match
+    gives ``("", 0)``.
     """
     sections = split_sections(text)
     if not sections:
         return "", 0
 
     max_snippets = max(1, min(max_snippets, 5))
-    q_terms = _tokenize(query)
+    q_terms = set(_tokenize(query))
     if not q_terms:
-        # No searchable terms; return the first section(s)
-        selected = sections[:max_snippets]
-        return _format_snippets(selected), len(selected)
+        capped = [{**s, "content": _cut(s["content"], 0, excerpt_cap)} for s in sections[:max_snippets]]
+        return _format_snippets(capped, max_chars), len(capped)
 
     doc_count = len(sections)
-    # Document frequency per query term
-    df: dict[str, int] = {}
-    section_terms: list[list[str]] = []
-    for s in sections:
-        terms = _tokenize(s["content"])
-        section_terms.append(terms)
-        unique_terms = set(terms)
-        for t in q_terms:
-            if t in unique_terms:
-                df[t] = df.get(t, 0) + 1
+    section_terms = [set(_tokenize(s["content"])) for s in sections]
+    df = {t: sum(1 for terms in section_terms if t in terms) for t in q_terms}
 
-    # BM25-lite scoring
-    k1 = 1.2
-    b = 0.75
-    avg_dl = sum(len(terms) for terms in section_terms) / max(1, doc_count)
-
-    scored: list[tuple[float, int, dict[str, Any]]] = []
-    for idx, (s, terms) in enumerate(zip(sections, section_terms, strict=True)):
-        dl = len(terms)
+    candidates: list[dict[str, Any]] = []
+    for pos, (s, terms) in enumerate(zip(sections, section_terms, strict=True)):
+        if not (q_terms & terms):
+            continue
         title_terms = set(_tokenize(s["title"]))
-        score = 0.0
-        term_freqs: dict[str, int] = {}
-        for t in terms:
-            term_freqs[t] = term_freqs.get(t, 0) + 1
+        for w in _match_windows(s["content"], q_terms, window, excerpt_cap):
+            score = 0.1 * w["hits"]
+            for t in w["terms"]:
+                idf = math.log((doc_count - df[t] + 0.5) / (df[t] + 0.5) + 1.0)
+                score += idf * (1.5 if t in title_terms else 1.0)
+            start, end = _snap(s["content"], w["start"], w["end"])
+            candidates.append(
+                {
+                    "score": score,
+                    "order": (pos, start),
+                    "index": pos + 1,
+                    "title": s["title"],
+                    "content": _cut(s["content"], start, end),
+                }
+            )
 
-        for t in q_terms:
-            tf = term_freqs.get(t, 0)
-            if tf == 0:
-                continue
-            n_qi = df.get(t, 0)
-            idf = math.log((doc_count - n_qi + 0.5) / (n_qi + 0.5) + 1.0)
-            term_score = idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avg_dl))))
-            if t in title_terms:
-                term_score *= 1.5
-            score += term_score
-
-        scored.append((score, idx, s))
-
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    top = [s for _, _, s in scored[:max_snippets]]
-    # Restore original document order for narrative flow
-    top.sort(key=lambda s: s["index"])
-    return _format_snippets(top), len(top)
+    candidates.sort(key=lambda c: (-c["score"], c["order"]))
+    top = candidates[:max_snippets]
+    top = _fit_total(top, max_chars)
+    top.sort(key=lambda c: c["order"])
+    return _format_snippets(top, None), len(top)
 
 
-def _format_snippets(sections: list[dict[str, Any]]) -> str:
+def _cut(content: str, start: int, end: int) -> str:
+    """Slice ``content[start:end]`` and mark a cut start or end with an ellipsis."""
+    piece = content[start:end].strip()
+    prefix = "\u2026 " if start > 0 else ""
+    suffix = " \u2026" if 0 < end < len(content) else ""
+    return f"{prefix}{piece}{suffix}"
+
+
+def _fit_total(excerpts: list[dict[str, Any]], max_chars: int | None) -> list[dict[str, Any]]:
+    """Keep the best-ranked excerpts that fit ``max_chars`` in total (the last one may be shortened)."""
+    if max_chars is None:
+        return excerpts
+    kept: list[dict[str, Any]] = []
+    used = 0
+    for ex in excerpts:
+        overhead = len(_excerpt_header(ex["title"], 1, 1)) + 1 + len("\n\n---\n\n")
+        room = max_chars - used - overhead
+        if len(ex["content"]) <= room:
+            kept.append(ex)
+            used += len(ex["content"]) + overhead
+        elif room >= _MIN_PARTIAL_EXCERPT:
+            kept.append({**ex, "content": ex["content"][: room - 2].rstrip() + " \u2026"})
+            break
+        else:
+            break
+    return kept
+
+
+def _excerpt_header(title: str, i: int, total: int) -> str:
+    return f"### [Excerpt {i} of {total}: {title}]"
+
+
+def _format_snippets(sections: list[dict[str, Any]], max_chars: int | None = None) -> str:
     parts: list[str] = []
     total = len(sections)
     for i, s in enumerate(sections, 1):
-        header = f"### [Excerpt {i} of {total}: {s['title']}]"
-        parts.append(f"{header}\n{s['content']}")
-    return "\n\n---\n\n".join(parts)
+        parts.append(f"{_excerpt_header(s['title'], i, total)}\n{s['content']}")
+    out = "\n\n---\n\n".join(parts)
+    return out[:max_chars] if max_chars is not None else out

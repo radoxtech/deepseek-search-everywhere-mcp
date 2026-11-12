@@ -1955,6 +1955,7 @@ async def _fetch(
     section_has_more: bool | None = None
     section_index: int | None = None
     snippets_count: int | None = None
+    no_match_note: str | None = None
 
     if section is not None:
         if section < 1:
@@ -1972,10 +1973,17 @@ async def _fetch(
             content = sections[section - 1]["content"]
             section_has_more = section < total_sections
     elif query:
-        content, snippets_count = extract_snippets(content, query, max_snippets=max_snippets)
+        had_content = bool(content.strip())
+        content, snippets_count = extract_snippets(
+            content, query, max_snippets=max_snippets, max_chars=max_chars
+        )
+        if had_content and snippets_count == 0:
+            no_match_note = (
+                f"No excerpt contains the query terms: '{query}'. The page was fetched but nothing matched."
+            )
 
     total_chars = raw_len if content_capped else len(content)
-    notes = _fetch_notes(content, only_boilerplate)
+    notes = [no_match_note] if no_match_note else _fetch_notes(content, only_boilerplate)
     notes.extend(sanitize_notes)
     if content_capped:
         notes.append(
