@@ -888,19 +888,30 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None, 
     Returns ``{"data": ..., "query_original": ...}`` on success or an error envelope.
     """
     budget = _get_budget_tracker()
+    reservation = None
     if budget is not None:
-        allowed, spent, limit = await budget.check_budget(COST_PER_REQUEST)
-        if not allowed:
+        reservation = await budget.reserve(COST_PER_REQUEST)
+        if reservation is None:
             return _fail(
                 "budget_exceeded",
-                f"Daily spend limit of ${limit:.2f} exceeded (spent ${spent:.4f}).",
+                f"Daily spend limit of ${budget.limit_usd:.2f} exceeded.",
                 402,
             )
-    result = await _limited_request(SEARCH, SEARCH_PATH, payload, SEARCH_TIMEOUT)
+    try:
+        result = await _limited_request(SEARCH, SEARCH_PATH, payload, SEARCH_TIMEOUT)
+    except BaseException:
+        if reservation is not None:
+            await reservation.release()
+        raise
+
     if not result.get("ok"):
+        if reservation is not None:
+            await reservation.release()
         return result
-    if budget is not None:
-        await budget.record_spend(COST_PER_REQUEST)
+
+    if reservation is not None:
+        await reservation.commit(COST_PER_REQUEST)
+
     record = {"data": result["data"], "query_original": query_original}
     cache = _get_search_cache()
     if cache is not None and result["data"].get("results"):
@@ -1316,19 +1327,30 @@ async def _fetch_upstream(url: str, key: str) -> dict[str, Any]:
     Returns ``{"data": ...}`` with the raw upstream page on success or an error envelope.
     """
     budget = _get_budget_tracker()
+    reservation = None
     if budget is not None:
-        allowed, spent, limit = await budget.check_budget(COST_PER_REQUEST)
-        if not allowed:
+        reservation = await budget.reserve(COST_PER_REQUEST)
+        if reservation is None:
             return _fail(
                 "budget_exceeded",
-                f"Daily spend limit of ${limit:.2f} exceeded (spent ${spent:.4f}).",
+                f"Daily spend limit of ${budget.limit_usd:.2f} exceeded.",
                 402,
             )
-    result = await _limited_request(FETCH, FETCH_PATH, {"url": url}, FETCH_TIMEOUT)
+    try:
+        result = await _limited_request(FETCH, FETCH_PATH, {"url": url}, FETCH_TIMEOUT)
+    except BaseException:
+        if reservation is not None:
+            await reservation.release()
+        raise
+
     if not result.get("ok"):
+        if reservation is not None:
+            await reservation.release()
         return result
-    if budget is not None:
-        await budget.record_spend(COST_PER_REQUEST)
+
+    if reservation is not None:
+        await reservation.commit(COST_PER_REQUEST)
+
     record = {"data": result["data"]}
     cache = _get_fetch_cache()
     if cache is not None and result["data"].get("content"):

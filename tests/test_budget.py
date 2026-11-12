@@ -194,3 +194,57 @@ async def test_two_trackers_on_one_file_lose_no_updates(tmp_path: Any) -> None:
     assert round(status2["spent_usd"], 6) == 0.03
     assert status1["reserved_usd"] == 0.0
     assert status2["reserved_usd"] == 0.0
+
+
+async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
+    fake_upstream: Any, tmp_path: Any
+) -> None:
+    # Set limit to allow exactly 5 operations ($0.00075 * 5 = $0.00375)
+    limit = 0.00375
+    state_file = tmp_path / "budget.json"
+    tracker = DailyBudgetTracker(limit_usd=limit, state_path=state_file)
+
+    settings = Settings(daily_budget_usd=limit)
+    set_settings(settings)
+    server.reset_state()
+    server._budget_tracker = tracker
+
+    # Mock responses with a small delay to induce concurrency race in check_budget
+    async def delayed_handler(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        await asyncio.sleep(0.01)
+        if path == server.SEARCH_PATH:
+            res_item = {"url": "http://example.com/1", "title": "T", "content": "C"}
+            return {"ok": True, "data": {"results": [res_item]}}
+        if path == server.FETCH_PATH:
+            return {"ok": True, "data": {"url": "http://example.com/2", "title": "T", "content": "C"}}
+        if path == "/v1/chat/completions":
+            return {
+                "ok": True,
+                "data": {
+                    "choices": [{"message": {"role": "assistant", "content": "rewritten query"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 10},
+                },
+            }
+        return {"ok": False, "error": {"code": "not_found", "message": "Unknown path"}}
+
+    fake_upstream(delayed_handler)
+
+    # Launch 20 mixed concurrent requests (search, fetch)
+    tasks = []
+    for i in range(10):
+        tasks.append(server.deepseek_search(f"query_{i}", refresh=True, rewrite=False))
+        tasks.append(server.deepseek_fetch(f"http://example.com/page_{i}", refresh=True))
+
+    results = await asyncio.gather(*tasks)
+    status = await tracker.get_status()
+
+    # The total recorded spend + remaining reservations must NEVER exceed the limit
+    assert (status["spent_usd"] + status["reserved_usd"]) <= limit + 1e-9, (
+        f"Budget breached! Spent {status['spent_usd']}, limit {limit}"
+    )
+    # Check that budget_exceeded occurred on excess requests
+    failures = [r for r in results if not r.get("ok") and r.get("error", {}).get("code") == "budget_exceeded"]
+    assert len(failures) > 0
+
+    set_settings(None)
+    server.reset_state()
