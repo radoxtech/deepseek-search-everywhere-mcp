@@ -16,13 +16,13 @@ if TYPE_CHECKING:
     from .settings import Settings
 
 # Secret patterns
-_SK_KEY = re.compile(r"\bsk-[A-Za-z0-9_-]{10,}")
+_SK_KEY = re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{10,}")
 _BEARER = re.compile(
     r"(?i)\bbearer(?:[\s/=]|%20)+(?:[A-Za-z0-9._~+/=-]*\d[A-Za-z0-9._~+/=-]*|[A-Za-z0-9._~+/=-]{20,})"
 )
 _KEY_VALUE = re.compile(r"(?i)\b((?:\w+[_-])?(?:api[_-]?key|token|secret|password))=[^&\s]+")
-_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
-_AWS_KEY = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
+_JWT = re.compile(r"(?i)\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
+_AWS_KEY = re.compile(r"(?i)\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
 _USERINFO = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
 
 

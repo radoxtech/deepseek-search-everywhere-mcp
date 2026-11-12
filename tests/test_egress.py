@@ -126,3 +126,30 @@ async def test_batch_tools_egress_blocked(egress_secrets: dict[str, str]) -> Non
     assert res_fetch["ok"] is True
     assert res_fetch["results"][0]["ok"] is False
     assert res_fetch["results"][0]["error"]["code"] == "egress_blocked"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "secret_variant",
+    [
+        "SK-1234567890abcdef",
+        "Sk-abcdef1234567890",
+        "BEARER abcdef1234567890abcdef",
+        "bEaReR abcdef1234567890abcdef",
+        "akia1234567890abcdef",
+        "Akia1234567890abcdef",
+        "ASIA1234567890ABCDEF",
+        "asia1234567890abcdef",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+        "API_KEY=supersecret123",
+        "Token=supersecret123",
+    ],
+)
+async def test_egress_blocks_case_insensitive_secrets(secret_variant: str) -> None:
+    res_search = await deepseek_search(f"check {secret_variant} status")
+    assert res_search["ok"] is False
+    assert res_search["error"]["code"] == "egress_blocked"
+
+    res_fetch = await deepseek_fetch(f"https://example.com/api?q={urllib.parse.quote(secret_variant)}")
+    assert res_fetch["ok"] is False
+    assert res_fetch["error"]["code"] == "egress_blocked"
