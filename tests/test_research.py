@@ -536,3 +536,146 @@ async def test_deadline_budgeter_shrinks_phases_and_aborts_synthesis_if_too_late
     assert res["ok"] is True
     assert res["synthesized"] is False
     assert any("deadline reached" in note for note in res["notes"])
+
+
+def test_url_etld1_extraction() -> None:
+    from deepseek_search_everywhere_mcp.urls import _url_etld1
+
+    assert _url_etld1("https://sub.example.com/page") == "example.com"
+    assert _url_etld1("https://news.bbc.co.uk/articles/123") == "bbc.co.uk"
+    assert _url_etld1("https://sub.portal.gov.pl/test") == "portal.gov.pl"
+    assert _url_etld1("https://deep.sub.python.org.au/docs") == "python.org.au"
+    assert _url_etld1("http://127.0.0.1:8080/foo") == "127.0.0.1"
+    assert _url_etld1("http://localhost:5000") == "localhost"
+    assert _url_etld1("https://example.com") == "example.com"
+
+
+def test_rank_and_diversify_round_robin_order() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    subq_results = [
+        [
+            {"url": "https://d1.com/1", "title": "A1"},
+            {"url": "https://d2.com/1", "title": "A2"},
+            {"url": "https://d3.com/1", "title": "A3"},
+        ],
+        [
+            {"url": "https://d4.com/1", "title": "B1"},
+            {"url": "https://d5.com/1", "title": "B2"},
+        ],
+        [
+            {"url": "https://d6.com/1", "title": "C1"},
+            {"url": "https://d7.com/1", "title": "C2"},
+            {"url": "https://d8.com/1", "title": "C3"},
+        ],
+    ]
+    selected, notes = rank_and_diversify_sources(subq_results, k_sources=6)
+    titles = [s["title"] for s in selected]
+    assert titles == ["A1", "B1", "C1", "A2", "B2", "C2"]
+    assert notes == []
+
+
+def test_rank_and_diversify_canonical_dedupe_http_https() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    subq_results = [
+        [
+            {"url": "http://example.com/same-page?utm_source=twitter", "title": "HTTP Page"},
+            {"url": "https://other.org/page1", "title": "Other"},
+        ],
+        [
+            {"url": "https://example.com/same-page", "title": "HTTPS Page"},
+            {"url": "https://another.org/page2", "title": "Another"},
+        ],
+    ]
+    selected, notes = rank_and_diversify_sources(subq_results, k_sources=6)
+    urls = [s["url"] for s in selected]
+    assert len(urls) == 3
+    assert urls[0] == "http://example.com/same-page?utm_source=twitter"
+    assert "https://example.com/same-page" not in urls
+
+
+def test_rank_and_diversify_domain_cap_enforced() -> None:
+    from collections import Counter
+
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+    from deepseek_search_everywhere_mcp.urls import _url_etld1
+
+    subq_results = [
+        [
+            {"url": "https://sub1.example.com/p1", "title": "E1"},
+            {"url": "https://sub2.example.com/p2", "title": "E2"},
+            {"url": "https://sub3.example.com/p3", "title": "E3"},
+            {"url": "https://sub4.example.com/p4", "title": "E4"},
+        ],
+        [
+            {"url": "https://news.bbc.co.uk/p1", "title": "B1"},
+            {"url": "https://sport.bbc.co.uk/p2", "title": "B2"},
+            {"url": "https://weather.bbc.co.uk/p3", "title": "B3"},
+        ],
+        [
+            {"url": "https://other.org/p1", "title": "O1"},
+            {"url": "https://other.org/p2", "title": "O2"},
+        ],
+    ]
+    selected, notes = rank_and_diversify_sources(subq_results, k_sources=6)
+    assert len(selected) == 6
+    assert notes == []
+    counts = Counter(_url_etld1(s["url"]) for s in selected)
+    for domain, count in counts.items():
+        assert count <= 2, f"Domain {domain} exceeded cap of 2: {count}"
+
+
+def test_rank_and_diversify_domain_cap_relaxed_when_pool_small() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    subq_results = [[{"url": f"https://example.com/page{i}", "title": f"Page {i}"} for i in range(1, 7)]]
+    selected, notes = rank_and_diversify_sources(subq_results, k_sources=5)
+    assert len(selected) == 5
+    assert "Relaxed domain cap to meet target source count." in notes
+
+
+async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
+    stub_results = [
+        {
+            "title": f"Stub Source {i}",
+            "url": f"https://domain{i}.org/page",
+            "snippet": f"Short snippet {i}",
+            "content": f"Short {i}",
+        }
+        for i in range(1, 25)
+    ]
+
+    class K24Upstream(DeepResearchUpstream):
+        def __init__(self) -> None:
+            super().__init__(subqueries=["q1", "q2", "q3", "q4"])
+            self.fetch_calls: list[dict[str, Any]] = []
+
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == server.SEARCH_PATH:
+                self.searches.append(kwargs.get("payload") or {})
+                idx = len(self.searches) - 1
+                start = idx * 6
+                return {"ok": True, "data": {"results": stub_results[start : start + 6]}}
+            if path == server.FETCH_PATH:
+                payload = kwargs.get("payload") or {}
+                self.fetch_calls.append(payload)
+                url = payload.get("url", "")
+                return {
+                    "ok": True,
+                    "data": {
+                        "title": f"Fetched {url}",
+                        "content": f"Full deep fetched content for {url} " * 20,
+                    },
+                }
+            return await super().__call__(method, path, **kwargs)
+
+    upstream = K24Upstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research("k24 test topic", depth="max")
+    assert res["ok"] is True
+    assert res["status"] == "done"
+    assert len(upstream.fetch_calls) == 24
+    assert res["synthesized"] is True
+    assert len(res["sources"]) == 24

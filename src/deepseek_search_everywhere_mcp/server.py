@@ -41,6 +41,7 @@ from .deep_research import (
     build_synthesis_messages,
     get_job_store,
     parse_subqueries,
+    rank_and_diversify_sources,
     sanitize_citations,
     select_synthesis_context,
 )
@@ -69,7 +70,12 @@ from .settings import DEFAULT_LOG_LEVEL, get_pricing_period, get_settings
 from .snippets import extract_snippets, split_sections
 from .transport import _api_key, _base_url
 from .transport import request as _request  # tests monkeypatch server._request
-from .urls import CODE_INVALID, UrlError, validate_url
+from .urls import (
+    CODE_INVALID,
+    UrlError,
+    _canonical_url,
+    validate_url,
+)
 
 MAX_QUERY = 128
 MAX_URL = 8192
@@ -93,7 +99,6 @@ SYSTEM_PROMPT = (
     "Maximum 120 characters."
 )
 
-TRACKING_PARAMS = {"fbclid", "gclid", "yclid", "mc_cid", "mc_eid"}
 MIN_TITLE_SITE_CHARS = 20
 MIN_TITLE_SITE_WORDS = 3
 MAX_COUNT = 50  # largest ``count`` accepted from callers and by the upstream search API
@@ -510,38 +515,6 @@ def _norm_text(value: Any) -> str:
     if not isinstance(value, str):
         return ""
     return re.sub(r"[\W_]+", " ", value.casefold()).strip()
-
-
-def _is_tracking_param(name: str) -> bool:
-    lowered = name.lower()
-    return lowered.startswith("utm_") or lowered in TRACKING_PARAMS
-
-
-def _canonical_url(url: str) -> str | None:
-    try:
-        parts = urllib.parse.urlsplit(url.strip())
-        port = parts.port
-    except ValueError:
-        return None
-    if not parts.scheme or not parts.hostname:
-        return None
-    scheme = parts.scheme.lower()
-    if scheme in ("http", "https"):
-        scheme = "https"
-    host = parts.hostname.lower()
-    if host.startswith("www."):
-        host = host[4:]
-    netloc = host if port is None else f"{host}:{port}"
-    path = parts.path
-    if len(path) > 1:
-        path = path.rstrip("/") or "/"
-    params = [
-        (name, value)
-        for name, value in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
-        if not _is_tracking_param(name)
-    ]
-    params.sort()
-    return urllib.parse.urlunsplit((scheme, netloc, path, urllib.parse.urlencode(params), ""))
 
 
 def _title_site_key(item: dict) -> tuple[str, str] | None:
@@ -2470,11 +2443,14 @@ class _GapFill:
     trimmed: bool = False
 
 
-def _select_gaps(sources: list[dict[str, Any]], fill: _GapFill) -> dict[str, dict[str, Any]]:
+def _select_gaps(
+    sources: list[dict[str, Any]], fill: _GapFill, max_pages: int | None = None
+) -> dict[str, dict[str, Any]]:
     """Pick the sources to fetch, keyed by canonical URL; mark rejected ones in place.
 
-    At most ``research_max_pages`` distinct URLs are selected; rejections count as failures.
+    At most ``max_pages`` distinct URLs are selected; rejections count as failures.
     """
+    limit = max_pages if max_pages is not None else get_settings().research_max_pages
     gaps: dict[str, dict[str, Any]] = {}
     for source in sources:
         url, rejection = _gap_check(source)
@@ -2482,7 +2458,7 @@ def _select_gaps(sources: list[dict[str, Any]], fill: _GapFill) -> dict[str, dic
             source["error"] = rejection
             fill.failed += 1
         key = None if url is None else (_canonical_url(url) or url)
-        if key is not None and key not in gaps and len(gaps) < get_settings().research_max_pages:
+        if key is not None and key not in gaps and len(gaps) < limit:
             gaps[key] = source
     return gaps
 
@@ -2494,20 +2470,41 @@ async def _fill_gaps(
     refresh: bool,
     strip_boilerplate: bool = True,
     deadline: float | None = None,
+    max_pages: int | None = None,
+    internal_batch: bool = False,
 ) -> _GapFill:
     """Fetch sources with missing or short content and merge the fetched pages in place."""
     fill = _GapFill()
-    gaps = _select_gaps(sources, fill)
+    gaps = _select_gaps(sources, fill, max_pages=max_pages)
     if not gaps:
         return fill
-    batch = await deepseek_fetch_many(
-        [source["url"].strip() for source in gaps.values()],
-        max_chars_per_url=per_page_chars,
-        max_total_chars=total_chars,
-        refresh=refresh,
-        strip_boilerplate=strip_boilerplate,
-        deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
-    )
+    if internal_batch:
+        items: list[_BatchItem] = [(source["url"].strip(), None) for source in gaps.values()]
+        tasks = await _run_batch(
+            items,
+            clean=True,
+            per_url=per_page_chars,
+            refresh=refresh,
+            strip_boilerplate=strip_boilerplate,
+            deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
+            fallback_to_search=True,
+        )
+        batch = _assemble_batch(
+            items,
+            tasks,
+            duplicates=0,
+            max_total_chars=total_chars,
+            deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
+        )
+    else:
+        batch = await deepseek_fetch_many(
+            [source["url"].strip() for source in gaps.values()],
+            max_chars_per_url=per_page_chars,
+            max_total_chars=total_chars,
+            refresh=refresh,
+            strip_boilerplate=strip_boilerplate,
+            deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
+        )
     fill.requests_used = batch["requests_used"]
     fill.cached_count = batch["cached_count"]
     fill.trimmed = TRUNCATED_NOTE in batch["notes"]
@@ -2795,22 +2792,14 @@ async def _execute_research_pipeline(
     if not successful_searches:
         return search_results[0]
 
-    # Step 3: Merge, deduplicate, and convert to research sources
-    seen_urls: set[str] = set()
-    merged_items: list[dict[str, Any]] = []
+    # Step 3: Round-robin interleave across subqueries, dedupe, domain cap, top K
+    subquery_result_lists = [s.get("results", []) for s in successful_searches]
+    selected_items, rank_notes = rank_and_diversify_sources(subquery_result_lists, k_sources=cfg.k_sources)
     cached_count = sum(s.get("cached_count", 0) for s in successful_searches)
     requests_used = sum(s.get("requests_used", 0) for s in successful_searches)
 
-    for s in successful_searches:
-        for item in s.get("results", []):
-            url = item.get("url") or ""
-            canon = _canonical_url(url) or url
-            if canon not in seen_urls:
-                seen_urls.add(canon)
-                merged_items.append(item)
-
     sources = [
-        _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(merged_items, 1)
+        _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected_items, 1)
     ]
 
     # Step 4: Gap-fill stub pages
@@ -2820,15 +2809,17 @@ async def _execute_research_pipeline(
     fill = await _fill_gaps(
         sources,
         cfg.per_page_char_cap,
-        30000,
+        cfg.total_source_chars,
         refresh,
         strip_boilerplate,
         deadline=gap_timeout,
+        max_pages=cfg.k_sources,
+        internal_batch=True,
     )
     requests_used += fill.requests_used
     cached_count += fill.cached_count
 
-    notes: list[str] = []
+    notes: list[str] = list(rank_notes)
     if fill.fetched:
         notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
     if fill.failed:

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .extract import sanitize_json
+from .urls import _canonical_url, _url_etld1
 
 DepthLevel = Literal["low", "medium", "high", "max"]
 
@@ -234,6 +235,61 @@ def parse_subqueries(response_text: str, fallback_topic: str, max_queries: int =
         return [fallback_topic[:128].strip()]
 
     return queries[:max_queries]
+
+
+def rank_and_diversify_sources(
+    subquery_results: list[list[dict[str, Any]]],
+    k_sources: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Round-robin interleave across subqueries, deduplicate canonically, cap per eTLD+1, take top K.
+
+    1. Interleave results round-robin across subqueries.
+    2. Deduplicate canonically (http and https schemes are considered equal).
+    3. Apply domain cap of at most 2 sources per eTLD+1.
+    4. If the capped pool has fewer than ``k_sources`` and overflow exists, relax the domain cap
+       to meet the target source count and add a note.
+    """
+    max_len = max((len(r) for r in subquery_results), default=0)
+    interleaved: list[dict[str, Any]] = []
+    for i in range(max_len):
+        for r in subquery_results:
+            if i < len(r):
+                interleaved.append(r[i])
+
+    deduped: list[dict[str, Any]] = []
+    seen_canons: set[str] = set()
+    for item in interleaved:
+        url = item.get("url") or ""
+        canon = _canonical_url(url) or url.strip().lower()
+        if canon not in seen_canons:
+            seen_canons.add(canon)
+            deduped.append(item)
+
+    domain_counts: dict[str, int] = {}
+    capped: list[dict[str, Any]] = []
+    overflow: list[dict[str, Any]] = []
+
+    for item in deduped:
+        url = item.get("url") or ""
+        domain = _url_etld1(url)
+        current = domain_counts.get(domain, 0)
+        if current < 2:
+            domain_counts[domain] = current + 1
+            capped.append(item)
+        else:
+            overflow.append(item)
+
+    notes: list[str] = []
+    if len(capped) >= k_sources:
+        selected = capped[:k_sources]
+    else:
+        selected = list(capped)
+        needed = k_sources - len(selected)
+        if overflow and needed > 0:
+            selected.extend(overflow[:needed])
+            notes.append("Relaxed domain cap to meet target source count.")
+
+    return selected, notes
 
 
 def select_synthesis_context(
