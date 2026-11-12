@@ -174,3 +174,89 @@ def compile_filters(
         )
 
     return ops_string, None, None
+
+
+MAX_QUERY = 128
+
+
+def fit_query(
+    query: str,
+    *,
+    lang: str | None = None,
+    filter_ops: str | None = None,
+    max_query: int = MAX_QUERY,
+) -> tuple[str, bool]:
+    """Fit query, language operator and filter operators into ``max_query`` characters.
+
+    Operators and language are prioritized. If they alone exceed ``max_query``, raises
+    ValueError("operators_exceed_limit").
+    When the query must be trimmed:
+    - Cuts at the last word boundary (space).
+    - Drops any half-cut operator or token.
+    - Drops unbalanced double quotes.
+    - Preserves Unicode characters intact.
+
+    Returns ``(fitted_query, trimmed)``.
+    """
+    clean_q = re.sub(r"\s+", " ", query).strip()
+
+    lang_prefix = ""
+    if lang:
+        if not re.search(r"(?:^|\s)lang:\S+", clean_q):
+            lang_prefix = f"lang:{lang} "
+
+    filter_suffix = ""
+    if filter_ops and filter_ops.strip():
+        filter_suffix = f" {filter_ops.strip()}"
+
+    fixed_len = len(lang_prefix) + len(filter_suffix)
+    if fixed_len > max_query:
+        raise ValueError("Operators and language filter exceed maximum query length.")
+
+    available = max_query - fixed_len
+
+    if not clean_q:
+        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
+        return fitted, False
+
+    if len(clean_q) <= available:
+        fitted = f"{lang_prefix}{clean_q}{filter_suffix}".strip()
+        return re.sub(r"\s+", " ", fitted), False
+
+    if available <= 0:
+        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
+        return fitted, True
+
+    cut = clean_q[:available]
+
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        cut = cut[:last_space].rstrip()
+
+    tokens = cut.split()
+    if tokens:
+        last_tok = tokens[-1]
+        tok_pos = clean_q.find(last_tok, max(0, len(cut) - len(last_tok) - 5))
+        if tok_pos >= 0:
+            tok_end = tok_pos + len(last_tok)
+            if tok_end < len(clean_q) and not clean_q[tok_end].isspace():
+                if len(tokens) > 1 or ":" in last_tok or last_tok.startswith(("-", "+")):
+                    tokens.pop()
+                    cut = " ".join(tokens).rstrip()
+
+    tokens = cut.split()
+    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
+        tokens.pop()
+    cut = " ".join(tokens).rstrip()
+
+    if cut.count('"') % 2 != 0:
+        last_q = cut.rfind('"')
+        cut = cut[:last_q].rstrip()
+
+    tokens = cut.split()
+    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
+        tokens.pop()
+    cut = " ".join(tokens).rstrip()
+
+    fitted = f"{lang_prefix}{cut}{filter_suffix}".strip()
+    return re.sub(r"\s+", " ", fitted), True

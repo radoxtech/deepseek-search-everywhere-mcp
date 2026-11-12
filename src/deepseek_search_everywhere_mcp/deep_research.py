@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .extract import sanitize_json
+from .filters import fit_query
 from .urls import _canonical_url, _url_etld1
 
 DepthLevel = Literal["low", "medium", "high", "max"]
@@ -235,6 +236,103 @@ def parse_subqueries(response_text: str, fallback_topic: str, max_queries: int =
         return [fallback_topic[:128].strip()]
 
     return queries[:max_queries]
+
+
+_URL_PATTERN = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
+_SITE_PATTERN = re.compile(r"(?i)\bsite:([^\s]+)")
+
+R2_GAP_SYSTEM_PROMPT = (
+    "You are an expert research gap analyst. You are provided with a research topic and the titles "
+    "and snippets from preliminary search results (Round 1). Identify what key angles, aspects, "
+    "subtopics, counterarguments, or critical data points are still missing or under-explored.\n"
+    "Generate 2 to 3 new, distinct search queries to investigate these missing gaps.\n"
+    'Output ONLY a valid JSON object with key "queries" containing an array of strings.\n'
+    "RULES:\n"
+    "- Each search query must be at most 100 characters.\n"
+    "- Do not include URLs or web addresses.\n"
+    "- Do not repeat previous search queries.\n"
+    "- Output ONLY the JSON object, with no extra text or markdown code fences."
+)
+
+
+def build_r2_gap_messages(
+    topic: str,
+    r1_items: list[dict[str, Any]],
+    r1_queries: list[str],
+) -> list[dict[str, str]]:
+    """Build messages for deepseek-flash to identify research gaps and generate R2 queries."""
+    findings_lines: list[str] = []
+    for idx, item in enumerate(r1_items[:12], 1):
+        title = item.get("title") or "Untitled"
+        snippet = item.get("snippet") or (item.get("content") or "")[:250]
+        findings_lines.append(f"{idx}. {title}\n   Snippet: {snippet}")
+
+    findings_text = "\n".join(findings_lines) if findings_lines else "No preliminary results available."
+    executed_queries = ", ".join(f'"{q}"' for q in r1_queries)
+
+    user_prompt = (
+        f"Research Topic: {topic}\n\n"
+        f"Initial search queries already executed: {executed_queries}\n\n"
+        f"Preliminary findings from Round 1:\n{findings_text}\n\n"
+        "Identify missing perspectives or unaddressed questions and return 2-3 new search queries in JSON."
+    )
+    return [
+        {"role": "system", "content": R2_GAP_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def validate_r2_queries(
+    queries: list[str],
+    clean_topic: str,
+    r1_queries: list[str],
+    r1_domains: set[str],
+    lang: str | None = None,
+) -> list[str]:
+    """Validate and deduplicate generated Round 2 gap queries (S6 steering defense).
+
+    Rejects queries containing raw URLs or 'site:' operators targeting domains outside
+    the topic and R1 domain pool. Fits query lengths and drops duplicates against R1.
+    """
+    normalized_r1 = {q.strip().lower() for q in r1_queries}
+    topic_lower = clean_topic.lower()
+    valid_queries: list[str] = []
+    seen: set[str] = set()
+
+    for raw_q in queries:
+        q = raw_q.strip()
+        if not q:
+            continue
+        # S6: reject queries containing URLs
+        if _URL_PATTERN.search(q):
+            continue
+
+        # S6: reject site: filters not appearing in topic or R1 domain pool
+        site_matches = _SITE_PATTERN.findall(q)
+        site_allowed = True
+        for site in site_matches:
+            clean_site = site.strip("\"'").lower()
+            etld1 = _url_etld1(clean_site)
+            if clean_site not in topic_lower and etld1 not in r1_domains and clean_site not in r1_domains:
+                site_allowed = False
+                break
+        if not site_allowed:
+            continue
+
+        # Length fitting via fit_query
+        try:
+            fitted, _ = fit_query(q, lang=lang)
+        except ValueError:
+            continue
+
+        norm = fitted.strip().lower()
+        if norm in normalized_r1 or norm in seen:
+            continue
+
+        seen.add(norm)
+        valid_queries.append(fitted)
+
+    return valid_queries
 
 
 def rank_and_diversify_sources(

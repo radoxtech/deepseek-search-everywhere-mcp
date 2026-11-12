@@ -38,12 +38,14 @@ from .deep_research import (
     DEPTH_CONFIG,
     ResearchJob,
     build_decomposition_messages,
+    build_r2_gap_messages,
     build_synthesis_messages,
     get_job_store,
     parse_subqueries,
     rank_and_diversify_sources,
     sanitize_citations,
     select_synthesis_context,
+    validate_r2_queries,
 )
 from .deep_research import (
     reset_state as reset_deep_research_state,
@@ -58,7 +60,7 @@ from .extract import (
     validate_schema,
     verify_evidence,
 )
-from .filters import compile_filters
+from .filters import MAX_QUERY, compile_filters, fit_query
 from .ratelimit import CHAT, FETCH, SEARCH, RateLimiter, RateLimitExceeded
 from .redact import redact
 from .sanitize import (
@@ -74,10 +76,10 @@ from .urls import (
     CODE_INVALID,
     UrlError,
     _canonical_url,
+    _url_etld1,
     validate_url,
 )
 
-MAX_QUERY = 128
 MAX_URL = 8192
 MAX_TOPIC = 500
 SEARCH_TIMEOUT = 45.0
@@ -738,89 +740,6 @@ def _clean_index_text(text: str) -> str:
     cleaned = _strip_html_tags(_decode_json_escapes(text))
     cleaned, _ = sanitize_untrusted_text(cleaned)
     return cleaned
-
-
-def fit_query(
-    query: str,
-    *,
-    lang: str | None = None,
-    filter_ops: str | None = None,
-    max_query: int = MAX_QUERY,
-) -> tuple[str, bool]:
-    """Fit query, language operator and filter operators into ``max_query`` characters.
-
-    Operators and language are prioritized. If they alone exceed ``max_query``, raises
-    ValueError("operators_exceed_limit").
-    When the query must be trimmed:
-    - Cuts at the last word boundary (space).
-    - Drops any half-cut operator or token.
-    - Drops unbalanced double quotes.
-    - Preserves Unicode characters intact.
-
-    Returns ``(fitted_query, trimmed)``.
-    """
-    clean_q = re.sub(r"\s+", " ", query).strip()
-
-    lang_prefix = ""
-    if lang:
-        if not re.search(r"(?:^|\s)lang:\S+", clean_q):
-            lang_prefix = f"lang:{lang} "
-
-    filter_suffix = ""
-    if filter_ops and filter_ops.strip():
-        filter_suffix = f" {filter_ops.strip()}"
-
-    fixed_len = len(lang_prefix) + len(filter_suffix)
-    if fixed_len > max_query:
-        raise ValueError("Operators and language filter exceed maximum query length.")
-
-    available = max_query - fixed_len
-
-    if not clean_q:
-        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
-        return fitted, False
-
-    if len(clean_q) <= available:
-        fitted = f"{lang_prefix}{clean_q}{filter_suffix}".strip()
-        return re.sub(r"\s+", " ", fitted), False
-
-    if available <= 0:
-        fitted = f"{lang_prefix.strip()}{filter_suffix}".strip()
-        return fitted, True
-
-    cut = clean_q[:available]
-
-    last_space = cut.rfind(" ")
-    if last_space > 0:
-        cut = cut[:last_space].rstrip()
-
-    tokens = cut.split()
-    if tokens:
-        last_tok = tokens[-1]
-        tok_pos = clean_q.find(last_tok, max(0, len(cut) - len(last_tok) - 5))
-        if tok_pos >= 0:
-            tok_end = tok_pos + len(last_tok)
-            if tok_end < len(clean_q) and not clean_q[tok_end].isspace():
-                if len(tokens) > 1 or ":" in last_tok or last_tok.startswith(("-", "+")):
-                    tokens.pop()
-                    cut = " ".join(tokens).rstrip()
-
-    tokens = cut.split()
-    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
-        tokens.pop()
-    cut = " ".join(tokens).rstrip()
-
-    if cut.count('"') % 2 != 0:
-        last_q = cut.rfind('"')
-        cut = cut[:last_q].rstrip()
-
-    tokens = cut.split()
-    while tokens and (tokens[-1].endswith(":") or tokens[-1] in ("-", "+")):
-        tokens.pop()
-    cut = " ".join(tokens).rstrip()
-
-    fitted = f"{lang_prefix}{cut}{filter_suffix}".strip()
-    return re.sub(r"\s+", " ", fitted), True
 
 
 def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
@@ -2792,12 +2711,94 @@ async def _execute_research_pipeline(
     if not successful_searches:
         return search_results[0]
 
-    # Step 3: Round-robin interleave across subqueries, dedupe, domain cap, top K
     subquery_result_lists = [s.get("results", []) for s in successful_searches]
-    selected_items, rank_notes = rank_and_diversify_sources(subquery_result_lists, k_sources=cfg.k_sources)
     cached_count = sum(s.get("cached_count", 0) for s in successful_searches)
     requests_used = sum(s.get("requests_used", 0) for s in successful_searches)
+    search_cost = sum(s.get("cost_usd", 0.0) for s in successful_searches)
+    r2_notes: list[str] = []
 
+    # Round 2: Gap analysis for 'max' depth
+    if depth == "max":
+        rem_r2 = deadline_at - _clock()
+        if rem_r2 - synthesis_reserve < 10.0:
+            r2_notes.append("Round 2 skipped due to deadline budget.")
+        else:
+            r1_items: list[dict[str, Any]] = []
+            r1_domains: set[str] = set()
+            for r in successful_searches:
+                for it in r.get("results", []):
+                    r1_items.append(it)
+                    u = it.get("url") or ""
+                    d = _url_etld1(u)
+                    if d:
+                        r1_domains.add(d)
+
+            r2_timeout = min(25.0, max(5.0, (rem_r2 - synthesis_reserve) / 2))
+            try:
+                r2_messages = build_r2_gap_messages(clean_topic, r1_items, subqueries)
+                r2_res = await _chat_request(
+                    messages=r2_messages,
+                    thinking={"type": "disabled"},
+                    model=REWRITE_MODEL,
+                    temperature=0.0,
+                    max_tokens=1024,
+                    response_format={"type": "json_object"},
+                    timeout=r2_timeout,
+                    deadline=r2_timeout,
+                    attempts=1,
+                )
+                if r2_res.get("ok") and r2_res.get("content"):
+                    dec_cost += r2_res.get("cost_usd", 0.0)
+                    r2_parsed = parse_subqueries(r2_res["content"], clean_topic, max_queries=3)
+                    valid_r2 = validate_r2_queries(r2_parsed, clean_topic, subqueries, r1_domains, lang=lang)
+                    if valid_r2:
+                        rem_r2_search = deadline_at - _clock() - synthesis_reserve
+                        r2_search_timeout = min(20.0, max(5.0, rem_r2_search))
+                        r2_search_coros = [
+                            asyncio.wait_for(
+                                _search(
+                                    r2q,
+                                    max_pages_per_query,
+                                    None,
+                                    "full",
+                                    lang,
+                                    cfg.per_page_char_cap,
+                                    cfg.per_page_char_cap * max_pages_per_query,
+                                    dedupe,
+                                    False,
+                                    refresh=refresh,
+                                    strip_boilerplate=strip_boilerplate,
+                                ),
+                                timeout=r2_search_timeout,
+                            )
+                            for r2q in valid_r2
+                        ]
+                        r2_search_results = await asyncio.gather(*r2_search_coros, return_exceptions=True)
+                        successful_r2 = [r for r in r2_search_results if isinstance(r, dict) and r.get("ok")]
+                        if successful_r2:
+                            for r2q, res_dict in zip(valid_r2, r2_search_results, strict=True):
+                                if isinstance(res_dict, dict) and res_dict.get("ok"):
+                                    subqueries.append(r2q)
+                                    subquery_result_lists.append(res_dict.get("results", []))
+                            cached_count += sum(s.get("cached_count", 0) for s in successful_r2)
+                            requests_used += sum(s.get("requests_used", 0) for s in successful_r2)
+                            search_cost += sum(s.get("cost_usd", 0.0) for s in successful_r2)
+                        else:
+                            r2_notes.append(
+                                "Round 2 search produced no results; proceeding with Round 1 sources."
+                            )
+                    else:
+                        r2_notes.append(
+                            "Round 2 gap query validation failed; proceeding with Round 1 sources."
+                        )
+                else:
+                    r2_notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
+            except Exception as exc:
+                logger.debug("Round 2 gap analysis exception: %s", exc)
+                r2_notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
+
+    # Step 3: Round-robin interleave across subqueries, dedupe, domain cap, top K
+    selected_items, rank_notes = rank_and_diversify_sources(subquery_result_lists, k_sources=cfg.k_sources)
     sources = [
         _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected_items, 1)
     ]
@@ -2819,7 +2820,7 @@ async def _execute_research_pipeline(
     requests_used += fill.requests_used
     cached_count += fill.cached_count
 
-    notes: list[str] = list(rank_notes)
+    notes: list[str] = r2_notes + list(rank_notes)
     if fill.fetched:
         notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
     if fill.failed:
@@ -2828,7 +2829,6 @@ async def _execute_research_pipeline(
     # Step 5: Select synthesis context
     job.progress = {"phase": "synthesis", "step": 4, "of": 4}
     synthesis_context = select_synthesis_context(sources, depth=depth)
-    search_cost = sum(s.get("cost_usd", 0.0) for s in successful_searches)
     fetch_cost = fill.requests_used * COST_PER_REQUEST
     if not synthesis_context:
         total_llm_cost = round(dec_cost, 6)
