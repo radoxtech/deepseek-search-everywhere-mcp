@@ -2705,6 +2705,7 @@ async def deepseek_check_research(
             if res.get("ok"):
                 res["status"] = "done"
                 res["delivery"] = "polled"
+                res["elapsed_ms"] = max(0, int((_clock() - job.created_at) * 1000))
             return res
 
         inline_wait = settings.research_inline_wait
@@ -2721,6 +2722,7 @@ async def deepseek_check_research(
             if res.get("ok"):
                 res["status"] = "done"
                 res["delivery"] = "polled"
+                res["elapsed_ms"] = max(0, int((_clock() - job.created_at) * 1000))
             return res
 
         elapsed_ms = int((_clock() - job.created_at) * 1000)

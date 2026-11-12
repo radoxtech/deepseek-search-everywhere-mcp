@@ -1665,3 +1665,43 @@ async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_deny
     fake_upstream(DeepResearchUpstream(search_results=results))
     res = await server.deepseek_research("denylist topic two", depth="low")
     assert {s["url"] for s in res["sources"]} == {"https://feedly.com/i/entry/1", "https://physics.org/qec"}
+
+
+async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(server, "_clock", lambda: clock["now"])
+    gate = asyncio.Event()
+
+    async def gated_pipeline(*, job: Any, clean_topic: str, depth: str, **kwargs: Any) -> dict[str, Any]:
+        await gate.wait()
+        return {
+            "ok": True,
+            "status": "done",
+            "topic": clean_topic,
+            "depth": depth,
+            "report": "polled report",
+            "synthesized": True,
+            "sources": [],
+            "cached": False,
+            "cost_usd": 0.0,
+            "cost_breakdown": {"search": 0.0, "fetch": 0.0, "llm": 0.0},
+            "_meta": {"cost_usd": 0.0, "untrusted_content": True},
+        }
+
+    monkeypatch.setattr(server, "_execute_research_pipeline", gated_pipeline)
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.01))
+
+    started = await server.deepseek_research("Elapsed polled topic", depth="low")
+    assert started["status"] == "running"
+
+    clock["now"] += 7.5
+    gate.set()
+    job = get_job_store().get(started["job_id"])
+    assert job is not None and job.task is not None
+    await job.task
+    clock["now"] += 0.5
+
+    res = await server.deepseek_check_research(started["job_id"])
+    assert res["status"] == "done"
+    assert res["delivery"] == "polled"
+    assert res["elapsed_ms"] == 8000
