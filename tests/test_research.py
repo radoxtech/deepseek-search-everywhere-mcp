@@ -1708,3 +1708,25 @@ async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: 
     assert res["status"] == "done"
     assert res["delivery"] == "polled"
     assert res["elapsed_ms"] == 8000
+
+
+def test_filter_synthesis_output_keeps_comparison_operators() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    raw_report = (
+        "Effect size was significant (p < .05 and I² > 50%) [1]. "
+        "Reduction (p <.04), heterogeneity (I² >50% in the network) [2]. "
+        "If a < b and c > d then [1]."
+    )
+    cleaned, suspected, notes = filter_synthesis_output(raw_report, allowed_urls=set())
+    assert cleaned == raw_report
+    assert suspected == 0
+    assert notes == []
+
+
+def test_filter_synthesis_output_strips_only_real_html_tags() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    raw_report = "Before <script>x</script> middle <b>x</b> and <div class='a'>x</div> after [1]."
+    cleaned, _, _ = filter_synthesis_output(raw_report, allowed_urls=set())
+    assert cleaned == "Before x middle x and x after [1]."

@@ -505,7 +505,9 @@ _TRACKING_QUERY_EXACT = frozenset(
 _TRACKING_QUERY_PREFIXES = ("utm_", "__cf_chl", "_x_tr_")
 SOURCE_TITLE_MAX = 100
 _TITLE_BLOCK_MARKUP_STARTS = ("<", ">", "|")
-_TITLE_TAG_RE = re.compile(r"<[^>]*>")
+# Only real HTML tags: a letter right after "<" or "</" and no newline inside. Comparison
+# operators in prose (p < .05, I² > 50%) and "a < b and c > d" must survive untouched.
+_HTML_TAG_PATTERN = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(\s[^<>\n]*)?/?>")
 _TITLE_MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _TITLE_MD_MARKERS_RE = re.compile(r"(?<!\w)(\*{1,3}|_{1,3})|(\*{1,3}|_{1,3})(?!\w)|`+|~~")
 _TITLE_LEADING_MD_RE = re.compile(r"^[\s>#|\-*+]+")
@@ -546,7 +548,7 @@ def clean_source_title(title: Any, url: str = "") -> str:
     if title.lstrip().startswith(_TITLE_BLOCK_MARKUP_STARTS):
         return host
     text = _TITLE_MD_LINK_RE.sub(r"\1", title)
-    text = _TITLE_TAG_RE.sub("", text)
+    text = _HTML_TAG_PATTERN.sub("", text)
     text = _TITLE_MD_MARKERS_RE.sub("", text)
     text = _TITLE_LEADING_MD_RE.sub("", " ".join(text.split()))
     text = " ".join(text.split())
@@ -636,7 +638,6 @@ _INJECTION_PATTERN = re.compile(
     r")\b"
 )
 _MD_IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
-_HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _LINK_DEFINITION_PATTERN = re.compile(
     r"(?m)^[ \t]*\[(?!\^)[^\]\n]+\]:[ \t]*<?((?:[a-zA-Z][a-zA-Z0-9+.-]*:|www\.|//)[^\s>]*)>?.*(?:\n|$)"

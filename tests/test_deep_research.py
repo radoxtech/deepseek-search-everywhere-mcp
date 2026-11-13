@@ -257,3 +257,9 @@ def test_rank_denylist_configurable_to_empty():
     selected, notes = rank_and_diversify_sources(results, k_sources=3, denylist=())
     assert [s["title"] for s in selected] == ["ezproxy"]
     assert notes == []
+
+
+def test_clean_source_title_keeps_comparison_operators() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import clean_source_title
+
+    assert clean_source_title("p<0.05 vs I²>50%", "https://a.example/p") == "p<0.05 vs I²>50%"
