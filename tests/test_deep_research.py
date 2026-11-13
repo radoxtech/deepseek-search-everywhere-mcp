@@ -129,6 +129,30 @@ def test_report_body_words_ignores_references_section():
             "https://a.example/p?id=7",
         ),
         ("https://a.example/p?a=1&b=%20x", "https://a.example/p?a=1&b=%20x"),
+        (
+            "https://pdf.sciencedirectassets.com/123?X-Amz-Security-Token=abc&X-Amz-Expires=300"
+            "&X-Amz-Signature=sig&X-Amz-Credential=cred",
+            "https://pdf.sciencedirectassets.com/123",
+        ),
+        (
+            "https://blob.example.com/doc.pdf?sv=2022&se=2026&sp=r&sr=b&sig=abc",
+            "https://blob.example.com/doc.pdf",
+        ),
+        ("https://example.com/p?sv=1&sp=r", "https://example.com/p?sv=1&sp=r"),
+        ("https://example.com/p?token=abc&id=7", "https://example.com/p?id=7"),
+        (
+            "https://journals-lww-com.libproxy.ucl.ac.uk/article/123",
+            "https://journals.lww.com/article/123",
+        ),
+        (
+            "https://arxiv-org.ezproxy.obspm.fr/pdf/2509.07157",
+            "https://arxiv.org/pdf/2509.07157",
+        ),
+        (
+            "https://journals-lww-com.libproxy.ucl.ac.uk/doi/10.1097/XYZ.0000000000001234",
+            "https://doi.org/10.1097/XYZ.0000000000001234",
+        ),
+        ("https://lib.ezproxy.uni.edu/login?url=x", "https://lib.ezproxy.uni.edu/login?url=x"),
     ],
 )
 def test_clean_source_url(raw: str, expected: str) -> None:
@@ -236,7 +260,6 @@ def test_rank_without_authority_keeps_round_robin_order():
 
 def test_rank_drops_denylisted_hosts_with_note():
     from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
-    from deepseek_search_everywhere_mcp.settings import DEFAULT_SOURCE_DENYLIST
 
     results = [
         [
@@ -245,7 +268,7 @@ def test_rank_drops_denylisted_hosts_with_note():
             {"url": "https://good.example/p", "title": "keep2"},
         ]
     ]
-    selected, notes = rank_and_diversify_sources(results, k_sources=10, denylist=DEFAULT_SOURCE_DENYLIST)
+    selected, notes = rank_and_diversify_sources(results, k_sources=10, denylist=("*.ezproxy.*",))
     assert [s["title"] for s in selected] == ["keep1", "keep2"]
     assert any("1" in n and "denylist" in n.lower() for n in notes)
 

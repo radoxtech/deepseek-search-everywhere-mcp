@@ -506,6 +506,9 @@ _TRACKING_QUERY_EXACT = frozenset(
     {"fbclid", "gclid", "yclid", "mc_cid", "mc_eid", "pow_referer", "msclkid", "dclid"}
 )
 _TRACKING_QUERY_PREFIXES = ("utm_", "__cf_chl", "_x_tr_")
+_SIGNED_QUERY_EXACT = frozenset({"expires", "signature", "key-pair-id", "policy", "token", "sig"})
+_AZURE_SAS_QUERY_EXACT = frozenset({"se", "sp", "sv", "sr"})
+_PROXY_HOST_MARKERS = (".libproxy.", ".ezproxy.")
 SOURCE_TITLE_MAX = 100
 _TITLE_BLOCK_MARKUP_STARTS = ("<", ">", "|")
 # Only real HTML tags: a letter right after "<" or "</" and no newline inside. Comparison
@@ -521,9 +524,32 @@ def _is_tracking_query_name(name: str) -> bool:
     return lowered in _TRACKING_QUERY_EXACT or lowered.startswith(_TRACKING_QUERY_PREFIXES)
 
 
-def clean_source_url(url: str) -> str:
-    """Strip the fragment and challenge/tracking query parameters from a source URL.
+def _is_signed_query_name(name: str, azure_sas: bool) -> bool:
+    lowered = name.lower()
+    if lowered.startswith("x-amz-") or lowered in _SIGNED_QUERY_EXACT:
+        return True
+    return azure_sas and lowered in _AZURE_SAS_QUERY_EXACT
 
+
+def _rewrite_proxy_host(host: str) -> str | None:
+    """Map ``publisher-name.libproxy.example`` / ``.ezproxy.`` hosts back to the publisher host."""
+    lowered = host.lower()
+    for marker in _PROXY_HOST_MARKERS:
+        index = lowered.find(marker)
+        if index <= 0:
+            continue
+        label = host[:index]
+        if "-" not in label:
+            return None
+        return label.replace("-", ".")
+    return None
+
+
+def clean_source_url(url: str) -> str:
+    """Strip the fragment, tracking and signed/expiring query parameters from a source URL.
+
+    Signed and proxied URLs are canonicalized: a known DOI becomes ``https://doi.org/<doi>`` and
+    ``publisher-name.libproxy...``/``.ezproxy...`` hosts are rewritten to ``publisher.name``.
     Remaining query parameters keep their original order and encoding.
     """
     raw = (url or "").strip()
@@ -531,12 +557,26 @@ def clean_source_url(url: str) -> str:
         parts = urlsplit(raw)
     except ValueError:
         return raw.split("#", 1)[0]
-    kept = [
-        segment
-        for segment in parts.query.split("&")
-        if segment and not _is_tracking_query_name(segment.split("=", 1)[0])
-    ]
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "&".join(kept), ""))
+    names = [segment.split("=", 1)[0] for segment in parts.query.split("&") if segment]
+    signed = any(name.lower() in {"sig", "signature"} for name in names)
+    signed_param_removed = False
+    kept: list[str] = []
+    for segment in parts.query.split("&"):
+        if not segment:
+            continue
+        name = segment.split("=", 1)[0]
+        if _is_tracking_query_name(name):
+            continue
+        if _is_signed_query_name(name, signed):
+            signed_param_removed = True
+            continue
+        kept.append(segment)
+    rewritten_host = _rewrite_proxy_host(parts.hostname or "")
+    netloc = rewritten_host if rewritten_host else parts.netloc
+    doi = source_identifiers(raw)["doi"]
+    if doi and (signed or signed_param_removed or rewritten_host):
+        return f"https://doi.org/{doi}"
+    return urlunsplit((parts.scheme, netloc, parts.path, "&".join(kept), ""))
 
 
 _DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)

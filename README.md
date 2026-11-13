@@ -434,7 +434,7 @@ The server reads configuration from environment variables. It does not read `.en
 | `DEEPSEEK_MCP_LOG_LEVEL` | `WARNING` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `DEEPSEEK_DAILY_BUDGET_USD` | unlimited | Daily spend cap in USD, e.g. `5.00` |
 | `DEEPSEEK_STATE_DIR` | see below | Directory of the budget state file |
-| `DEEPSEEK_SOURCE_DENYLIST` | `*.ezproxy.*` | Hosts research never uses as sources; `none` disables |
+| `DEEPSEEK_SOURCE_DENYLIST` | unset | Hosts research never uses as sources (library-proxy hosts are rewritten to the publisher); `none` disables |
 | `DEEPSEEK_FETCH_ALLOW_DOMAINS` | unset | Fetch only these domains |
 | `DEEPSEEK_FETCH_DENY_DOMAINS` | unset | Never fetch these domains |
 | `DEEPSEEK_EGRESS_ENTROPY_CHECK` | off | `1` also blocks long high-entropy tokens |

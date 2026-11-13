@@ -1656,6 +1656,7 @@ async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_deny
         {"title": "Feed", "url": "https://lib.ezproxy.uni.edu/entry/1", "content": "Proxy text. " * 20},
         {"title": "Real", "url": "https://physics.org/qec", "content": "Surface codes text. " * 20},
     ]
+    set_settings(Settings(source_denylist=("*.ezproxy.*",)))
     fake_upstream(DeepResearchUpstream(search_results=results))
     res = await server.deepseek_research("denylist topic", depth="low")
     assert [s["url"] for s in res["sources"]] == ["https://physics.org/qec"]

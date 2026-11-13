@@ -23,9 +23,10 @@ ENV_FETCH_DENY_DOMAINS = "DEEPSEEK_FETCH_DENY_DOMAINS"
 ENV_EGRESS_ENTROPY_CHECK = "DEEPSEEK_EGRESS_ENTROPY_CHECK"
 ENV_SOURCE_DENYLIST = "DEEPSEEK_SOURCE_DENYLIST"
 
-# Research never uses these hosts as sources (structural rules only: library proxies). An entry matches
-# the host itself and its subdomains; an entry containing "*" is a glob matched against the whole host.
-DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ("*.ezproxy.*",)
+# Research never uses these hosts as sources (default: none). Library-proxy hosts are rewritten to the
+# publisher in ``clean_source_url`` instead of being rejected. An entry matches the host itself and its
+# subdomains; an entry containing "*" is a glob matched against the whole host.
+DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ()
 
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"
