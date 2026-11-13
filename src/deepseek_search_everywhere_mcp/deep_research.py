@@ -539,6 +539,38 @@ def clean_source_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "&".join(kept), ""))
 
 
+_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
+_PUBMED_URL_RE = re.compile(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d+)", re.IGNORECASE)
+_PMCID_RE = re.compile(r"\bPMC(\d+)\b")
+_DOI_TRAILING_PUNCT = ".,;:!?)]}>'\""
+SOURCE_SNIPPET_ONLY_CHARS = 200
+
+
+def source_identifiers(url: str, content: str = "") -> dict[str, str | None]:
+    """Return the DOI, PMID and PMCID found in a source URL path or content (None when absent)."""
+    try:
+        parts = urlsplit(url or "")
+        url_without_query = f"{parts.netloc}{parts.path}"
+    except ValueError:
+        url_without_query = url or ""
+    haystack = f"{url_without_query}\n{content or ''}"
+    doi_match = _DOI_RE.search(haystack)
+    pmid_match = _PUBMED_URL_RE.search(haystack)
+    pmcid_match = _PMCID_RE.search(haystack)
+    return {
+        "doi": doi_match.group(0).rstrip(_DOI_TRAILING_PUNCT) if doi_match else None,
+        "pmid": pmid_match.group(1) if pmid_match else None,
+        "pmcid": f"PMC{pmcid_match.group(1)}" if pmcid_match else None,
+    }
+
+
+def source_access(origin: str, content: str) -> str:
+    """Classify a source: a fetched page is ``full_text``; search text of >= 200 chars is ``abstract``."""
+    if origin == "fetch":
+        return "full_text"
+    return "abstract" if len(content or "") >= SOURCE_SNIPPET_ONLY_CHARS else "snippet_only"
+
+
 def clean_source_title(title: Any, url: str = "") -> str:
     """Return a plain one-line source title of at most ``SOURCE_TITLE_MAX`` characters.
 
@@ -590,6 +622,10 @@ def select_synthesis_context(
                 "title": s.get("title") or "Untitled",
                 "url": s.get("url"),
                 "date": s.get("date"),
+                "doi": s.get("doi"),
+                "pmid": s.get("pmid"),
+                "pmcid": s.get("pmcid"),
+                "access": s.get("access"),
                 "content": cut_content,
             }
         )

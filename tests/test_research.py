@@ -1184,7 +1184,7 @@ async def test_lean_envelope_contains_no_page_content_on_success(fake_upstream: 
     for s in res["sources"]:
         assert "content" not in s
         assert "snippet" not in s
-        assert set(s.keys()) == {"id", "title", "url", "date"}
+        assert set(s.keys()) == {"id", "title", "url", "date", "doi", "pmid", "pmcid", "access"}
 
     serialized = json.dumps(res)
     assert len(serialized) < 50_000
@@ -1730,3 +1730,38 @@ def test_filter_synthesis_output_strips_only_real_html_tags() -> None:
     raw_report = "Before <script>x</script> middle <b>x</b> and <div class='a'>x</div> after [1]."
     cleaned, _, _ = filter_synthesis_output(raw_report, allowed_urls=set())
     assert cleaned == "Before x middle x and x after [1]."
+
+
+async def test_research_sources_expose_identifiers_and_access(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "PubMed paper",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+            "content": "PubMed abstract text. " * 20,
+        },
+        {
+            "title": "PMC article",
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10123456/",
+            "content": "PMC full text body. " * 20,
+        },
+        {
+            "title": "Plain",
+            "url": "https://plain.example/page",
+            "content": "Short.",
+        },
+    ]
+    fake_upstream(DeepResearchUpstream(search_results=results))
+    res = await server.deepseek_research("identifiers topic", depth="low")
+    by_title = {s["title"]: s for s in res["sources"]}
+
+    pubmed = by_title["PubMed paper"]
+    assert (pubmed["doi"], pubmed["pmid"], pubmed["pmcid"]) == (None, "38123456", None)
+    assert pubmed["access"] == "abstract"
+
+    pmc = by_title["PMC article"]
+    assert (pmc["doi"], pmc["pmid"], pmc["pmcid"]) == (None, None, "PMC10123456")
+    assert pmc["access"] == "abstract"
+
+    plain = by_title["Plain"]
+    assert (plain["doi"], plain["pmid"], plain["pmcid"]) == (None, None, None)
+    assert plain["access"] == "full_text"

@@ -53,6 +53,8 @@ from .deep_research import (
     rank_and_diversify_sources,
     report_body_words,
     select_synthesis_context,
+    source_access,
+    source_identifiers,
     validate_r2_queries,
 )
 from .deep_research import (
@@ -2371,8 +2373,11 @@ def _format_public_sources(
 ) -> list[dict[str, Any]]:
     """Format research sources into a lean public list omitting full page content.
 
-    On success, sources contain only id, title, url, and date.
-    On fallback paths, a 400-character sanitized snippet is included.
+    Each item carries the identifiers extracted from the URL/content (``doi``, ``pmid``,
+    ``pmcid``) and ``access``: ``full_text`` for a fetched page, ``abstract`` for search content
+    of at least 200 characters and ``snippet_only`` otherwise.
+    On success, sources carry no page content; on fallback paths, a 400-character sanitized
+    snippet is included.
     """
     formatted: list[dict[str, Any]] = []
     for s in sources:
@@ -2384,6 +2389,10 @@ def _format_public_sources(
             "title": title,
             "url": s.get("url"),
             "date": s.get("date"),
+            "doi": s.get("doi"),
+            "pmid": s.get("pmid"),
+            "pmcid": s.get("pmcid"),
+            "access": s.get("access"),
         }
         if include_snippet:
             raw_text = s.get("snippet") or s.get("content") or ""
@@ -2405,6 +2414,7 @@ RESEARCH_TOTAL_CHARS = 30000
 def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str, Any]:
     """Turn one shaped search result into a research source (``origin`` = ``search``)."""
     url = clean_source_url(item["url"]) if isinstance(item.get("url"), str) else item.get("url")
+    content = item.get("content") or ""
     return {
         "id": index,
         "title": clean_source_title(item.get("title"), url or ""),
@@ -2414,11 +2424,13 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
         "site": item.get("site"),
         "authority": item.get("authority"),
         "rerank_score": item.get("rerank_score"),
-        "content": item.get("content") or "",
+        "content": content,
         "chars": 0,
         "origin": "search",
         "error": None,
         "cached": cached,
+        **source_identifiers(url or "", content),
+        "access": source_access("search", content),
     }
 
 
@@ -2520,6 +2532,8 @@ async def _fill_gaps(
                 source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
             source["origin"] = "fetch"
             source["cached"] = item["cached"]
+            source.update(source_identifiers(source["url"] or "", source["content"]))
+            source["access"] = source_access("fetch", source["content"])
             if source.get("date") is None and (found := _content_date(None, item["content"])):
                 source["date"], source["date_source"] = found, "content"
             fill.fetched += 1
@@ -2563,7 +2577,8 @@ async def deepseek_research(
     deepseek_fetch), or for structured entity or schema extraction (use deepseek_extract).
 
     Returns: {"ok": True, "topic": str, "depth": str, "report": str (no references list),
-    "sources": [{id, title, url, date}] (ids match the [n] citations), "cost_usd": float}.
+    "sources": [{id, title, url, date, doi, pmid, pmcid, access}] (ids match the [n] citations),
+    "cost_usd": float}.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:

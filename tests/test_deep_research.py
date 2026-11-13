@@ -271,3 +271,58 @@ def test_synthesis_prompt_requires_second_hand_attribution() -> None:
     assert "never attribute" in prompt
     assert "prefer the primary source" in prompt
     assert "it only cites" in prompt
+
+
+@pytest.mark.parametrize(
+    ("url", "content", "expected"),
+    [
+        (
+            "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+            "",
+            {"doi": None, "pmid": "38123456", "pmcid": None},
+        ),
+        (
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC10123456/",
+            "",
+            {"doi": None, "pmid": None, "pmcid": "PMC10123456"},
+        ),
+        (
+            "https://doi.org/10.1136/bmj-2023-076242",
+            "",
+            {"doi": "10.1136/bmj-2023-076242", "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://www.sciencedirect.com/science/article/pii/S0148296323001234",
+            "",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://example.org/page?download=true",
+            "No identifiers here.",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://example.org/page",
+            "See doi:10.1000/xyz.123.",
+            {"doi": "10.1000/xyz.123", "pmid": None, "pmcid": None},
+        ),
+    ],
+)
+def test_source_identifiers(url: str, content: str, expected: dict[str, str | None]) -> None:
+    from deepseek_search_everywhere_mcp.deep_research import source_identifiers
+
+    assert source_identifiers(url, content) == expected
+
+
+@pytest.mark.parametrize(
+    ("origin", "content", "expected"),
+    [
+        ("fetch", "", "full_text"),
+        ("search", "x" * 200, "abstract"),
+        ("search", "x" * 199, "snippet_only"),
+    ],
+)
+def test_source_access_rule(origin: str, content: str, expected: str) -> None:
+    from deepseek_search_everywhere_mcp.deep_research import source_access
+
+    assert source_access(origin, content) == expected
