@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -71,8 +72,7 @@ def test_search_many_concurrent_success(fake_upstream):
     assert res["untrusted_content"] is True
     assert "cost_usd" in res["_meta"]
 
-    # searches is alias to results
-    assert res["searches"] == res["results"]
+    assert "searches" not in res
     assert res["results"][0]["query"] == "python"
     assert res["results"][0]["count"] == 1
     assert res["results"][1]["query"] == "asyncio"
@@ -202,3 +202,20 @@ def test_search_many_partial_on_slow_query(fake_upstream):
     assert slow_res["ok"] is False
     assert slow_res["query"] == "slow_q"
     assert slow_res["error"]["code"] == "deadline_exceeded"
+
+
+def test_search_many_enforces_payload_budget_without_duplicate_searches(fake_upstream):
+    big = "word " * 1000
+    results_map = {
+        name: [{"title": f"{name} {i}", "url": f"https://{name}{i}.test", "content": big} for i in range(6)]
+        for name in ("alpha", "beta", "gamma")
+    }
+    _install_fake_search(fake_upstream, results_map)
+
+    result = asyncio.run(
+        server.deepseek_search_many(["alpha", "beta", "gamma"], count=6, content="full", max_total_chars=2000)
+    )
+    assert result["ok"] is True
+    assert "searches" not in result
+    assert len(json.dumps(result)) <= 2000 * 1.1 + 2000
+    assert any("truncated" in note.lower() for note in result["notes"])

@@ -1431,6 +1431,37 @@ async def deepseek_search(
     return res
 
 
+def _envelope_chars(envelope: dict[str, Any]) -> int:
+    return len(json.dumps(envelope))
+
+
+def _fit_payload_budget(envelope: dict[str, Any], budget: int) -> bool:
+    """Trim result text from the end until the serialized envelope fits ``budget``; return True if trimmed."""
+    if _envelope_chars(envelope) <= budget:
+        return False
+    slots: list[tuple[dict[str, Any], str]] = []
+    for entry in reversed(envelope.get("results") or []):
+        for item in reversed(entry.get("results") or []):
+            for key in ("content", "snippet", "summary"):
+                if isinstance(item.get(key), str) and item[key]:
+                    slots.append((item, key))
+    while _envelope_chars(envelope) > budget:
+        progressed = False
+        for item, key in slots:
+            if _envelope_chars(envelope) <= budget:
+                break
+            text = item.get(key) or ""
+            if not text:
+                continue
+            overflow = _envelope_chars(envelope) - budget
+            cut = min(len(text), max(overflow, 32))
+            item[key] = text[: len(text) - cut].rstrip()
+            progressed = True
+        if not progressed:
+            break
+    return True
+
+
 @_timed
 async def deepseek_search_many(
     queries: Annotated[
@@ -1621,7 +1652,7 @@ async def deepseek_search_many(
             )
 
     cost = round(requests_used * COST_PER_REQUEST, 5)
-    return {
+    envelope: dict[str, Any] = {
         "ok": True,
         "count": len(results),
         "total_results": sum(r["count"] for r in results),
@@ -1634,10 +1665,13 @@ async def deepseek_search_many(
         "cost_usd": cost,
         "untrusted_content": True,
         "results": results,
-        "searches": results,
         "notes": notes,
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }
+    if _fit_payload_budget(envelope, max_total_chars):
+        envelope["notes"].append(TRUNCATED_NOTE)
+        _fit_payload_budget(envelope, max_total_chars)
+    return envelope
 
 
 def _reject_url(url: str) -> dict[str, Any] | None:
