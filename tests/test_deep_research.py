@@ -263,3 +263,11 @@ def test_clean_source_title_keeps_comparison_operators() -> None:
     from deepseek_search_everywhere_mcp.deep_research import clean_source_title
 
     assert clean_source_title("p<0.05 vs I²>50%", "https://a.example/p") == "p<0.05 vs I²>50%"
+
+
+def test_synthesis_prompt_requires_second_hand_attribution() -> None:
+    prompt = build_synthesis_system_prompt("medium")
+    assert "(Author year, as cited in [n])" in prompt
+    assert "never attribute" in prompt
+    assert "prefer the primary source" in prompt
+    assert "it only cites" in prompt
