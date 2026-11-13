@@ -195,8 +195,6 @@ DEPTH_CONFIG: dict[str, DepthConfig] = {
     ),
 }
 
-MAX_SYNTHESIS_SOURCES = 6
-MAX_SYNTHESIS_CHARS = 24000
 DECOMPOSE_SYSTEM_PROMPT = (
     "You decompose complex research topics into 2 to 4 distinct, targeted web search queries. "
     'Output ONLY a valid JSON object with key "queries" containing an array of strings. '
@@ -250,9 +248,6 @@ def build_synthesis_system_prompt(depth: str = "medium") -> str:
         f"{n} sections. Prefer dense prose; lead with the most decision-relevant findings and drop "
         "background that sources do not directly support."
     )
-
-
-SYNTHESIS_SYSTEM_PROMPT = build_synthesis_system_prompt("medium")
 
 
 _CITATION_ID_RE = re.compile(r"\[(\d{1,3})\]")

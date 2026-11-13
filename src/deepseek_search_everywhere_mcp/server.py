@@ -100,9 +100,7 @@ SEARCH_TIMEOUT = 45.0
 FETCH_TIMEOUT = 60.0
 BALANCE_TIMEOUT = 20.0
 CHAT_TIMEOUT = 8.0
-SYNTHESIS_TIMEOUT = 25.0
 EXTRACT_TIMEOUT = 20.0
-RESEARCH_DEADLINE = 35.0
 
 SEARCH_PATH = "/v1/tools/search"
 FETCH_PATH = "/v1/tools/fetch"
@@ -2440,9 +2438,6 @@ def _format_public_sources(
 
 # Search results whose content is shorter than this are treated as gaps and fetched directly.
 RESEARCH_GAP_CHARS = 200
-# Default content budgets for deepseek_research: per source and across all sources.
-RESEARCH_PAGE_CHARS = 6000
-RESEARCH_TOTAL_CHARS = 30000
 
 
 def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str, Any]:

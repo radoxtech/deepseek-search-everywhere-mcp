@@ -349,3 +349,12 @@ def test_source_access_rule(origin: str, content: str, expected: str) -> None:
     from deepseek_search_everywhere_mcp.deep_research import source_access
 
     assert source_access(origin, content) == expected
+
+
+def test_dead_research_constants_are_removed() -> None:
+    from deepseek_search_everywhere_mcp import deep_research, server
+
+    for name in ("MAX_SYNTHESIS_SOURCES", "MAX_SYNTHESIS_CHARS", "SYNTHESIS_SYSTEM_PROMPT"):
+        assert not hasattr(deep_research, name)
+    for name in ("SYNTHESIS_TIMEOUT", "RESEARCH_DEADLINE", "RESEARCH_PAGE_CHARS", "RESEARCH_TOTAL_CHARS"):
+        assert not hasattr(server, name)
