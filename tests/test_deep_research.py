@@ -327,7 +327,32 @@ def test_synthesis_prompt_requires_second_hand_attribution() -> None:
         (
             "https://example.org/page",
             "See doi:10.1000/xyz.123.",
-            {"doi": "10.1000/xyz.123", "pmid": None, "pmcid": None},
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://blog.example.com/post",
+            "We review the exciting paper doi: 10.1000/xyz.123 here.",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://www.nature.com/articles/s41586-023-0001",
+            "Header without doi.\n## References\n1. Author et al. doi: 10.1000/ref.1",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://www.nature.com/articles/s41586-023-0001",
+            "Nature Article\ndoi: 10.1038/s41586-023-0001\nAbstract text...",
+            {"doi": "10.1038/s41586-023-0001", "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://academic.oup.com/nar/article/1",
+            "Nucleic Acids Research\nPMID: 12345678\nAbstract text...",
+            {"doi": None, "pmid": "12345678", "pmcid": None},
+        ),
+        (
+            "https://blog.example.org/p",
+            "Header text mentioning PMID: 12345678 in blog.",
+            {"doi": None, "pmid": None, "pmcid": None},
         ),
     ],
 )

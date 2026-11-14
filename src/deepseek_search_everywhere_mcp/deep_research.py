@@ -578,24 +578,116 @@ _DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
 _PUBMED_URL_RE = re.compile(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d+)", re.IGNORECASE)
 _PMCID_RE = re.compile(r"\bPMC(\d+)\b")
 _DOI_TRAILING_PUNCT = ".,;:!?)]}>'\""
+_EXPLICIT_DOI_RE = re.compile(
+    r"(?i)\b(?:doi\s*[:\s/]\s*|https?://(?:dx\.)?doi\.org/)(10\.\d{4,9}/[^\s\"<>]+)"
+)
+_EXPLICIT_PMID_RE = re.compile(r"(?i)\bpmid\s*[:\s]\s*(\d+)\b")
+_REF_HEADING_RE = re.compile(r"(?mi)^(?:#{1,4}\s*)?(?:References|Bibliography|Works Cited)\s*(?::|\n|\r|$)")
 SOURCE_SNIPPET_ONLY_CHARS = 200
+
+SCHOLARLY_HOST_DOMAINS = frozenset(
+    {
+        "pubmed.ncbi.nlm.nih.gov",
+        "pmc.ncbi.nlm.nih.gov",
+        "ncbi.nlm.nih.gov",
+        "europepmc.org",
+        "doi.org",
+        "arxiv.org",
+        "biorxiv.org",
+        "medrxiv.org",
+        "cochranelibrary.com",
+        "nature.com",
+        "sciencedirect.com",
+        "springer.com",
+        "wiley.com",
+        "tandfonline.com",
+        "sagepub.com",
+        "bmj.com",
+        "thelancet.com",
+        "nejm.org",
+        "jamanetwork.com",
+        "frontiersin.org",
+        "mdpi.com",
+        "plos.org",
+        "journals.lww.com",
+        "lww.com",
+        "academic.oup.com",
+        "oup.com",
+    }
+)
+
+
+def is_scholarly_host(host: str) -> bool:
+    """Return True if host is a known academic publisher, portal or educational domain."""
+    clean_host = (host or "").lower().strip(".")
+    if not clean_host:
+        return False
+    if any(clean_host == d or clean_host.endswith("." + d) for d in SCHOLARLY_HOST_DOMAINS):
+        return True
+    labels = clean_host.split(".")
+    if labels[-1] == "edu" or "edu" in labels[:-1]:
+        return True
+    if any(label == "ac" for label in labels[1:-1]):
+        return True
+    return False
 
 
 def source_identifiers(url: str, content: str = "") -> dict[str, str | None]:
-    """Return the DOI, PMID and PMCID found in a source URL path or content (None when absent)."""
+    """Return the DOI, PMID and PMCID found in a source URL or scholarly header (None when absent).
+
+    Identifiers come from the URL first. Content is inspected only when the host is scholarly,
+    and only within the header region (~first 1500 characters before any references heading).
+    """
     try:
         parts = urlsplit(url or "")
+        hostname = parts.hostname or ""
         url_without_query = f"{parts.netloc}{parts.path}"
     except ValueError:
+        hostname = ""
         url_without_query = url or ""
-    haystack = f"{url_without_query}\n{content or ''}"
-    doi_match = _DOI_RE.search(haystack)
-    pmid_match = _PUBMED_URL_RE.search(haystack)
-    pmcid_match = _PMCID_RE.search(haystack)
+
+    doi: str | None = None
+    pmid: str | None = None
+    pmcid: str | None = None
+
+    doi_url_match = _DOI_RE.search(url_without_query)
+    if doi_url_match:
+        doi = doi_url_match.group(0).rstrip(_DOI_TRAILING_PUNCT)
+
+    pmid_url_match = _PUBMED_URL_RE.search(url_without_query)
+    if pmid_url_match:
+        pmid = pmid_url_match.group(1)
+
+    pmcid_url_match = _PMCID_RE.search(url_without_query)
+    if pmcid_url_match:
+        pmcid = f"PMC{pmcid_url_match.group(1)}"
+
+    # Inspect content only for scholarly hosts
+    if content and is_scholarly_host(hostname):
+        header = content[:1500]
+        ref_match = _REF_HEADING_RE.search(header)
+        if ref_match:
+            header = header[: ref_match.start()]
+
+        if doi is None:
+            explicit_doi = _EXPLICIT_DOI_RE.search(header)
+            if explicit_doi:
+                doi = explicit_doi.group(1).rstrip(_DOI_TRAILING_PUNCT)
+
+        if pmid is None:
+            explicit_pmid = _EXPLICIT_PMID_RE.search(header)
+            if explicit_pmid:
+                pmid = explicit_pmid.group(1)
+
+        if pmcid is None:
+            pmcid_match = _PMCID_RE.search(header)
+            if pmcid_match:
+                pmcid = f"PMC{pmcid_match.group(1)}"
+
     return {
-        "doi": doi_match.group(0).rstrip(_DOI_TRAILING_PUNCT) if doi_match else None,
-        "pmid": pmid_match.group(1) if pmid_match else None,
-        "pmcid": f"PMC{pmcid_match.group(1)}" if pmcid_match else None,
+        "doi": doi,
+        "pmid": pmid,
+        "pmcid": pmcid,
     }
 
 
