@@ -89,6 +89,15 @@ def test_initialize_reports_the_package_version(client: TestClient) -> None:
     assert info == {"name": server.SERVER_NAME, "version": __version__}
 
 
+def test_initialize_reports_server_instructions(client: TestClient) -> None:
+    response = _post_initialize(client, AUTH)
+    instructions = response.json()["result"].get("instructions")
+    assert instructions is not None
+    assert "Default to deepseek_research" in instructions
+    assert 'sources="academic"' in instructions
+    assert 'sources="technical"' in instructions
+
+
 def test_auth_non_ascii_token_is_compared_as_bytes() -> None:
     token = "zażółć-gęślą"
     app = build_http_app(Settings(), token=token)

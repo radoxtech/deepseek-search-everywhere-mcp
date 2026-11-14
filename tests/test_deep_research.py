@@ -129,6 +129,30 @@ def test_report_body_words_ignores_references_section():
             "https://a.example/p?id=7",
         ),
         ("https://a.example/p?a=1&b=%20x", "https://a.example/p?a=1&b=%20x"),
+        (
+            "https://pdf.sciencedirectassets.com/123?X-Amz-Security-Token=abc&X-Amz-Expires=300"
+            "&X-Amz-Signature=sig&X-Amz-Credential=cred",
+            "https://pdf.sciencedirectassets.com/123",
+        ),
+        (
+            "https://blob.example.com/doc.pdf?sv=2022&se=2026&sp=r&sr=b&sig=abc",
+            "https://blob.example.com/doc.pdf",
+        ),
+        ("https://example.com/p?sv=1&sp=r", "https://example.com/p?sv=1&sp=r"),
+        ("https://example.com/p?token=abc&id=7", "https://example.com/p?id=7"),
+        (
+            "https://journals-lww-com.libproxy.ucl.ac.uk/article/123",
+            "https://journals.lww.com/article/123",
+        ),
+        (
+            "https://arxiv-org.ezproxy.obspm.fr/pdf/2509.07157",
+            "https://arxiv.org/pdf/2509.07157",
+        ),
+        (
+            "https://journals-lww-com.libproxy.ucl.ac.uk/doi/10.1097/XYZ.0000000000001234",
+            "https://doi.org/10.1097/XYZ.0000000000001234",
+        ),
+        ("https://lib.ezproxy.uni.edu/login?url=x", "https://lib.ezproxy.uni.edu/login?url=x"),
     ],
 )
 def test_clean_source_url(raw: str, expected: str) -> None:
@@ -236,7 +260,6 @@ def test_rank_without_authority_keeps_round_robin_order():
 
 def test_rank_drops_denylisted_hosts_with_note():
     from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
-    from deepseek_search_everywhere_mcp.settings import DEFAULT_SOURCE_DENYLIST
 
     results = [
         [
@@ -245,7 +268,7 @@ def test_rank_drops_denylisted_hosts_with_note():
             {"url": "https://good.example/p", "title": "keep2"},
         ]
     ]
-    selected, notes = rank_and_diversify_sources(results, k_sources=10, denylist=DEFAULT_SOURCE_DENYLIST)
+    selected, notes = rank_and_diversify_sources(results, k_sources=10, denylist=("*.ezproxy.*",))
     assert [s["title"] for s in selected] == ["keep1", "keep2"]
     assert any("1" in n and "denylist" in n.lower() for n in notes)
 
@@ -257,3 +280,313 @@ def test_rank_denylist_configurable_to_empty():
     selected, notes = rank_and_diversify_sources(results, k_sources=3, denylist=())
     assert [s["title"] for s in selected] == ["ezproxy"]
     assert notes == []
+
+
+def test_clean_source_title_keeps_comparison_operators() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import clean_source_title
+
+    assert clean_source_title("p<0.05 vs I²>50%", "https://a.example/p") == "p<0.05 vs I²>50%"
+
+
+def test_synthesis_prompt_requires_second_hand_attribution() -> None:
+    prompt = build_synthesis_system_prompt("medium")
+    assert "(Author year, as cited in [n])" in prompt
+    assert "never attribute" in prompt
+    assert "prefer the primary source" in prompt
+    assert "it only cites" in prompt
+
+
+@pytest.mark.parametrize(
+    ("url", "content", "expected"),
+    [
+        (
+            "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+            "",
+            {"doi": None, "pmid": "38123456", "pmcid": None},
+        ),
+        (
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC10123456/",
+            "",
+            {"doi": None, "pmid": None, "pmcid": "PMC10123456"},
+        ),
+        (
+            "https://doi.org/10.1136/bmj-2023-076242",
+            "",
+            {"doi": "10.1136/bmj-2023-076242", "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://www.sciencedirect.com/science/article/pii/S0148296323001234",
+            "",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://example.org/page?download=true",
+            "No identifiers here.",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://example.org/page",
+            "See doi:10.1000/xyz.123.",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://blog.example.com/post",
+            "We review the exciting paper doi: 10.1000/xyz.123 here.",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://www.nature.com/articles/s41586-023-0001",
+            "Header without doi.\n## References\n1. Author et al. doi: 10.1000/ref.1",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://www.nature.com/articles/s41586-023-0001",
+            "Nature Article\ndoi: 10.1038/s41586-023-0001\nAbstract text...",
+            {"doi": "10.1038/s41586-023-0001", "pmid": None, "pmcid": None},
+        ),
+        (
+            "https://academic.oup.com/nar/article/1",
+            "Nucleic Acids Research\nPMID: 12345678\nAbstract text...",
+            {"doi": None, "pmid": "12345678", "pmcid": None},
+        ),
+        (
+            "https://blog.example.org/p",
+            "Header text mentioning PMID: 12345678 in blog.",
+            {"doi": None, "pmid": None, "pmcid": None},
+        ),
+    ],
+)
+def test_source_identifiers(url: str, content: str, expected: dict[str, str | None]) -> None:
+    from deepseek_search_everywhere_mcp.deep_research import source_identifiers
+
+    assert source_identifiers(url, content) == expected
+
+
+@pytest.mark.parametrize(
+    ("origin", "content", "expected"),
+    [
+        ("fetch", "", "full_text"),
+        ("search", "x" * 200, "abstract"),
+        ("search", "x" * 199, "snippet_only"),
+    ],
+)
+def test_source_access_rule(origin: str, content: str, expected: str) -> None:
+    from deepseek_search_everywhere_mcp.deep_research import source_access
+
+    assert source_access(origin, content) == expected
+
+
+def test_dead_research_constants_are_removed() -> None:
+    from deepseek_search_everywhere_mcp import deep_research, server
+
+    for name in ("MAX_SYNTHESIS_SOURCES", "MAX_SYNTHESIS_CHARS", "SYNTHESIS_SYSTEM_PROMPT"):
+        assert not hasattr(deep_research, name)
+    for name in ("SYNTHESIS_TIMEOUT", "RESEARCH_DEADLINE", "RESEARCH_PAGE_CHARS", "RESEARCH_TOTAL_CHARS"):
+        assert not hasattr(server, name)
+
+
+def test_synthesis_prompt_requires_verbatim_numbers() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import build_synthesis_system_prompt
+
+    prompt = build_synthesis_system_prompt("medium")
+    assert "use only numbers that appear verbatim in the cited source" in prompt.lower()
+
+
+def test_number_grounding_flags_number_from_other_source() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ground_report_numbers
+
+    sources = [
+        {
+            "id": 1,
+            "title": "Bremer 2025 Study",
+            "url": "https://example.com/1",
+            "content": "Bremer evaluated 4 RCTs with 200 participants.",
+        },
+        {
+            "id": 2,
+            "title": "Garcia 2024 Study",
+            "url": "https://example.com/2",
+            "content": "Garcia included 11 studies with 934 participants and r = -0.19.",
+        },
+    ]
+    report = (
+        "Bremer reported 11 studies with 934 participants [1]. "
+        "Garcia observed a negative correlation with r = -0.19 [2]. "
+        "An uncited sentence with 42 items."
+    )
+
+    cleaned_report, unverified_numbers, unverified_count, notes = ground_report_numbers(report, sources)
+
+    assert unverified_count == 2
+    assert len(unverified_numbers) == 2
+    assert unverified_numbers[0]["number"] == "11"
+    assert unverified_numbers[0]["citation"] == "[1]"
+    assert unverified_numbers[0]["sentence"] == "Bremer reported 11 studies with 934 participants [1]."
+    assert unverified_numbers[1]["number"] == "934"
+    assert unverified_numbers[1]["citation"] == "[1]"
+    assert (
+        cleaned_report == "Bremer reported 11 studies with 934 participants [1] [unverified]. "
+        "Garcia observed a negative correlation with r = -0.19 [2]. "
+        "An uncited sentence with 42 items."
+    )
+    assert len(notes) == 1
+    assert "2 unverified number(s)" in notes[0]
+
+
+def test_classify_source_type() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import classify_source_type
+
+    assert (
+        classify_source_type(
+            "https://pubmed.ncbi.nlm.nih.gov/123/",
+            "Creatine: A randomized controlled trial in resistance training",
+        )
+        == "rct"
+    )
+    assert (
+        classify_source_type(
+            "https://pubmed.ncbi.nlm.nih.gov/456/",
+            "Systematic review and meta-analysis of cartilage repair",
+        )
+        == "meta-analysis"
+    )
+    assert (
+        classify_source_type(
+            "https://pubmed.ncbi.nlm.nih.gov/789/",
+            "Systematic review of exercise interventions",
+        )
+        == "systematic_review"
+    )
+    assert (
+        classify_source_type(
+            "https://cochranelibrary.com/cdsr/doi/10.1002/14651858/full",
+            "Clinical practice guideline on knee osteoarthritis",
+        )
+        == "guideline"
+    )
+    assert (
+        classify_source_type(
+            "https://arxiv.org/abs/2301.00001",
+            "Quantum error mitigation methods",
+        )
+        == "preprint"
+    )
+    assert (
+        classify_source_type(
+            "https://docs.python.org/3/library/asyncio.html",
+            "asyncio — Asynchronous I/O",
+        )
+        == "documentation"
+    )
+    assert (
+        classify_source_type(
+            "https://www.rfc-editor.org/rfc/rfc9110",
+            "RFC 9110: HTTP Semantics",
+        )
+        == "specification"
+    )
+    assert (
+        classify_source_type(
+            "https://github.com/astral-sh/ruff",
+            "astral-sh/ruff: An extremely fast Python linter",
+        )
+        == "repository"
+    )
+    assert (
+        classify_source_type(
+            "https://stackoverflow.com/questions/123456",
+            "How to parse JSON in Python?",
+        )
+        == "qa"
+    )
+    assert (
+        classify_source_type(
+            "https://shop.example.com/products/creatine-500g",
+            "Buy Pure Creatine Monohydrate 500g - Best Price",
+        )
+        == "vendor"
+    )
+    assert (
+        classify_source_type(
+            "https://blog.example.com/post/my-thoughts",
+            "My personal thoughts on fitness apps",
+        )
+        == "blog"
+    )
+    assert (
+        classify_source_type(
+            "https://www.youtube.com/watch?v=abcdef12345",
+            "Lecture on Quantum Computing",
+        )
+        == "video"
+    )
+
+
+def test_ranking_prefers_academic_and_technical_sources() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    academic_results = [
+        [
+            {
+                "url": "https://shop.supplements.example/buy",
+                "title": "Buy Creatine Fast Shipping",
+                "authority": 5.0,
+                "rerank_score": 5.0,
+            },
+        ],
+        [
+            {
+                "url": "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+                "title": "Randomized controlled trial of creatine supplementation",
+                "authority": 2.0,
+                "rerank_score": 2.0,
+                "doi": "10.1000/123",
+            },
+        ],
+    ]
+    ranked_acad, _ = rank_and_diversify_sources(academic_results, k_sources=2, sources="academic")
+    assert "pubmed" in ranked_acad[0]["url"]
+
+    technical_results = [
+        [
+            {
+                "url": "https://geeksforgeeks.org/python-asyncio/",
+                "title": "Python Asyncio Tutorial",
+                "authority": 5.0,
+                "rerank_score": 5.0,
+            },
+        ],
+        [
+            {
+                "url": "https://docs.python.org/3/library/asyncio.html",
+                "title": "asyncio Documentation",
+                "authority": 2.0,
+                "rerank_score": 2.0,
+            },
+        ],
+    ]
+    ranked_tech, _ = rank_and_diversify_sources(technical_results, k_sources=2, sources="technical")
+    assert "docs.python.org" in ranked_tech[0]["url"]
+
+
+def test_decomposition_prompt_source_preferences() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import build_decomposition_messages
+
+    msgs_acad = build_decomposition_messages("knee cartilage", sources="academic")
+    text_acad = " ".join(m["content"] for m in msgs_acad).lower()
+    assert "randomized controlled trial" in text_acad or "meta-analysis" in text_acad
+
+    msgs_tech = build_decomposition_messages("fastmcp", sources="technical")
+    text_tech = " ".join(m["content"] for m in msgs_tech).lower()
+    assert "documentation" in text_tech or "release notes" in text_tech
+
+
+def test_unverified_marker_goes_before_final_punctuation() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import _mark_unverified
+
+    assert (
+        _mark_unverified("A review pooled 11 studies [1].") == "A review pooled 11 studies [1] [unverified]."
+    )
+    assert _mark_unverified("Effect was 0,45 [2]!") == "Effect was 0,45 [2] [unverified]!"
+    assert _mark_unverified("No punctuation [1]") == "No punctuation [1] [unverified]"
+    assert _mark_unverified('He said "18% [1]."') == 'He said "18% [1] [unverified]."'

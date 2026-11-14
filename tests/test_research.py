@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import uuid
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1184,7 +1185,17 @@ async def test_lean_envelope_contains_no_page_content_on_success(fake_upstream: 
     for s in res["sources"]:
         assert "content" not in s
         assert "snippet" not in s
-        assert set(s.keys()) == {"id", "title", "url", "date"}
+        assert set(s.keys()) == {
+            "id",
+            "title",
+            "url",
+            "date",
+            "doi",
+            "pmid",
+            "pmcid",
+            "access",
+            "source_type",
+        }
 
     serialized = json.dumps(res)
     assert len(serialized) < 50_000
@@ -1656,6 +1667,7 @@ async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_deny
         {"title": "Feed", "url": "https://lib.ezproxy.uni.edu/entry/1", "content": "Proxy text. " * 20},
         {"title": "Real", "url": "https://physics.org/qec", "content": "Surface codes text. " * 20},
     ]
+    set_settings(Settings(source_denylist=("*.ezproxy.*",)))
     fake_upstream(DeepResearchUpstream(search_results=results))
     res = await server.deepseek_research("denylist topic", depth="low")
     assert [s["url"] for s in res["sources"]] == ["https://physics.org/qec"]
@@ -1708,3 +1720,392 @@ async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: 
     assert res["status"] == "done"
     assert res["delivery"] == "polled"
     assert res["elapsed_ms"] == 8000
+
+
+def test_filter_synthesis_output_keeps_comparison_operators() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    raw_report = (
+        "Effect size was significant (p < .05 and I² > 50%) [1]. "
+        "Reduction (p <.04), heterogeneity (I² >50% in the network) [2]. "
+        "If a < b and c > d then [1]."
+    )
+    cleaned, suspected, notes = filter_synthesis_output(raw_report, allowed_urls=set())
+    assert cleaned == raw_report
+    assert suspected == 0
+    assert notes == []
+
+
+def test_filter_synthesis_output_strips_only_real_html_tags() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import filter_synthesis_output
+
+    raw_report = "Before <script>x</script> middle <b>x</b> and <div class='a'>x</div> after [1]."
+    cleaned, _, _ = filter_synthesis_output(raw_report, allowed_urls=set())
+    assert cleaned == "Before x middle x and x after [1]."
+
+
+async def test_research_sources_expose_identifiers_and_access(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "PubMed paper",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+            "content": "PubMed abstract text. " * 20,
+        },
+        {
+            "title": "PMC article",
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10123456/",
+            "content": "PMC full text body. " * 20,
+        },
+        {
+            "title": "Plain",
+            "url": "https://plain.example/page",
+            "content": "Short.",
+        },
+    ]
+    fake_upstream(DeepResearchUpstream(search_results=results))
+    res = await server.deepseek_research("identifiers topic", depth="low")
+    by_title = {s["title"]: s for s in res["sources"]}
+
+    pubmed = by_title["PubMed paper"]
+    assert (pubmed["doi"], pubmed["pmid"], pubmed["pmcid"]) == (None, "38123456", None)
+    assert pubmed["access"] == "abstract"
+
+    pmc = by_title["PMC article"]
+    assert (pmc["doi"], pmc["pmid"], pmc["pmcid"]) == (None, None, "PMC10123456")
+    assert pmc["access"] == "abstract"
+
+    plain = by_title["Plain"]
+    assert (plain["doi"], plain["pmid"], plain["pmcid"]) == (None, None, None)
+    assert plain["access"] == "full_text"
+
+
+async def test_research_flags_unverified_numbers_in_envelope(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "Bremer 2025 Study",
+            "url": "https://example.com/1",
+            "content": "Bremer evaluated 4 RCTs with 200 participants. " * 5,
+        },
+        {
+            "title": "Garcia 2024 Study",
+            "url": "https://example.com/2",
+            "content": "Garcia included 11 studies with 934 participants. " * 5,
+        },
+    ]
+    report = (
+        "Bremer reported 11 studies with 934 participants [1]. "
+        "Garcia evaluated 11 studies with 934 participants [2]."
+    )
+    fake_upstream(DeepResearchUpstream(search_results=results, report_text=report))
+    res = await server.deepseek_research("numbers topic", depth="low")
+    assert res["ok"] is True
+    assert res["synthesized"] is True
+    assert res["unverified_number_count"] == 2
+    assert len(res["unverified_numbers"]) == 2
+    assert "[unverified]" in res["report"]
+    assert any("unverified number(s)" in n for n in res["notes"])
+
+
+async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "Randomized controlled trial of therapy",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+            "content": "A randomized controlled trial evaluating recovery. " * 5,
+        },
+    ]
+    fake_upstream(DeepResearchUpstream(search_results=results))
+    res = await server.deepseek_research("therapy", depth="low", sources="academic")
+    assert res["ok"] is True
+    assert len(res["sources"]) > 0
+    s0 = res["sources"][0]
+    assert "source_type" in s0
+    assert s0["source_type"] == "rct"
+
+    res_invalid = await server.deepseek_research("therapy", depth="low", sources="invalid")
+    assert res_invalid["ok"] is False
+    assert res_invalid["error"]["code"] == "bad_request"
+
+
+async def test_research_debug_dump_hook(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    # 1. When DEEPSEEK_MCP_DEBUG_DUMP_DIR is unset: no dump created
+    monkeypatch.delenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", raising=False)
+    res = await server.deepseek_research("dump test unset", depth="low")
+    assert res["ok"] is True
+    assert list(tmp_path.iterdir()) == []
+
+    # 2. When DEEPSEEK_MCP_DEBUG_DUMP_DIR is set: dump created
+    dump_dir = tmp_path / "dumps"
+    monkeypatch.setenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", str(dump_dir))
+    res2 = await server.deepseek_research("dump test set", depth="low")
+    assert res2["ok"] is True
+    dump_files = list(dump_dir.glob("*.json"))
+    assert len(dump_files) == 1
+    dump_data = json.loads(dump_files[0].read_text(encoding="utf-8"))
+    assert dump_data["topic"] == "dump test set"
+    assert dump_data["depth"] == "low"
+    assert isinstance(dump_data["sources"], list)
+    assert isinstance(dump_data["synthesis_context"], list)
+    assert len(dump_data["synthesis_context"]) > 0
+    sc0 = dump_data["synthesis_context"][0]
+    assert "id" in sc0 and "url" in sc0 and "title" in sc0 and "content" in sc0
+    assert "report" in dump_data
+    assert "raw_report" in dump_data or "raw_model_report" in dump_data
+    assert "unverified_numbers" in dump_data
+
+    # 3. When dump write fails: job still succeeds (failure tolerated)
+    blocking_file = tmp_path / "not_a_dir"
+    blocking_file.write_text("block", encoding="utf-8")
+    invalid_dump_dir = blocking_file / "sub"
+    monkeypatch.setenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", str(invalid_dump_dir))
+    res3 = await server.deepseek_research("dump test fail", depth="low")
+    assert res3["ok"] is True
+
+
+def test_grounding_sentence_splitting_and_skipping_years() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ground_report_numbers
+
+    # Fixture 1: abbreviation "et al." must not split sentence
+    sources_19 = [
+        {
+            "id": 1,
+            "title": "SuppScience Joint Review",
+            "url": "https://supp.science/19",
+            "content": "A comprehensive review evaluated 69 RCTs and 20 supplements for joint pain.",
+        }
+    ]
+    report_1 = "Liu et al. 2018, as appraised in [1], reviewed 69 RCTs and 20 supplements."
+    cleaned_1, unverified_1, count_1, _ = ground_report_numbers(report_1, sources_19)
+    assert count_1 == 0
+    assert "[unverified]" not in cleaned_1
+    assert unverified_1 == []
+
+    # Fixture 2: bare 4-digit years 1900-2100 are not grounded
+    sources_16 = [
+        {
+            "id": 1,
+            "title": "Liang Meta-analysis",
+            "url": "https://example.com/16",
+            "content": "Our trial sequential meta-analysis included 35 RCTs with knee OA patients.",
+        }
+    ]
+    report_2 = "Liang et al.'s 2024 trial sequential meta-analysis included 35 RCTs [1]."
+    cleaned_2, unverified_2, count_2, _ = ground_report_numbers(report_2, sources_16)
+    assert count_2 == 0
+    assert "[unverified]" not in cleaned_2
+    assert unverified_2 == []
+
+    # 35 is still checked: if wrong, it is flagged
+    report_2_wrong = "Liang et al.'s 2024 trial sequential meta-analysis included 99 RCTs [1]."
+    cleaned_2w, unverified_2w, count_2w, _ = ground_report_numbers(report_2_wrong, sources_16)
+    assert count_2w == 1
+    assert "[unverified]" in cleaned_2w
+    assert unverified_2w[0]["number"] == "99"
+
+
+def test_grounding_negative_numbers_with_spaced_minus_and_parens() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ground_report_numbers
+
+    # Exact excerpt from Source [4] (PMC8298729) in E2 run:
+    sources_4 = [
+        {
+            "id": 1,
+            "title": "Disease-Modifying Osteoarthritis Drugs",
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8298729/",
+            "content": (
+                "95% CI symptoms (glucosamine: pain: − 0.15 [− 0.25, − 0.05]; "
+                "function: − 0.17 [− 0.28, − 0.07])"
+            ),
+        }
+    ]
+    report_4 = "Glucosamine reduced pain (SMD −0.15, 95% CI −0.25 to −0.05) [1]."
+    cleaned_4, unverified_4, count_4, _ = ground_report_numbers(report_4, sources_4)
+    assert count_4 == 0
+    assert "[unverified]" not in cleaned_4
+    assert unverified_4 == []
+
+    # Exact excerpt from Source [14] (OARSI PDF) in E2 run:
+    sources_14 = [
+        {
+            "id": 1,
+            "title": "Osteoarthritis and Cartilage",
+            "url": "https://www.oarsijournal.com/article/S1063-4584(24)00004-9/pdf",
+            "content": (
+                "reduced pain (standardized mean difference [SMD] - 0.35, 95% confidence interval [CI] "
+                "- 0.48 to - 0.22, moderate certainty). Corresponding to an (8.5 \\mathrm{mm}) reduction "
+                "on a (100 \\mathrm{mm}) ( (95%) CI: (- 11.7) to (- 5.4) ) visual analog scale."
+            ),
+        }
+    ]
+    report_14 = (
+        "Collagen reduced pain (SMD −0.35, 95% CI −0.48 to −0.22) corresponding to an 8.5-mm reduction "
+        "(95% CI −11.7 to −5.4) [1]."
+    )
+    cleaned_14, unverified_14, count_14, _ = ground_report_numbers(report_14, sources_14)
+    assert count_14 == 0
+    assert "[unverified]" not in cleaned_14
+    assert unverified_14 == []
+
+    # True positive: a negative number not present in source must still be flagged
+    report_false = "Collagen reduced pain dramatically (SMD −0.99) [1]."
+    cleaned_f, unverified_f, count_f, _ = ground_report_numbers(report_false, sources_14)
+    assert count_f == 1
+    assert "[unverified]" in cleaned_f
+    assert unverified_f[0]["number"] == "-0.99"
+
+
+def test_classify_source_type_precision_fixtures() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import classify_source_type
+
+    # Fixture 1: Dr. Jeffrey Peng MD blog post (mentions meta-analyses in content)
+    url_1 = "https://www.jeffreypengmd.com/post/glucosamine-and-chondroitin-for-knee-arthritis-do-they-actually-work"
+    title_1 = "Glucosamine and Chondroitin for Knee Arthritis | Dr. Jeffrey Peng MD"
+    content_1 = "In this article I review recent meta-analysis data and clinical trials on glucosamine."
+    assert classify_source_type(url_1, title_1, content_1) == "blog"
+
+    # Fixture 2: NutritionFacts video (mentions systematic review in content)
+    url_2 = "https://nutritionfacts.org/video/collagen-supplements-for-arthritis/"
+    title_2 = "Collagen Supplements for Arthritis | NutritionFacts.org"
+    content_2 = "A systematic review on collagen for osteoarthritis pain."
+    assert classify_source_type(url_2, title_2, content_2) in {"blog", "video"}
+
+    # Fixture 3: BenchChem chemical supplier PDF
+    url_3 = "https://www.benchchem.com/pdf/Potential_confounding_factors_in_research_on_glucosamine_and_chondroitin.pdf"
+    title_3 = "Potential confounding factors in research on glucosamine and chondroitin"
+    content_3 = "BenchChem is a leading supplier of chemical research compounds. In this review..."
+    assert classify_source_type(url_3, title_3, content_3) == "vendor"
+
+    # Fixture 4: PMC article (network meta-analysis)
+    url_4 = "https://pmc.ncbi.nlm.nih.gov/articles/PMC8298729/"
+    title_4 = "The Efficacy and Safety of Disease-Modifying Osteoarthritis Drugs"
+    content_4 = "A network meta-analysis of randomized controlled trials."
+    assert classify_source_type(url_4, title_4, content_4) == "meta-analysis"
+
+    # Fixture 5: Nature Scientific Reports RCT
+    url_5 = "https://www.nature.com/articles/s41598-025-17505-0"
+    title_5 = "Efficacy of combined undenatured type II collagen"
+    content_5 = "A randomized, double-blind, placebo-controlled clinical trial."
+    assert classify_source_type(url_5, title_5, content_5) == "rct"
+
+
+def test_reject_non_content_pages_and_suppress_identifiers() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import (
+        is_non_content_page,
+        rank_and_diversify_sources,
+        source_identifiers,
+    )
+
+    # Fixture 1: PubMed search results page with filters and term
+    url_pubmed_search = (
+        "https://pubmed.ncbi.nlm.nih.gov/?filter=pubt.clinicaltrial"
+        "&filter=pubt.meta-analysis&term=collagen+supplementation+osteoarthritis"
+    )
+    content_search = "doi: 10.55563/clinexprheumatol/kflfr5 PMID: 39212129 Title: Clinical trial"
+    assert is_non_content_page(url_pubmed_search, "Search Results - PubMed", content_search) is True
+    # source_identifiers must return all None for non-content pages
+    assert source_identifiers(url_pubmed_search, content_search) == {
+        "doi": None,
+        "pmid": None,
+        "pmcid": None,
+    }
+
+    # Fixture 2: Biblioteca Virtual em Saúde search portal with q=
+    url_bvsalud = 'https://pesquisa.bvsalud.org/portal/?lang=p1&q=mh:"Glucosamine"'
+    assert is_non_content_page(url_bvsalud, "Search | VHL Regional Portal", "") is True
+    assert source_identifiers(url_bvsalud, "") == {"doi": None, "pmid": None, "pmcid": None}
+
+    # Fixture 3: Ovid login wall
+    url_ovid = "https://ovidsp.dc1.ovid.com/ovid-new-b/ovidweb.cgi?T=JS&PAGE=fulltext&D=yrovft&NEWS=N"
+    assert is_non_content_page(url_ovid, "Ovid: Welcome to Ovid", "Please sign in to access.") is True
+
+    # Fixture 4: HighWire markup expansion fragment
+    url_markup = "https://ard.bmj.com/highwire/markup/193935/expansion?width=1000&height=500&iframe=true"
+    assert is_non_content_page(url_markup, "Expansion", "<div>iframe markup</div>") is True
+
+    # MUST NOT reject normal pages:
+    url_pubmed_article = "https://pubmed.ncbi.nlm.nih.gov/39212129/"
+    assert is_non_content_page(url_pubmed_article, "Article Title", "Full abstract text...") is False
+
+    url_pmc_article = "https://pmc.ncbi.nlm.nih.gov/articles/PMC8298729/"
+    assert is_non_content_page(url_pmc_article, "PMC Study", "Full text...") is False
+
+    url_doi = "https://doi.org/10.1007/s10787-024-01460-9"
+    assert is_non_content_page(url_doi, "Springer Article", "Article abstract...") is False
+
+    url_pdf = "https://www.oarsijournal.com/article/S1063-4584(24)00004-9/pdf"
+    assert is_non_content_page(url_pdf, "Journal PDF", "PDF content...") is False
+
+    # rank_and_diversify_sources drops non-content pages before ranking and adds note
+    pool = [
+        [
+            {"url": url_pubmed_search, "title": "Search", "content": "Listing 1 2 3"},
+            {"url": url_pubmed_article, "title": "Real Paper", "content": "Study findings"},
+        ]
+    ]
+    selected, notes = rank_and_diversify_sources(pool, k_sources=2)
+    assert len(selected) == 1
+    assert selected[0]["url"] == url_pubmed_article
+    assert any("Skipped 1 non-content page(s) (search results, login walls, fragments)" in n for n in notes)
+
+
+def test_academic_mode_strict_exclusion_and_fallback_notes() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import select_synthesis_context
+
+    # Pool 1: 10 scholarly + 3 blog/vendor (depth="medium" -> K=10, threshold=max(4, 5)=5)
+    scholarly_items = [
+        {
+            "title": f"Paper {i}",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{30000000 + i}/",
+            "content": f"Scholarly RCT content {i}",
+            "source_type": "rct",
+            "rerank_score": 1.0,
+        }
+        for i in range(10)
+    ]
+    blog_items = [
+        {
+            "title": f"Blog {i}",
+            "url": f"https://example.com/blog/{i}",
+            "content": f"Blog opinion content {i}",
+            "source_type": "blog",
+            "rerank_score": 2.0,  # even with higher rerank score
+        }
+        for i in range(3)
+    ]
+    pool_1 = scholarly_items + blog_items
+    notes_1: list[str] = []
+    selected_1 = select_synthesis_context(pool_1, depth="medium", sources_pref="academic", notes=notes_1)
+    # Blogs/vendors excluded completely
+    assert len(selected_1) == 10
+    assert all(s["source_type"] == "rct" for s in selected_1)
+    assert any("Excluded 3 non-scholarly candidate(s)" in n for n in notes_1)
+
+    # Pool 2: 2 scholarly + 6 blogs (scholarly count 2 < threshold 5)
+    pool_2 = (
+        scholarly_items[:2]
+        + blog_items
+        + [
+            {
+                "title": f"Extra Blog {i}",
+                "url": f"https://example.com/blog/extra_{i}",
+                "content": f"Extra blog content {i}",
+                "source_type": "blog",
+                "rerank_score": 2.0,
+            }
+            for i in range(3)
+        ]
+    )
+    notes_2: list[str] = []
+    selected_2 = select_synthesis_context(pool_2, depth="medium", sources_pref="academic", notes=notes_2)
+    # Blogs kept but ranked after scholarly
+    assert len(selected_2) == 8
+    assert selected_2[0]["source_type"] == "rct"
+    assert selected_2[1]["source_type"] == "rct"
+    assert all(s["source_type"] == "blog" for s in selected_2[2:])
+    assert len(notes_2) > 0
+    assert any("Retained non-scholarly" in n for n in notes_2)

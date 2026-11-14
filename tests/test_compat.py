@@ -200,3 +200,31 @@ def test_every_tool_input_schema_property_has_description() -> None:
             assert len(desc) <= 120, (
                 f"Tool '{tool.name}' property '{prop_name}' description exceeds 120 chars: {len(desc)}"
             )
+
+
+def test_server_instructions_are_present_and_guide_tool_choice() -> None:
+    assert hasattr(server, "SERVER_INSTRUCTIONS")
+    assert server.mcp.instructions is not None
+    assert server.mcp.instructions == server.SERVER_INSTRUCTIONS
+    assert "Default to deepseek_research" in server.SERVER_INSTRUCTIONS
+    assert 'sources="academic"' in server.SERVER_INSTRUCTIONS
+    assert 'sources="technical"' in server.SERVER_INSTRUCTIONS
+    assert "deepseek_check_research" in server.SERVER_INSTRUCTIONS
+
+
+def test_tool_descriptions_contain_cost_or_size_facts() -> None:
+    tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+    for name, tool in tools.items():
+        desc = tool.description
+        assert any(token in desc for token in ("$0.", "free", "Free", "$0.00")), (
+            f"Tool {name} description must mention cost facts: {desc}"
+        )
+    assert "128" in tools["deepseek_search"].description
+    desc_search_many = tools["deepseek_search_many"].description
+    assert "30,000" in desc_search_many or "30000" in desc_search_many
+    desc_fetch = tools["deepseek_fetch"].description
+    assert "20,000" in desc_fetch or "20000" in desc_fetch
+    desc_fetch_many = tools["deepseek_fetch_many"].description
+    assert "50,000" in desc_fetch_many or "50000" in desc_fetch_many
+    desc_research = tools["deepseek_research"].description
+    assert "6-24 sources" in desc_research or "sources" in desc_research
