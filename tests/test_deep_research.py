@@ -431,3 +431,151 @@ def test_number_grounding_flags_number_from_other_source() -> None:
     )
     assert len(notes) == 1
     assert "2 unverified number(s)" in notes[0]
+
+
+def test_classify_source_type() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import classify_source_type
+
+    assert (
+        classify_source_type(
+            "https://pubmed.ncbi.nlm.nih.gov/123/",
+            "Creatine: A randomized controlled trial in resistance training",
+        )
+        == "rct"
+    )
+    assert (
+        classify_source_type(
+            "https://pubmed.ncbi.nlm.nih.gov/456/",
+            "Systematic review and meta-analysis of cartilage repair",
+        )
+        == "meta-analysis"
+    )
+    assert (
+        classify_source_type(
+            "https://pubmed.ncbi.nlm.nih.gov/789/",
+            "Systematic review of exercise interventions",
+        )
+        == "systematic_review"
+    )
+    assert (
+        classify_source_type(
+            "https://cochranelibrary.com/cdsr/doi/10.1002/14651858/full",
+            "Clinical practice guideline on knee osteoarthritis",
+        )
+        == "guideline"
+    )
+    assert (
+        classify_source_type(
+            "https://arxiv.org/abs/2301.00001",
+            "Quantum error mitigation methods",
+        )
+        == "preprint"
+    )
+    assert (
+        classify_source_type(
+            "https://docs.python.org/3/library/asyncio.html",
+            "asyncio — Asynchronous I/O",
+        )
+        == "documentation"
+    )
+    assert (
+        classify_source_type(
+            "https://www.rfc-editor.org/rfc/rfc9110",
+            "RFC 9110: HTTP Semantics",
+        )
+        == "specification"
+    )
+    assert (
+        classify_source_type(
+            "https://github.com/astral-sh/ruff",
+            "astral-sh/ruff: An extremely fast Python linter",
+        )
+        == "repository"
+    )
+    assert (
+        classify_source_type(
+            "https://stackoverflow.com/questions/123456",
+            "How to parse JSON in Python?",
+        )
+        == "qa"
+    )
+    assert (
+        classify_source_type(
+            "https://shop.example.com/products/creatine-500g",
+            "Buy Pure Creatine Monohydrate 500g - Best Price",
+        )
+        == "vendor"
+    )
+    assert (
+        classify_source_type(
+            "https://blog.example.com/post/my-thoughts",
+            "My personal thoughts on fitness apps",
+        )
+        == "blog"
+    )
+    assert (
+        classify_source_type(
+            "https://www.youtube.com/watch?v=abcdef12345",
+            "Lecture on Quantum Computing",
+        )
+        == "video"
+    )
+
+
+def test_ranking_prefers_academic_and_technical_sources() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import rank_and_diversify_sources
+
+    academic_results = [
+        [
+            {
+                "url": "https://shop.supplements.example/buy",
+                "title": "Buy Creatine Fast Shipping",
+                "authority": 5.0,
+                "rerank_score": 5.0,
+            },
+        ],
+        [
+            {
+                "url": "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+                "title": "Randomized controlled trial of creatine supplementation",
+                "authority": 2.0,
+                "rerank_score": 2.0,
+                "doi": "10.1000/123",
+            },
+        ],
+    ]
+    ranked_acad, _ = rank_and_diversify_sources(academic_results, k_sources=2, sources="academic")
+    assert "pubmed" in ranked_acad[0]["url"]
+
+    technical_results = [
+        [
+            {
+                "url": "https://geeksforgeeks.org/python-asyncio/",
+                "title": "Python Asyncio Tutorial",
+                "authority": 5.0,
+                "rerank_score": 5.0,
+            },
+        ],
+        [
+            {
+                "url": "https://docs.python.org/3/library/asyncio.html",
+                "title": "asyncio Documentation",
+                "authority": 2.0,
+                "rerank_score": 2.0,
+            },
+        ],
+    ]
+    ranked_tech, _ = rank_and_diversify_sources(technical_results, k_sources=2, sources="technical")
+    assert "docs.python.org" in ranked_tech[0]["url"]
+
+
+def test_decomposition_prompt_source_preferences() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import build_decomposition_messages
+
+    msgs_acad = build_decomposition_messages("knee cartilage", sources="academic")
+    text_acad = " ".join(m["content"] for m in msgs_acad).lower()
+    assert "randomized controlled trial" in text_acad or "meta-analysis" in text_acad
+
+    msgs_tech = build_decomposition_messages("fastmcp", sources="technical")
+    text_tech = " ".join(m["content"] for m in msgs_tech).lower()
+    assert "documentation" in text_tech or "release notes" in text_tech

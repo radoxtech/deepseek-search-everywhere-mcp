@@ -1184,7 +1184,17 @@ async def test_lean_envelope_contains_no_page_content_on_success(fake_upstream: 
     for s in res["sources"]:
         assert "content" not in s
         assert "snippet" not in s
-        assert set(s.keys()) == {"id", "title", "url", "date", "doi", "pmid", "pmcid", "access"}
+        assert set(s.keys()) == {
+            "id",
+            "title",
+            "url",
+            "date",
+            "doi",
+            "pmid",
+            "pmcid",
+            "access",
+            "source_type",
+        }
 
     serialized = json.dumps(res)
     assert len(serialized) < 50_000
@@ -1793,3 +1803,24 @@ async def test_research_flags_unverified_numbers_in_envelope(fake_upstream: Any)
     assert len(res["unverified_numbers"]) == 2
     assert "[unverified]" in res["report"]
     assert any("unverified number(s)" in n for n in res["notes"])
+
+
+async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "Randomized controlled trial of therapy",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/38123456/",
+            "content": "A randomized controlled trial evaluating recovery. " * 5,
+        },
+    ]
+    fake_upstream(DeepResearchUpstream(search_results=results))
+    res = await server.deepseek_research("therapy", depth="low", sources="academic")
+    assert res["ok"] is True
+    assert len(res["sources"]) > 0
+    s0 = res["sources"][0]
+    assert "source_type" in s0
+    assert s0["source_type"] == "rct"
+
+    res_invalid = await server.deepseek_research("therapy", depth="low", sources="invalid")
+    assert res_invalid["ok"] is False
+    assert res_invalid["error"]["code"] == "bad_request"

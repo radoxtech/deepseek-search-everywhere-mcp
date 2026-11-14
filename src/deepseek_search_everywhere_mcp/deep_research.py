@@ -37,6 +37,7 @@ class ResearchJob:
     depth: str
     lang: str | None
     created_at: float
+    sources: str = "any"
     task: asyncio.Task[dict[str, Any]] | None = None
     completed_at: float | None = None
     result: dict[str, Any] | None = None
@@ -45,8 +46,8 @@ class ResearchJob:
     progress_history: list[dict[str, Any]] = field(default_factory=list)
     ctx: Any = None
 
-    def normalize_key(self) -> tuple[str, str, str | None]:
-        return (normalize_topic_key(self.topic), self.depth, self.lang)
+    def normalize_key(self) -> tuple[str, str, str | None, str]:
+        return (normalize_topic_key(self.topic), self.depth, self.lang, self.sources)
 
 
 class ResearchJobStore:
@@ -67,17 +68,21 @@ class ResearchJobStore:
     def count_active(self) -> int:
         return sum(1 for j in self._jobs.values() if j.task is not None and not j.task.done())
 
-    def find_active_match(self, topic: str, depth: str, lang: str | None) -> ResearchJob | None:
-        target_key = (normalize_topic_key(topic), depth, lang)
+    def find_active_match(
+        self, topic: str, depth: str, lang: str | None, sources: str = "any"
+    ) -> ResearchJob | None:
+        target_key = (normalize_topic_key(topic), depth, lang, sources)
         for job in self._jobs.values():
             if job.task is not None and not job.task.done():
                 if job.normalize_key() == target_key:
                     return job
         return None
 
-    def find_finished_match(self, topic: str, depth: str, lang: str | None, now: float) -> ResearchJob | None:
+    def find_finished_match(
+        self, topic: str, depth: str, lang: str | None, now: float, sources: str = "any"
+    ) -> ResearchJob | None:
         """Return the newest successfully finished job for the key that is still within the TTL."""
-        target_key = (normalize_topic_key(topic), depth, lang)
+        target_key = (normalize_topic_key(topic), depth, lang, sources)
         best: ResearchJob | None = None
         for job in self._jobs.values():
             if job.completed_at is None or (now - job.completed_at) > self.ttl:
@@ -272,14 +277,26 @@ def build_condense_messages(report: str, depth: str = "medium") -> list[dict[str
     return [{"role": "system", "content": system}, {"role": "user", "content": report}]
 
 
-def build_decomposition_messages(topic: str, max_queries: int = 3) -> list[dict[str, str]]:
+def build_decomposition_messages(
+    topic: str, max_queries: int = 3, sources: str = "any"
+) -> list[dict[str, str]]:
     """Build messages for deepseek-flash to decompose ``topic`` into subqueries."""
+    content = f"Decompose this research topic into {max_queries} search queries: {topic}"
+    if sources == "academic":
+        content += (
+            "\nFocus on peer-reviewed academic and scientific literature; where fitting include terms "
+            "like 'randomized controlled trial', 'systematic review' or 'meta-analysis' to discover "
+            "primary studies and evidence reviews."
+        )
+    elif sources == "technical":
+        content += (
+            "\nFocus on official documentation, specifications and code repositories; where fitting "
+            "include terms like 'documentation', 'specification', 'changelog', 'release notes' or "
+            "'GitHub issue'."
+        )
     return [
         {"role": "system", "content": DECOMPOSE_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"Decompose this research topic into {max_queries} search queries: {topic}",
-        },
+        {"role": "user", "content": content},
     ]
 
 
@@ -418,11 +435,292 @@ def _denylisted(url: str, denylist: Sequence[str]) -> bool:
     return False
 
 
-def _authority_key(item: dict[str, Any]) -> tuple[float, float]:
-    """Sort key (descending): upstream authority first, rerank score as tie-break; unknown ranks last."""
+def _url_host(url: str) -> str:
+    """Return the lowercased hostname of a URL, or empty string on error."""
+    try:
+        return (urlsplit(url or "").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+TECHNICAL_DOCS_DOMAINS = frozenset(
+    {
+        "learn.microsoft.com",
+        "kubernetes.io",
+        "developer.hashicorp.com",
+        "docs.aws.amazon.com",
+        "cloud.google.com",
+        "python.org",
+        "readthedocs.io",
+        "developer.mozilla.org",
+        "pkg.go.dev",
+        "rust-lang.org",
+        "nodejs.org",
+    }
+)
+
+TECHNICAL_SPECS_DOMAINS = frozenset(
+    {
+        "rfc-editor.org",
+        "w3.org",
+        "ietf.org",
+        "tc39.es",
+        "iso.org",
+    }
+)
+
+TECHNICAL_REPO_DOMAINS = frozenset(
+    {
+        "github.com",
+        "gitlab.com",
+        "bitbucket.org",
+    }
+)
+
+TECHNICAL_QA_DOMAINS = frozenset(
+    {
+        "stackoverflow.com",
+        "stackexchange.com",
+        "serverfault.com",
+        "superuser.com",
+        "askubuntu.com",
+    }
+)
+
+CONTENT_FARM_DOMAINS = frozenset(
+    {
+        "geeksforgeeks.org",
+        "w3schools.com",
+        "tutorialspoint.com",
+        "javatpoint.com",
+    }
+)
+
+
+def is_tech_doc_host(host: str) -> bool:
+    clean = (host or "").lower().strip(".")
+    if not clean:
+        return False
+    if clean.startswith("docs.") or any(
+        clean == d or clean.endswith("." + d) for d in TECHNICAL_DOCS_DOMAINS
+    ):
+        return True
+    return False
+
+
+def is_spec_host(host: str) -> bool:
+    clean = (host or "").lower().strip(".")
+    if not clean:
+        return False
+    return any(clean == d or clean.endswith("." + d) for d in TECHNICAL_SPECS_DOMAINS)
+
+
+def is_repo_host(host: str) -> bool:
+    clean = (host or "").lower().strip(".")
+    if not clean:
+        return False
+    return any(clean == d or clean.endswith("." + d) for d in TECHNICAL_REPO_DOMAINS)
+
+
+def is_qa_host(host: str) -> bool:
+    clean = (host or "").lower().strip(".")
+    if not clean:
+        return False
+    return any(clean == d or clean.endswith("." + d) for d in TECHNICAL_QA_DOMAINS)
+
+
+def is_content_farm(host: str) -> bool:
+    clean = (host or "").lower().strip(".")
+    if not clean:
+        return False
+    return any(clean == d or clean.endswith("." + d) for d in CONTENT_FARM_DOMAINS)
+
+
+def classify_source_type(url: str, title: str, content: str = "") -> str:
+    """Classify a source into one of 16 granular types based on host, title and content cues.
+
+    Types: meta-analysis | systematic_review | rct | study | guideline | preprint | review |
+    documentation | specification | repository | qa | news | blog | vendor | video | other
+    """
+    raw_url = url or ""
+    host = _url_host(raw_url)
+    try:
+        parts = urlsplit(raw_url)
+        path = parts.path.lower()
+    except ValueError:
+        path = ""
+
+    title_clean = (title or "").lower()
+    content_peek = (content or "")[:2000].lower()
+    haystack = f"{title_clean}\n{content_peek}"
+
+    if host in {"youtube.com", "www.youtube.com", "youtu.be", "vimeo.com"} or host.endswith(".youtube.com"):
+        return "video"
+
+    if is_qa_host(host):
+        return "qa"
+
+    if is_repo_host(host):
+        return "repository"
+
+    if (
+        is_spec_host(host)
+        or "rfc " in haystack
+        or "w3c recommendation" in haystack
+        or "standard specification" in haystack
+    ):
+        return "specification"
+
+    if is_tech_doc_host(host) or "/docs/" in path or "/documentation/" in path or "api reference" in haystack:
+        return "documentation"
+
+    if "meta-analysis" in haystack or "meta analysis" in haystack:
+        return "meta-analysis"
+
+    if "systematic review" in haystack or "systematic literature review" in haystack:
+        return "systematic_review"
+
+    if (
+        "practice guideline" in haystack
+        or "clinical guideline" in haystack
+        or "guideline" in title_clean
+        or "consensus statement" in haystack
+    ):
+        return "guideline"
+
+    if (
+        "randomized controlled trial" in haystack
+        or "randomised controlled trial" in haystack
+        or "clinical trial" in haystack
+        or "double-blind" in haystack
+        or "placebo-controlled" in haystack
+    ):
+        return "rct"
+
+    if (
+        host in {"arxiv.org", "biorxiv.org", "medrxiv.org"}
+        or "biorxiv.org" in host
+        or "medrxiv.org" in host
+        or "arxiv.org" in host
+        or "ssrn.com" in host
+        or "preprint" in haystack
+    ):
+        return "preprint"
+
+    if (
+        "literature review" in haystack
+        or "narrative review" in haystack
+        or "scoping review" in haystack
+        or ("review" in title_clean and is_scholarly_host(host))
+    ):
+        return "review"
+
+    if (
+        is_scholarly_host(host)
+        or "cohort study" in haystack
+        or "cross-sectional" in haystack
+        or "observational study" in haystack
+        or "doi:" in haystack
+    ):
+        return "study"
+
+    if (
+        host
+        in {
+            "reuters.com",
+            "apnews.com",
+            "bbc.com",
+            "theguardian.com",
+            "cnn.com",
+            "nytimes.com",
+            "bloomberg.com",
+        }
+        or any(
+            host.endswith("." + d)
+            for d in {
+                "reuters.com",
+                "apnews.com",
+                "bbc.com",
+                "theguardian.com",
+                "nytimes.com",
+                "bloomberg.com",
+            }
+        )
+        or "/news/" in path
+    ):
+        return "news"
+
+    if (
+        host.startswith(("shop.", "store.", "buy."))
+        or "/product/" in path
+        or "/products/" in path
+        or "/pricing/" in path
+        or "/cart" in path
+        or "add to cart" in haystack
+        or "pricing plan" in haystack
+    ):
+        return "vendor"
+
+    if (
+        is_content_farm(host)
+        or host.startswith("blog.")
+        or "/blog/" in path
+        or host in {"medium.com", "substack.com", "dev.to"}
+        or any(host.endswith("." + d) for d in {"medium.com", "substack.com", "dev.to"})
+        or "blog post" in haystack
+    ):
+        return "blog"
+
+    return "other"
+
+
+def source_preference_score(item: dict[str, Any], sources: str = "any") -> float:
+    """Calculate ranking preference score (bonus/penalty) based on sources mode."""
+    if sources == "any":
+        return 0.0
+
+    url = item.get("url") or ""
+    host = _url_host(url)
+    title = item.get("title") or ""
+    content = item.get("content") or ""
+    st = item.get("source_type") or classify_source_type(url, title, content)
+
+    if sources == "academic":
+        score = 0.0
+        if is_scholarly_host(host):
+            score += 10.0
+        if item.get("doi") or item.get("pmid") or item.get("pmcid"):
+            score += 5.0
+        if st in {"meta-analysis", "systematic_review", "rct", "guideline"}:
+            score += 5.0
+        elif st in {"study", "preprint", "review"}:
+            score += 3.0
+        elif st in {"vendor", "blog"}:
+            score -= 15.0
+        return score
+
+    if sources == "technical":
+        score = 0.0
+        if is_tech_doc_host(host) or is_spec_host(host) or is_repo_host(host) or is_qa_host(host):
+            score += 10.0
+        if st in {"documentation", "specification"}:
+            score += 5.0
+        elif st in {"repository", "qa"}:
+            score += 3.0
+        if is_content_farm(host) or st in {"blog", "vendor"}:
+            score -= 15.0
+        return score
+
+    return 0.0
+
+
+def _authority_key(item: dict[str, Any], sources: str = "any") -> tuple[float, float, float]:
+    """Sort key (descending): sources preference first, upstream authority second, rerank score third."""
+    pref = source_preference_score(item, sources)
     authority = item.get("authority")
     rerank = item.get("rerank_score")
     return (
+        pref,
         float(authority) if isinstance(authority, int | float) else -1.0,
         float(rerank) if isinstance(rerank, int | float) else -1.0,
     )
@@ -432,12 +730,13 @@ def rank_and_diversify_sources(
     subquery_results: list[list[dict[str, Any]]],
     k_sources: int,
     denylist: Sequence[str] = (),
+    sources: str = "any",
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Round-robin interleave across subqueries, deduplicate canonically, cap per eTLD+1, take top K.
 
     0. Drop results whose host matches ``denylist`` (aggregators and proxies; note added).
-    1. Interleave results round-robin across subqueries; within each round the higher upstream
-       ``authority`` comes first (tie-break ``rerank_score``, then subquery order).
+    1. Interleave results round-robin across subqueries; within each round results honoring
+       ``sources`` preference and higher upstream ``authority`` come first.
     2. Deduplicate canonically (http and https schemes are considered equal; fragments and
        challenge/tracking parameters are ignored).
     3. Apply domain cap of at most 2 sources per eTLD+1.
@@ -457,7 +756,7 @@ def rank_and_diversify_sources(
     interleaved: list[dict[str, Any]] = []
     for i in range(max_len):
         round_items = [r[i] for r in subquery_results if i < len(r)]
-        round_items.sort(key=_authority_key, reverse=True)
+        round_items.sort(key=lambda it: _authority_key(it, sources), reverse=True)
         interleaved.extend(round_items)
 
     deduped: list[dict[str, Any]] = []
@@ -490,6 +789,7 @@ def rank_and_diversify_sources(
         selected = list(capped)
         needed = k_sources - len(selected)
         if overflow and needed > 0:
+            overflow.sort(key=lambda it: _authority_key(it, sources), reverse=True)
             selected.extend(overflow[:needed])
             notes.append("Relaxed domain cap to meet target source count.")
     if denied:
@@ -725,13 +1025,18 @@ def clean_source_title(title: Any, url: str = "") -> str:
 def select_synthesis_context(
     sources: list[dict[str, Any]],
     depth: str = "medium",
+    sources_pref: str = "any",
 ) -> list[dict[str, Any]]:
     """Select up to tier K non-empty sources and cap per-page and total characters."""
     cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
     valid_sources = [s for s in sources if s.get("content")]
-    # Prioritize by rerank score / authority if present
+    # Prioritize by sources preference, rerank score and authority
     valid_sources.sort(
-        key=lambda s: (s.get("rerank_score") or 0.0, s.get("authority") or 0.0),
+        key=lambda s: (
+            source_preference_score(s, sources_pref),
+            s.get("rerank_score") or 0.0,
+            s.get("authority") or 0.0,
+        ),
         reverse=True,
     )
     selected: list[dict[str, Any]] = []
@@ -754,6 +1059,8 @@ def select_synthesis_context(
                 "pmid": s.get("pmid"),
                 "pmcid": s.get("pmcid"),
                 "access": s.get("access"),
+                "source_type": s.get("source_type")
+                or classify_source_type(s.get("url") or "", s.get("title") or "", cut_content),
                 "content": cut_content,
             }
         )

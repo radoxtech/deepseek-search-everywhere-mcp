@@ -44,6 +44,7 @@ from .deep_research import (
     build_r2_gap_messages,
     build_synthesis_messages,
     citation_ids,
+    classify_source_type,
     clean_source_title,
     clean_source_url,
     filter_synthesis_output,
@@ -2426,6 +2427,8 @@ def _format_public_sources(
             "pmid": s.get("pmid"),
             "pmcid": s.get("pmcid"),
             "access": s.get("access"),
+            "source_type": s.get("source_type")
+            or classify_source_type(s.get("url") or "", s.get("title") or "", s.get("content") or ""),
         }
         if include_snippet:
             raw_text = s.get("snippet") or s.get("content") or ""
@@ -2445,9 +2448,10 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
     """Turn one shaped search result into a research source (``origin`` = ``search``)."""
     url = clean_source_url(item["url"]) if isinstance(item.get("url"), str) else item.get("url")
     content = item.get("content") or ""
+    title = clean_source_title(item.get("title"), url or "")
     return {
         "id": index,
-        "title": clean_source_title(item.get("title"), url or ""),
+        "title": title,
         "url": url,
         "date": item.get("date"),
         "date_source": item.get("date_source"),
@@ -2461,6 +2465,7 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
         "cached": cached,
         **source_identifiers(url or "", content),
         "access": source_access("search", content),
+        "source_type": item.get("source_type") or classify_source_type(url or "", title, content),
     }
 
 
@@ -2564,6 +2569,9 @@ async def _fill_gaps(
             source["cached"] = item["cached"]
             source.update(source_identifiers(source["url"] or "", source["content"]))
             source["access"] = source_access("fetch", source["content"])
+            source["source_type"] = classify_source_type(
+                source["url"] or "", source["title"], source["content"]
+            )
             if source.get("date") is None and (found := _content_date(None, item["content"])):
                 source["date"], source["date_source"] = found, "content"
             fill.fetched += 1
@@ -2581,6 +2589,14 @@ async def deepseek_research(
         Literal["low", "medium", "high", "max"],
         Field(description="Depth tier controlling queries, sources and reasoning (default 'medium')"),
     ] = "medium",
+    sources: Annotated[
+        Literal["any", "academic", "technical"],
+        Field(
+            description=(
+                "Source preference: 'any' (default), 'academic' (papers) or 'technical' (docs, specs, repos)"
+            )
+        ),
+    ] = "any",
     lang: Annotated[
         str | None,
         Field(description="Two-letter ISO language code to restrict search sources to (default None)"),
@@ -2617,14 +2633,19 @@ async def deepseek_research(
         return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.")
     if depth not in DEPTH_CONFIG:
         return _fail("bad_request", f"depth must be one of: {', '.join(DEPTH_CONFIG.keys())}")
+    if sources not in {"any", "academic", "technical"}:
+        return _fail(
+            "bad_request",
+            f"Invalid sources preference '{sources}'. Expected one of: any, academic, technical.",
+        )
 
     settings = get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
     store.prune_expired(_clock())
 
-    existing = store.find_active_match(clean_topic, depth, lang)
+    existing = store.find_active_match(clean_topic, depth, lang, sources=sources)
     if existing is None and not refresh:
-        finished = store.find_finished_match(clean_topic, depth, lang, _clock())
+        finished = store.find_finished_match(clean_topic, depth, lang, _clock(), sources=sources)
         if finished is not None and finished.result is not None:
             return _reuse_finished_result(finished.result)
     if existing is not None and existing.task is not None and not existing.task.done():
@@ -2643,6 +2664,7 @@ async def deepseek_research(
             topic=clean_topic,
             depth=depth,
             lang=lang,
+            sources=sources,
             created_at=_clock(),
             ctx=ctx,
         )
@@ -2651,6 +2673,7 @@ async def deepseek_research(
                 job=job,
                 clean_topic=clean_topic,
                 depth=depth,
+                sources_pref=sources,
                 lang=lang,
                 refresh=refresh,
                 strip_boilerplate=strip_boilerplate,
@@ -2877,6 +2900,7 @@ async def _execute_research_pipeline(
     job: ResearchJob,
     clean_topic: str,
     depth: str,
+    sources_pref: str = "any",
     lang: str | None,
     refresh: bool,
     strip_boilerplate: bool,
@@ -2902,7 +2926,7 @@ async def _execute_research_pipeline(
     await _report_job_progress(job, "decomposition", 1, total_steps, "Decomposing topic into subqueries")
     rem1 = deadline_at - _clock()
     dec_timeout = min(20.0, max(5.0, rem1 - synthesis_reserve))
-    dec_messages = build_decomposition_messages(clean_topic, max_queries=max_queries)
+    dec_messages = build_decomposition_messages(clean_topic, max_queries=max_queries, sources=sources_pref)
     dec_res = await _chat_request(
         messages=dec_messages,
         thinking={"type": "disabled"},
@@ -3041,7 +3065,10 @@ async def _execute_research_pipeline(
 
     # Step 3: Round-robin interleave across subqueries, dedupe, domain cap, top K
     selected_items, rank_notes = rank_and_diversify_sources(
-        subquery_result_lists, k_sources=cfg.k_sources, denylist=get_settings().source_denylist
+        subquery_result_lists,
+        k_sources=cfg.k_sources,
+        denylist=get_settings().source_denylist,
+        sources=sources_pref,
     )
     sources = [
         _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected_items, 1)
@@ -3076,7 +3103,7 @@ async def _execute_research_pipeline(
     await _report_job_progress(
         job, "synthesis", synth_step, total_steps, "Synthesizing cited research report"
     )
-    synthesis_context = select_synthesis_context(sources, depth=depth)
+    synthesis_context = select_synthesis_context(sources, depth=depth, sources_pref=sources_pref)
     synthesis_context, guard_notes = apply_token_guard(synthesis_context)
     notes.extend(guard_notes)
     fetch_cost = fill.requests_used * COST_PER_REQUEST
