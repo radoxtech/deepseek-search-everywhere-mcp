@@ -1766,3 +1766,30 @@ async def test_research_sources_expose_identifiers_and_access(fake_upstream: Any
     plain = by_title["Plain"]
     assert (plain["doi"], plain["pmid"], plain["pmcid"]) == (None, None, None)
     assert plain["access"] == "full_text"
+
+
+async def test_research_flags_unverified_numbers_in_envelope(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "Bremer 2025 Study",
+            "url": "https://example.com/1",
+            "content": "Bremer evaluated 4 RCTs with 200 participants. " * 5,
+        },
+        {
+            "title": "Garcia 2024 Study",
+            "url": "https://example.com/2",
+            "content": "Garcia included 11 studies with 934 participants. " * 5,
+        },
+    ]
+    report = (
+        "Bremer reported 11 studies with 934 participants [1]. "
+        "Garcia evaluated 11 studies with 934 participants [2]."
+    )
+    fake_upstream(DeepResearchUpstream(search_results=results, report_text=report))
+    res = await server.deepseek_research("numbers topic", depth="low")
+    assert res["ok"] is True
+    assert res["synthesized"] is True
+    assert res["unverified_number_count"] == 2
+    assert len(res["unverified_numbers"]) == 2
+    assert "[unverified]" in res["report"]
+    assert any("unverified number(s)" in n for n in res["notes"])

@@ -232,7 +232,8 @@ def build_synthesis_system_prompt(depth: str = "medium") -> str:
         "numbers/conclusions, explicitly highlight and compare the conflicting claims with citations to "
         "each perspective.\n"
         "3. Every factual statement must be cited with bracketed numbered citations like [1], [2], or [1][3] "
-        "matching the source id. Do not cite sources that do not directly substantiate the claim.\n"
+        "matching the source id. Do not cite sources that do not directly substantiate the claim. "
+        "Use only numbers that appear verbatim in the cited source.\n"
         '4. When a source reports another study that it only cites, write "(Author year, as cited in [n])" '
         "and never attribute to [n] results it only cites as if [n] produced them. When both the primary "
         "source and a secondary report are available, prefer the primary source.\n"
@@ -1033,3 +1034,173 @@ def normalize_citations(text: str, max_id: int) -> str:
 def sanitize_citations(text: str, max_id: int) -> str:
     """Backward-compatible wrapper for normalize_citations."""
     return normalize_citations(text, max_id)
+
+
+_GROUNDING_NUM_RE = re.compile(
+    r"(?<![A-Za-z0-9_])([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?)(?:\s*-\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
+)
+
+
+def _normalize_for_numbers(text: str) -> str:
+    """Normalize whitespace, minus signs, dashes, commas and strip non-factual numbers."""
+    t = text.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-").replace("\xa0", " ")
+    t = re.sub(r"10\.\d{4,9}/[^\s\"<>]+", " ", t)
+    t = re.sub(r"(?i)\bpmid\s*[:\s]?\s*\d+\b", " ", t)
+    t = re.sub(r"\[\^?\d+\]", " ", t)
+    t = re.sub(r"https?://\S+", " ", t)
+    t = re.sub(r"\b[IR][²2]\b", " ", t)
+    t = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", t)
+    t = re.sub(r"(?<=\d),(?=\d)", ".", t)
+    t = re.sub(r"(?<=\d)\s*-\s*(?=\d)", "-", t)
+    return t
+
+
+def _to_canon_number(s: str) -> str:
+    clean = s.strip().rstrip("%").strip()
+    if not clean:
+        return ""
+    is_neg = clean.startswith("-")
+    val_str = clean.lstrip("-+")
+    if not val_str:
+        return ""
+    try:
+        val = float(val_str)
+        formatted = f"{val:.6f}".rstrip("0").rstrip(".")
+        if formatted == "":
+            formatted = "0"
+        return f"-{formatted}" if is_neg and formatted != "0" else formatted
+    except ValueError:
+        return clean
+
+
+def _extract_numbers_and_ranges(text: str) -> list[tuple[str, str, str | None]]:
+    """Extract numbers and ranges from text as list of (raw_token, canon_a, canon_b|None)."""
+    clean = _normalize_for_numbers(text)
+    out: list[tuple[str, str, str | None]] = []
+    for m in _GROUNDING_NUM_RE.finditer(clean):
+        raw_token = m.group(0).strip()
+        part_a = m.group(1)
+        part_b = m.group(2)
+        canon_a = _to_canon_number(part_a)
+        canon_b = _to_canon_number(part_b) if part_b else None
+        if not canon_a:
+            continue
+        out.append((raw_token, canon_a, canon_b))
+    return out
+
+
+def ground_report_numbers(
+    report: str,
+    synthesis_context: Sequence[dict[str, Any]],
+    max_unverified: int = 50,
+) -> tuple[str, list[dict[str, str]], int, list[str]]:
+    """Verify that factual numbers in cited sentences appear in the cited source content.
+
+    Splits the report into sentences. For sentences with [n] citations, extracts numbers
+    (normalized for decimal comma/dot, en-dash ranges, %, unicode minus and thousands separators)
+    and verifies that each number appears in the content of at least one cited source.
+    Sentences with unverified numbers receive a trailing ' [unverified]' marker.
+    Returns (cleaned_report, unverified_numbers, total_unverified_count, notes).
+    """
+    if not report:
+        return report, [], 0, []
+
+    source_index: dict[int, tuple[set[str], set[tuple[str, str]], str]] = {}
+    for idx, s in enumerate(synthesis_context, start=1):
+        full_text = f"{s.get('title', '')} {s.get('date', '')} {s.get('content', '')}"
+        clean_norm = _normalize_for_numbers(full_text)
+        nums: set[str] = set()
+        ranges: set[tuple[str, str]] = set()
+        for _, canon_a, canon_b in _extract_numbers_and_ranges(full_text):
+            nums.add(canon_a)
+            if canon_b is not None:
+                nums.add(canon_b)
+                ranges.add((canon_a, canon_b))
+        source_index[idx] = (nums, ranges, clean_norm)
+
+    unverified_list: list[dict[str, str]] = []
+
+    paragraphs = report.split("\n\n")
+    cleaned_paragraphs: list[str] = []
+
+    for para in paragraphs:
+        if not para.strip():
+            cleaned_paragraphs.append(para)
+            continue
+        if para.lstrip().startswith("#"):
+            cleaned_paragraphs.append(para)
+            continue
+
+        sentences = re.split(r"(?<=[.!?])\s+", para.strip())
+        new_sentences: list[str] = []
+
+        for sent in sentences:
+            cite_matches = [int(m) for m in re.findall(r"\[(\d+)\]", sent)]
+            if not cite_matches:
+                new_sentences.append(sent)
+                continue
+
+            nums_in_sent = _extract_numbers_and_ranges(sent)
+            if not nums_in_sent:
+                new_sentences.append(sent)
+                continue
+
+            union_nums: set[str] = set()
+            union_ranges: set[tuple[str, str]] = set()
+            combined_texts: list[str] = []
+            for cid in cite_matches:
+                if cid in source_index:
+                    s_nums, s_ranges, s_text = source_index[cid]
+                    union_nums |= s_nums
+                    union_ranges |= s_ranges
+                    combined_texts.append(s_text)
+
+            has_unverified = False
+            citation_str = "".join(f"[{c}]" for c in cite_matches)
+            seen_tokens: set[str] = set()
+
+            for raw_token, canon_a, canon_b in nums_in_sent:
+                clean_raw = raw_token.lstrip("+")
+                if clean_raw in seen_tokens:
+                    continue
+                seen_tokens.add(clean_raw)
+
+                if canon_b is None:
+                    grounded = (
+                        canon_a in union_nums
+                        or any(clean_raw in text for text in combined_texts)
+                        or any(canon_a in text for text in combined_texts)
+                    )
+                else:
+                    grounded = (
+                        (canon_a, canon_b) in union_ranges
+                        or (canon_a in union_nums and canon_b in union_nums)
+                        or any(clean_raw in text for text in combined_texts)
+                    )
+
+                if not grounded:
+                    has_unverified = True
+                    unverified_list.append(
+                        {
+                            "number": clean_raw,
+                            "citation": citation_str,
+                            "sentence": sent,
+                        }
+                    )
+
+            if has_unverified and not sent.endswith(" [unverified]"):
+                new_sentences.append(f"{sent} [unverified]")
+            else:
+                new_sentences.append(sent)
+
+        cleaned_paragraphs.append(" ".join(new_sentences))
+
+    cleaned_report = "\n\n".join(cleaned_paragraphs)
+    total_count = len(unverified_list)
+    notes: list[str] = []
+    if total_count > 0:
+        notes.append(
+            f"Flagged {total_count} unverified number(s) in report not found in cited source content."
+        )
+
+    return cleaned_report, unverified_list[:max_unverified], total_count, notes

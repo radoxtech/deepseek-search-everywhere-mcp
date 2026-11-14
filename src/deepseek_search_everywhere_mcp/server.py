@@ -48,6 +48,7 @@ from .deep_research import (
     clean_source_url,
     filter_synthesis_output,
     get_job_store,
+    ground_report_numbers,
     normalize_citations,
     parse_subqueries,
     rank_and_diversify_sources,
@@ -3091,6 +3092,8 @@ async def _execute_research_pipeline(
             "report": None,
             "synthesized": False,
             "sources": _format_public_sources(sources, include_snippet=True),
+            "unverified_numbers": [],
+            "unverified_number_count": 0,
             "partial": True,
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
@@ -3130,6 +3133,8 @@ async def _execute_research_pipeline(
             "report": None,
             "synthesized": False,
             "sources": _format_public_sources(sources, include_snippet=True),
+            "unverified_numbers": [],
+            "unverified_number_count": 0,
             "partial": True,
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
@@ -3165,6 +3170,8 @@ async def _execute_research_pipeline(
             "report": None,
             "synthesized": False,
             "sources": _format_public_sources(sources, include_snippet=True),
+            "unverified_numbers": [],
+            "unverified_number_count": 0,
             "partial": True,
             "requests_used": requests_used,
             "cached": _all_cached(requests_used, cached_count),
@@ -3253,6 +3260,8 @@ async def _execute_research_pipeline(
             "report": None,
             "synthesized": False,
             "sources": _format_public_sources(sources, include_snippet=True),
+            "unverified_numbers": [],
+            "unverified_number_count": 0,
             "partial": True,
             "requests_used": requests_used + 1,
             "cached": _all_cached(requests_used + 1, cached_count),
@@ -3288,9 +3297,13 @@ async def _execute_research_pipeline(
         deadline_at=deadline_at,
     )
     clean_report, s_notes = sanitize_untrusted_text(clean_report)
+    clean_report, unverified_numbers, unverified_count, unverified_notes = ground_report_numbers(
+        clean_report, synthesis_context
+    )
     notes.extend(filter_notes)
     notes.extend(condense_notes)
     notes.extend(s_notes)
+    notes.extend(unverified_notes)
     if condense_called:
         requests_used += 1
     total_llm_cost = round(total_llm_cost + condense_cost, 6)
@@ -3305,6 +3318,8 @@ async def _execute_research_pipeline(
         "report": clean_report,
         "synthesized": True,
         "sources": _format_public_sources(synthesis_context, include_snippet=False),
+        "unverified_numbers": unverified_numbers,
+        "unverified_number_count": unverified_count,
         "partial": bool(fill.failed > 0),
         "requests_used": requests_used + 1,
         "cached": _all_cached(requests_used + 1, cached_count),

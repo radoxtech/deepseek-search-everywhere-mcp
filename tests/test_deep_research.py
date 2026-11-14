@@ -383,3 +383,51 @@ def test_dead_research_constants_are_removed() -> None:
         assert not hasattr(deep_research, name)
     for name in ("SYNTHESIS_TIMEOUT", "RESEARCH_DEADLINE", "RESEARCH_PAGE_CHARS", "RESEARCH_TOTAL_CHARS"):
         assert not hasattr(server, name)
+
+
+def test_synthesis_prompt_requires_verbatim_numbers() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import build_synthesis_system_prompt
+
+    prompt = build_synthesis_system_prompt("medium")
+    assert "use only numbers that appear verbatim in the cited source" in prompt.lower()
+
+
+def test_number_grounding_flags_number_from_other_source() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ground_report_numbers
+
+    sources = [
+        {
+            "id": 1,
+            "title": "Bremer 2025 Study",
+            "url": "https://example.com/1",
+            "content": "Bremer evaluated 4 RCTs with 200 participants.",
+        },
+        {
+            "id": 2,
+            "title": "Garcia 2024 Study",
+            "url": "https://example.com/2",
+            "content": "Garcia included 11 studies with 934 participants and r = -0.19.",
+        },
+    ]
+    report = (
+        "Bremer reported 11 studies with 934 participants [1]. "
+        "Garcia observed a negative correlation with r = -0.19 [2]. "
+        "An uncited sentence with 42 items."
+    )
+
+    cleaned_report, unverified_numbers, unverified_count, notes = ground_report_numbers(report, sources)
+
+    assert unverified_count == 2
+    assert len(unverified_numbers) == 2
+    assert unverified_numbers[0]["number"] == "11"
+    assert unverified_numbers[0]["citation"] == "[1]"
+    assert unverified_numbers[0]["sentence"] == "Bremer reported 11 studies with 934 participants [1]."
+    assert unverified_numbers[1]["number"] == "934"
+    assert unverified_numbers[1]["citation"] == "[1]"
+    assert (
+        cleaned_report == "Bremer reported 11 studies with 934 participants [1]. [unverified] "
+        "Garcia observed a negative correlation with r = -0.19 [2]. "
+        "An uncited sentence with 42 items."
+    )
+    assert len(notes) == 1
+    assert "2 unverified number(s)" in notes[0]
