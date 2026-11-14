@@ -12,7 +12,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
-from urllib.parse import urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
 
 from .extract import sanitize_json
 from .filters import fit_query
@@ -559,6 +559,99 @@ def is_guideline_body(host: str) -> bool:
     return any(clean == d or clean.endswith("." + d) for d in GUIDELINE_DOMAINS)
 
 
+def is_non_content_page(url: str, title: str = "", content: str = "") -> bool:
+    """Return True if the URL, title, or content indicates a non-content page.
+
+    Non-content pages include search results pages, login/pay walls, and markup/iframe fragments.
+    """
+    raw_url = url or ""
+    try:
+        parts = urlsplit(raw_url)
+        host = (parts.hostname or "").lower()
+        path = parts.path.lower()
+        query = parts.query.lower()
+    except ValueError:
+        return False
+
+    title_lower = (title or "").lower()
+    content_peek = (content or "")[:1500].lower()
+
+    # 1. Markup / iframe fragments
+    if "/highwire/markup/" in path:
+        return True
+    if "iframe=true" in query:
+        return True
+    if (
+        "width=" in query
+        and "height=" in query
+        and any(kw in path or kw in query for kw in ("expansion", "popup", "iframe"))
+    ):
+        return True
+
+    # 2. Access / login walls
+    login_cues = (
+        "welcome to ovid",
+        "sign in to access",
+        "log in to access",
+        "sign in with your",
+        "access denied",
+        "subscribe to read",
+        "just a moment...",
+    )
+    if "welcome to ovid" in title_lower or "welcome to ovid" in content_peek:
+        return True
+    if "ovidweb.cgi" in path:
+        return True
+    if len(content.strip()) < 800:
+        if any(
+            cue in title_lower
+            for cue in ("sign in", "log in", "access denied", "subscribe to read", "just a moment")
+        ):
+            return True
+        if any(cue in content_peek for cue in login_cues):
+            return True
+
+    # 3. Search / listing pages
+    if "scholar.google." in host:
+        return True
+
+    if host == "pubmed.ncbi.nlm.nih.gov" or host.endswith(".pubmed.ncbi.nlm.nih.gov"):
+        clean_path = path.strip("/")
+        if not clean_path.isdigit():
+            if "term=" in query or "filter=" in query:
+                return True
+            if "search results" in title_lower or "search page" in title_lower:
+                return True
+
+    if "sciencedirect.com" in host and "/search" in path:
+        return True
+
+    if "europepmc.org" in host and ("/search" in path or "query=" in query):
+        return True
+
+    if "pesquisa.bvsalud.org" in host and ("q=" in query or "query=" in query or "/portal" in path):
+        return True
+
+    if path == "/search" or path.startswith("/search/"):
+        return True
+
+    query_params = parse_qs(parts.query)
+    search_keys = {"q", "query", "term"}
+    if search_keys.intersection(query_params.keys()):
+        return True
+
+    if (
+        "search results" in title_lower
+        or "search page" in title_lower
+        or " - search" in title_lower
+        or title_lower.startswith("search |")
+        or title_lower.startswith("search results")
+    ):
+        return True
+
+    return False
+
+
 def classify_source_type(
     url: str,
     title: str,
@@ -802,6 +895,21 @@ def rank_and_diversify_sources(
     4. If the capped pool has fewer than ``k_sources`` and overflow exists, relax the domain cap
        to meet the target source count and add a note.
     """
+    skipped_non_content = 0
+    filtered_content: list[list[dict[str, Any]]] = []
+    for r in subquery_results:
+        kept = []
+        for it in r:
+            u = it.get("url") or ""
+            t = it.get("title") or ""
+            c = it.get("content") or ""
+            if is_non_content_page(u, t, c):
+                skipped_non_content += 1
+            else:
+                kept.append(it)
+        filtered_content.append(kept)
+    subquery_results = filtered_content
+
     denied = 0
     if denylist:
         filtered: list[list[dict[str, Any]]] = []
@@ -851,6 +959,10 @@ def rank_and_diversify_sources(
             overflow.sort(key=lambda it: _authority_key(it, sources), reverse=True)
             selected.extend(overflow[:needed])
             notes.append("Relaxed domain cap to meet target source count.")
+    if skipped_non_content:
+        notes.append(
+            f"Skipped {skipped_non_content} non-content page(s) (search results, login walls, fragments)."
+        )
     if denied:
         notes.append(f"Skipped {denied} result(s) from denylisted source hosts (aggregators and proxies).")
 
@@ -997,7 +1109,10 @@ def source_identifiers(url: str, content: str = "") -> dict[str, str | None]:
 
     Identifiers come from the URL first. Content is inspected only when the host is scholarly,
     and only within the header region (~first 1500 characters before any references heading).
+    Non-content pages (search results, login walls, fragments) always return all None.
     """
+    if is_non_content_page(url, content=content):
+        return {"doi": None, "pmid": None, "pmcid": None}
     try:
         parts = urlsplit(url or "")
         hostname = parts.hostname or ""

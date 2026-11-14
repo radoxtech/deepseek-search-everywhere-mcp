@@ -1991,3 +1991,63 @@ def test_classify_source_type_precision_fixtures() -> None:
     title_5 = "Efficacy of combined undenatured type II collagen"
     content_5 = "A randomized, double-blind, placebo-controlled clinical trial."
     assert classify_source_type(url_5, title_5, content_5) == "rct"
+
+
+def test_reject_non_content_pages_and_suppress_identifiers() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import (
+        is_non_content_page,
+        rank_and_diversify_sources,
+        source_identifiers,
+    )
+
+    # Fixture 1: PubMed search results page with filters and term
+    url_pubmed_search = (
+        "https://pubmed.ncbi.nlm.nih.gov/?filter=pubt.clinicaltrial"
+        "&filter=pubt.meta-analysis&term=collagen+supplementation+osteoarthritis"
+    )
+    content_search = "doi: 10.55563/clinexprheumatol/kflfr5 PMID: 39212129 Title: Clinical trial"
+    assert is_non_content_page(url_pubmed_search, "Search Results - PubMed", content_search) is True
+    # source_identifiers must return all None for non-content pages
+    assert source_identifiers(url_pubmed_search, content_search) == {
+        "doi": None,
+        "pmid": None,
+        "pmcid": None,
+    }
+
+    # Fixture 2: Biblioteca Virtual em Saúde search portal with q=
+    url_bvsalud = 'https://pesquisa.bvsalud.org/portal/?lang=p1&q=mh:"Glucosamine"'
+    assert is_non_content_page(url_bvsalud, "Search | VHL Regional Portal", "") is True
+    assert source_identifiers(url_bvsalud, "") == {"doi": None, "pmid": None, "pmcid": None}
+
+    # Fixture 3: Ovid login wall
+    url_ovid = "https://ovidsp.dc1.ovid.com/ovid-new-b/ovidweb.cgi?T=JS&PAGE=fulltext&D=yrovft&NEWS=N"
+    assert is_non_content_page(url_ovid, "Ovid: Welcome to Ovid", "Please sign in to access.") is True
+
+    # Fixture 4: HighWire markup expansion fragment
+    url_markup = "https://ard.bmj.com/highwire/markup/193935/expansion?width=1000&height=500&iframe=true"
+    assert is_non_content_page(url_markup, "Expansion", "<div>iframe markup</div>") is True
+
+    # MUST NOT reject normal pages:
+    url_pubmed_article = "https://pubmed.ncbi.nlm.nih.gov/39212129/"
+    assert is_non_content_page(url_pubmed_article, "Article Title", "Full abstract text...") is False
+
+    url_pmc_article = "https://pmc.ncbi.nlm.nih.gov/articles/PMC8298729/"
+    assert is_non_content_page(url_pmc_article, "PMC Study", "Full text...") is False
+
+    url_doi = "https://doi.org/10.1007/s10787-024-01460-9"
+    assert is_non_content_page(url_doi, "Springer Article", "Article abstract...") is False
+
+    url_pdf = "https://www.oarsijournal.com/article/S1063-4584(24)00004-9/pdf"
+    assert is_non_content_page(url_pdf, "Journal PDF", "PDF content...") is False
+
+    # rank_and_diversify_sources drops non-content pages before ranking and adds note
+    pool = [
+        [
+            {"url": url_pubmed_search, "title": "Search", "content": "Listing 1 2 3"},
+            {"url": url_pubmed_article, "title": "Real Paper", "content": "Study findings"},
+        ]
+    ]
+    selected, notes = rank_and_diversify_sources(pool, k_sources=2)
+    assert len(selected) == 1
+    assert selected[0]["url"] == url_pubmed_article
+    assert any("Skipped 1 non-content page(s) (search results, login walls, fragments)" in n for n in notes)
