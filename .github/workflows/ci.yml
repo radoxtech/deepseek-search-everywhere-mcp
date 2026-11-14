@@ -6,8 +6,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
-  schedule:
-    - cron: "17 2 * * *"
 
 permissions:
   contents: read
@@ -122,9 +120,9 @@ jobs:
 
   live-e2e:
     name: Live end-to-end tests
-    # Manual/nightly runs, or adding the `e2e` label to a PR (workflow_dispatch only works once this file is on main).
+    # Paid live run: only on manual dispatch or when the `e2e` label is added to a PR (no schedule).
     if: >-
-      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'e2e')
     runs-on: ubuntu-latest
     timeout-minutes: 30
