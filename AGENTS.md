@@ -65,6 +65,8 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
   marked `live` and are skipped without a key.
 - Never commit implementation plans, roadmaps, or temporary design documents into the repository;
   keep plans strictly as agent session artifacts or local untracked scratchpads.
+- Developer tooling: setting env `DEEPSEEK_MCP_DEBUG_DUMP_DIR` causes research jobs to write `<job_id>.json`
+  debug dumps (topic, depth, sources, synthesis_context, raw and final report, unverified numbers).
 
 ## Invariants (do not change without an explicit maintainer decision)
 

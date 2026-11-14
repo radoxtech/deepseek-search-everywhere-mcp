@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import uuid
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1824,3 +1825,43 @@ async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
     res_invalid = await server.deepseek_research("therapy", depth="low", sources="invalid")
     assert res_invalid["ok"] is False
     assert res_invalid["error"]["code"] == "bad_request"
+
+
+async def test_research_debug_dump_hook(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+
+    # 1. When DEEPSEEK_MCP_DEBUG_DUMP_DIR is unset: no dump created
+    monkeypatch.delenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", raising=False)
+    res = await server.deepseek_research("dump test unset", depth="low")
+    assert res["ok"] is True
+    assert list(tmp_path.iterdir()) == []
+
+    # 2. When DEEPSEEK_MCP_DEBUG_DUMP_DIR is set: dump created
+    dump_dir = tmp_path / "dumps"
+    monkeypatch.setenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", str(dump_dir))
+    res2 = await server.deepseek_research("dump test set", depth="low")
+    assert res2["ok"] is True
+    dump_files = list(dump_dir.glob("*.json"))
+    assert len(dump_files) == 1
+    dump_data = json.loads(dump_files[0].read_text(encoding="utf-8"))
+    assert dump_data["topic"] == "dump test set"
+    assert dump_data["depth"] == "low"
+    assert isinstance(dump_data["sources"], list)
+    assert isinstance(dump_data["synthesis_context"], list)
+    assert len(dump_data["synthesis_context"]) > 0
+    sc0 = dump_data["synthesis_context"][0]
+    assert "id" in sc0 and "url" in sc0 and "title" in sc0 and "content" in sc0
+    assert "report" in dump_data
+    assert "raw_report" in dump_data or "raw_model_report" in dump_data
+    assert "unverified_numbers" in dump_data
+
+    # 3. When dump write fails: job still succeeds (failure tolerated)
+    blocking_file = tmp_path / "not_a_dir"
+    blocking_file.write_text("block", encoding="utf-8")
+    invalid_dump_dir = blocking_file / "sub"
+    monkeypatch.setenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", str(invalid_dump_dir))
+    res3 = await server.deepseek_research("dump test fail", depth="low")
+    assert res3["ok"] is True

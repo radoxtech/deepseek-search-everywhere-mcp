@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import math
+import os
 import re
 import time
 import urllib.parse
@@ -25,6 +26,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Annotated, Any, Final, Literal, ParamSpec
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -82,6 +84,7 @@ from .sanitize import (
 )
 from .settings import (
     DEFAULT_LOG_LEVEL,
+    ENV_DEBUG_DUMP_DIR,
     get_pricing_period,
     get_settings,
 )
@@ -2936,6 +2939,55 @@ async def _condense_report(
     )
 
 
+def _maybe_dump_research_job(
+    *,
+    job_id: str,
+    topic: str,
+    depth: str,
+    synthesis_context: list[dict[str, Any]],
+    raw_model_report: str,
+    final_report: str,
+    unverified_numbers: list[dict[str, str]],
+) -> None:
+    """Optionally dump research job synthesis inputs and outputs for offline debugging/audits."""
+    dump_dir = get_settings().debug_dump_dir or os.environ.get(ENV_DEBUG_DUMP_DIR, "").strip()
+    if not dump_dir:
+        return
+    try:
+        p = Path(dump_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        dump_file = p / f"{job_id}.json"
+        synthesis_context_dump = [
+            {
+                "id": s.get("id"),
+                "url": s.get("url"),
+                "title": s.get("title"),
+                "content": s.get("content"),
+                "doi": s.get("doi"),
+                "pmid": s.get("pmid"),
+                "pmcid": s.get("pmcid"),
+                "access": s.get("access"),
+                "source_type": s.get("source_type"),
+            }
+            for s in synthesis_context
+        ]
+        dump_payload = {
+            "job_id": job_id,
+            "topic": topic,
+            "depth": depth,
+            "sources": _format_public_sources(synthesis_context, include_snippet=False),
+            "synthesis_context": synthesis_context_dump,
+            "raw_model_report": raw_model_report,
+            "raw_report": raw_model_report,
+            "final_report": final_report,
+            "report": final_report,
+            "unverified_numbers": unverified_numbers,
+        }
+        dump_file.write_text(json.dumps(dump_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Failed to write research debug dump for job %s to %s: %s", job_id, dump_dir, exc)
+
+
 async def _execute_research_pipeline(
     *,
     job: ResearchJob,
@@ -3376,6 +3428,16 @@ async def _execute_research_pipeline(
         requests_used += 1
     total_llm_cost = round(total_llm_cost + condense_cost, 6)
     total_cost = round(total_cost + condense_cost, 6)
+
+    _maybe_dump_research_job(
+        job_id=job.job_id,
+        topic=clean_topic,
+        depth=depth,
+        synthesis_context=synthesis_context,
+        raw_model_report=report_text,
+        final_report=clean_report,
+        unverified_numbers=unverified_numbers,
+    )
 
     return {
         "ok": True,

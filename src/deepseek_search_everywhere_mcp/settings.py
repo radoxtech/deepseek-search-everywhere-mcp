@@ -22,6 +22,7 @@ ENV_FETCH_ALLOW_DOMAINS = "DEEPSEEK_FETCH_ALLOW_DOMAINS"
 ENV_FETCH_DENY_DOMAINS = "DEEPSEEK_FETCH_DENY_DOMAINS"
 ENV_EGRESS_ENTROPY_CHECK = "DEEPSEEK_EGRESS_ENTROPY_CHECK"
 ENV_SOURCE_DENYLIST = "DEEPSEEK_SOURCE_DENYLIST"
+ENV_DEBUG_DUMP_DIR = "DEEPSEEK_MCP_DEBUG_DUMP_DIR"
 
 # Research never uses these hosts as sources (default: none). Library-proxy hosts are rewritten to the
 # publisher in ``clean_source_url`` instead of being rejected. An entry matches the host itself and its
@@ -136,6 +137,9 @@ class Settings:
     # Research source denylist (empty tuple disables it).
     source_denylist: tuple[str, ...] = DEFAULT_SOURCE_DENYLIST
 
+    # Debug dump directory for research jobs (developer tool, unset by default).
+    debug_dump_dir: str | None = None
+
     def __post_init__(self) -> None:
         for field in fields(self):
             value = getattr(self, field.name)
@@ -234,6 +238,9 @@ class Settings:
                 overrides["source_denylist"] = tuple(
                     d.strip().lower() for d in denylist.split(",") if d.strip()
                 )
+        dump_dir = os.environ.get(ENV_DEBUG_DUMP_DIR, "").strip()
+        if dump_dir:
+            overrides["debug_dump_dir"] = dump_dir
         return cls(**overrides)
 
 
