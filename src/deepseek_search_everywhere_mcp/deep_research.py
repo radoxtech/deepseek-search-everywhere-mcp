@@ -1398,6 +1398,100 @@ def _extract_numbers_and_ranges(text: str) -> list[tuple[str, str, str | None]]:
 
 _SENTENCE_END_RE = re.compile(r"([.!?]+)([\"'”’)\]]*)\s*$")
 
+_ABBREVIATIONS: tuple[str, ...] = (
+    "et al",
+    "e.g",
+    "i.e",
+    "vs",
+    "cf",
+    "approx",
+    "fig",
+    "tab",
+    "no",
+    "dr",
+    "prof",
+    "inc",
+    "st",
+)
+
+_INITIAL_RE = re.compile(r"(?:^|\s)[A-Za-z]$")
+
+
+def split_grounding_sentences(para: str) -> list[str]:
+    """Split a paragraph into sentences without splitting on abbreviations, initials, or inside brackets."""
+    text = para.strip()
+    if not text:
+        return []
+
+    sentences: list[str] = []
+    current_start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    i = 0
+    n = len(text)
+
+    while i < n:
+        char = text[i]
+        if char == "(":
+            paren_depth += 1
+        elif char == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif char == "[":
+            bracket_depth += 1
+        elif char == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif char in ".!?" and paren_depth == 0 and bracket_depth == 0:
+            j = i + 1
+            while j < n and text[j] in "\"'”’)]":
+                j += 1
+            if j < n and text[j].isspace():
+                is_abbrev = False
+                if char == ".":
+                    prefix = text[current_start:i].strip()
+                    if _INITIAL_RE.search(prefix):
+                        is_abbrev = True
+                    else:
+                        last_word_match = re.search(r"([A-Za-z]+(?:\s+[A-Za-z]+)?)$", prefix)
+                        if last_word_match:
+                            last_words = last_word_match.group(1).lower()
+                            if last_words in _ABBREVIATIONS or last_words.split()[-1] in _ABBREVIATIONS:
+                                is_abbrev = True
+                            elif last_words.replace(" ", "") in {"eg", "ie", "etal"}:
+                                is_abbrev = True
+
+                if not is_abbrev:
+                    sent = text[current_start:j].strip()
+                    if sent:
+                        sentences.append(sent)
+                    while j < n and text[j].isspace():
+                        j += 1
+                    current_start = j
+                    i = j
+                    continue
+        i += 1
+
+    remaining = text[current_start:].strip()
+    if remaining:
+        sentences.append(remaining)
+
+    return sentences
+
+
+def _is_bare_year(raw_token: str, canon_a: str, canon_b: str | None) -> bool:
+    """Return True if the token is a bare 4-digit year 1900-2100 (metadata, not finding)."""
+    if canon_b is not None:
+        return False
+    clean = raw_token.strip().lstrip("+")
+    if "%" in clean or "." in clean:
+        return False
+    if clean.isdigit() and len(clean) == 4:
+        try:
+            val = int(clean)
+            return 1900 <= val <= 2100
+        except ValueError:
+            return False
+    return False
+
 
 def _mark_unverified(sentence: str) -> str:
     """Insert ' [unverified]' before a sentence's final punctuation (or append it when there is none)."""
@@ -1449,7 +1543,7 @@ def ground_report_numbers(
             cleaned_paragraphs.append(para)
             continue
 
-        sentences = re.split(r"(?<=[.!?])\s+", para.strip())
+        sentences = split_grounding_sentences(para)
         new_sentences: list[str] = []
 
         for sent in sentences:
@@ -1478,6 +1572,8 @@ def ground_report_numbers(
             seen_tokens: set[str] = set()
 
             for raw_token, canon_a, canon_b in nums_in_sent:
+                if _is_bare_year(raw_token, canon_a, canon_b):
+                    continue
                 clean_raw = raw_token.lstrip("+")
                 if clean_raw in seen_tokens:
                     continue

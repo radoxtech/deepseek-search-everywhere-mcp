@@ -1865,3 +1865,44 @@ async def test_research_debug_dump_hook(
     monkeypatch.setenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", str(invalid_dump_dir))
     res3 = await server.deepseek_research("dump test fail", depth="low")
     assert res3["ok"] is True
+
+
+def test_grounding_sentence_splitting_and_skipping_years() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ground_report_numbers
+
+    # Fixture 1: abbreviation "et al." must not split sentence
+    sources_19 = [
+        {
+            "id": 1,
+            "title": "SuppScience Joint Review",
+            "url": "https://supp.science/19",
+            "content": "A comprehensive review evaluated 69 RCTs and 20 supplements for joint pain.",
+        }
+    ]
+    report_1 = "Liu et al. 2018, as appraised in [1], reviewed 69 RCTs and 20 supplements."
+    cleaned_1, unverified_1, count_1, _ = ground_report_numbers(report_1, sources_19)
+    assert count_1 == 0
+    assert "[unverified]" not in cleaned_1
+    assert unverified_1 == []
+
+    # Fixture 2: bare 4-digit years 1900-2100 are not grounded
+    sources_16 = [
+        {
+            "id": 1,
+            "title": "Liang Meta-analysis",
+            "url": "https://example.com/16",
+            "content": "Our trial sequential meta-analysis included 35 RCTs with knee OA patients.",
+        }
+    ]
+    report_2 = "Liang et al.'s 2024 trial sequential meta-analysis included 35 RCTs [1]."
+    cleaned_2, unverified_2, count_2, _ = ground_report_numbers(report_2, sources_16)
+    assert count_2 == 0
+    assert "[unverified]" not in cleaned_2
+    assert unverified_2 == []
+
+    # 35 is still checked: if wrong, it is flagged
+    report_2_wrong = "Liang et al.'s 2024 trial sequential meta-analysis included 99 RCTs [1]."
+    cleaned_2w, unverified_2w, count_2w, _ = ground_report_numbers(report_2_wrong, sources_16)
+    assert count_2w == 1
+    assert "[unverified]" in cleaned_2w
+    assert unverified_2w[0]["number"] == "99"
