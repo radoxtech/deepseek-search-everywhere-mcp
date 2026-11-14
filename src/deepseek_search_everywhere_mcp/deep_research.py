@@ -536,7 +536,38 @@ def is_content_farm(host: str) -> bool:
     return any(clean == d or clean.endswith("." + d) for d in CONTENT_FARM_DOMAINS)
 
 
-def classify_source_type(url: str, title: str, content: str = "") -> str:
+GUIDELINE_DOMAINS = frozenset(
+    {
+        "who.int",
+        "nice.org.uk",
+        "cdc.gov",
+        "nih.gov",
+        "cochrane.org",
+        "oarsi.org",
+        "acrjournals.org",
+        "rheumatology.org",
+        "choosingwiselycanada.org",
+        "guideline.gov",
+    }
+)
+
+
+def is_guideline_body(host: str) -> bool:
+    clean = (host or "").lower().strip(".")
+    if not clean:
+        return False
+    return any(clean == d or clean.endswith("." + d) for d in GUIDELINE_DOMAINS)
+
+
+def classify_source_type(
+    url: str,
+    title: str,
+    content: str = "",
+    *,
+    doi: str | None = None,
+    pmid: str | None = None,
+    pmcid: str | None = None,
+) -> str:
     """Classify a source into one of 16 granular types based on host, title and content cues.
 
     Types: meta-analysis | systematic_review | rct | study | guideline | preprint | review |
@@ -554,7 +585,19 @@ def classify_source_type(url: str, title: str, content: str = "") -> str:
     content_peek = (content or "")[:2000].lower()
     haystack = f"{title_clean}\n{content_peek}"
 
-    if host in {"youtube.com", "www.youtube.com", "youtu.be", "vimeo.com"} or host.endswith(".youtube.com"):
+    has_scholarly_id = bool(doi or pmid or pmcid)
+    if not has_scholarly_id:
+        ids = source_identifiers(raw_url, content_peek)
+        has_scholarly_id = bool(ids.get("doi") or ids.get("pmid") or ids.get("pmcid"))
+
+    is_scholarly_context = is_scholarly_host(host) or is_guideline_body(host) or has_scholarly_id
+
+    if (
+        host in {"youtube.com", "www.youtube.com", "youtu.be", "vimeo.com"}
+        or host.endswith(".youtube.com")
+        or "/video/" in path
+        or "/videos/" in path
+    ):
         return "video"
 
     if is_qa_host(host):
@@ -574,55 +617,92 @@ def classify_source_type(url: str, title: str, content: str = "") -> str:
     if is_tech_doc_host(host) or "/docs/" in path or "/documentation/" in path or "api reference" in haystack:
         return "documentation"
 
-    if "meta-analysis" in haystack or "meta analysis" in haystack:
-        return "meta-analysis"
+    # Scholarly types: only allowed if the source is scholarly or from a guideline body
+    if is_scholarly_context:
+        if "meta-analysis" in haystack or "meta analysis" in haystack:
+            return "meta-analysis"
 
-    if "systematic review" in haystack or "systematic literature review" in haystack:
-        return "systematic_review"
+        if "systematic review" in haystack or "systematic literature review" in haystack:
+            return "systematic_review"
+
+        if (
+            "practice guideline" in haystack
+            or "clinical guideline" in haystack
+            or "guideline" in title_clean
+            or "consensus statement" in haystack
+        ):
+            return "guideline"
+
+        if (
+            "randomized controlled trial" in haystack
+            or "randomised controlled trial" in haystack
+            or "clinical trial" in haystack
+            or "double-blind" in haystack
+            or "placebo-controlled" in haystack
+        ):
+            return "rct"
+
+        if (
+            host in {"arxiv.org", "biorxiv.org", "medrxiv.org"}
+            or "biorxiv.org" in host
+            or "medrxiv.org" in host
+            or "arxiv.org" in host
+            or "ssrn.com" in host
+            or "preprint" in haystack
+        ):
+            return "preprint"
+
+        if (
+            "literature review" in haystack
+            or "narrative review" in haystack
+            or "scoping review" in haystack
+            or ("review" in title_clean and is_scholarly_host(host))
+        ):
+            return "review"
+
+        if (
+            is_scholarly_host(host)
+            or "cohort study" in haystack
+            or "cross-sectional" in haystack
+            or "observational study" in haystack
+            or has_scholarly_id
+        ):
+            return "study"
+
+    # Non-scholarly classification: vendor, blog, news, other
+    if (
+        host == "benchchem.com"
+        or host.endswith(".benchchem.com")
+        or host.startswith(("shop.", "store.", "buy."))
+        or any(
+            p in path for p in ("/product/", "/products/", "/pricing/", "/cart", "/catalog/", "/supplements/")
+        )
+        or any(
+            cue in haystack
+            for cue in (
+                "add to cart",
+                "pricing plan",
+                "chemical supplier",
+                "leading supplier",
+                "supplier of chemical",
+                "in stock",
+                "buy now",
+                "catalog",
+            )
+        )
+    ):
+        return "vendor"
 
     if (
-        "practice guideline" in haystack
-        or "clinical guideline" in haystack
-        or "guideline" in title_clean
-        or "consensus statement" in haystack
+        is_content_farm(host)
+        or host.startswith("blog.")
+        or any(p in path for p in ("/blog", "/post", "/posts", "/article", "/articles"))
+        or host in {"medium.com", "substack.com", "dev.to", "nutritionfacts.org"}
+        or any(host.endswith("." + d) for d in {"medium.com", "substack.com", "dev.to", "nutritionfacts.org"})
+        or any(marker in host for marker in ("md.com", "clinic", "wellness", "doctor", "dr-"))
+        or "blog post" in haystack
     ):
-        return "guideline"
-
-    if (
-        "randomized controlled trial" in haystack
-        or "randomised controlled trial" in haystack
-        or "clinical trial" in haystack
-        or "double-blind" in haystack
-        or "placebo-controlled" in haystack
-    ):
-        return "rct"
-
-    if (
-        host in {"arxiv.org", "biorxiv.org", "medrxiv.org"}
-        or "biorxiv.org" in host
-        or "medrxiv.org" in host
-        or "arxiv.org" in host
-        or "ssrn.com" in host
-        or "preprint" in haystack
-    ):
-        return "preprint"
-
-    if (
-        "literature review" in haystack
-        or "narrative review" in haystack
-        or "scoping review" in haystack
-        or ("review" in title_clean and is_scholarly_host(host))
-    ):
-        return "review"
-
-    if (
-        is_scholarly_host(host)
-        or "cohort study" in haystack
-        or "cross-sectional" in haystack
-        or "observational study" in haystack
-        or "doi:" in haystack
-    ):
-        return "study"
+        return "blog"
 
     if (
         host
@@ -649,27 +729,6 @@ def classify_source_type(url: str, title: str, content: str = "") -> str:
         or "/news/" in path
     ):
         return "news"
-
-    if (
-        host.startswith(("shop.", "store.", "buy."))
-        or "/product/" in path
-        or "/products/" in path
-        or "/pricing/" in path
-        or "/cart" in path
-        or "add to cart" in haystack
-        or "pricing plan" in haystack
-    ):
-        return "vendor"
-
-    if (
-        is_content_farm(host)
-        or host.startswith("blog.")
-        or "/blog/" in path
-        or host in {"medium.com", "substack.com", "dev.to"}
-        or any(host.endswith("." + d) for d in {"medium.com", "substack.com", "dev.to"})
-        or "blog post" in haystack
-    ):
-        return "blog"
 
     return "other"
 

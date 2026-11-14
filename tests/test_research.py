@@ -1957,3 +1957,37 @@ def test_grounding_negative_numbers_with_spaced_minus_and_parens() -> None:
     assert count_f == 1
     assert "[unverified]" in cleaned_f
     assert unverified_f[0]["number"] == "-0.99"
+
+
+def test_classify_source_type_precision_fixtures() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import classify_source_type
+
+    # Fixture 1: Dr. Jeffrey Peng MD blog post (mentions meta-analyses in content)
+    url_1 = "https://www.jeffreypengmd.com/post/glucosamine-and-chondroitin-for-knee-arthritis-do-they-actually-work"
+    title_1 = "Glucosamine and Chondroitin for Knee Arthritis | Dr. Jeffrey Peng MD"
+    content_1 = "In this article I review recent meta-analysis data and clinical trials on glucosamine."
+    assert classify_source_type(url_1, title_1, content_1) == "blog"
+
+    # Fixture 2: NutritionFacts video (mentions systematic review in content)
+    url_2 = "https://nutritionfacts.org/video/collagen-supplements-for-arthritis/"
+    title_2 = "Collagen Supplements for Arthritis | NutritionFacts.org"
+    content_2 = "A systematic review on collagen for osteoarthritis pain."
+    assert classify_source_type(url_2, title_2, content_2) in {"blog", "video"}
+
+    # Fixture 3: BenchChem chemical supplier PDF
+    url_3 = "https://www.benchchem.com/pdf/Potential_confounding_factors_in_research_on_glucosamine_and_chondroitin.pdf"
+    title_3 = "Potential confounding factors in research on glucosamine and chondroitin"
+    content_3 = "BenchChem is a leading supplier of chemical research compounds. In this review..."
+    assert classify_source_type(url_3, title_3, content_3) == "vendor"
+
+    # Fixture 4: PMC article (network meta-analysis)
+    url_4 = "https://pmc.ncbi.nlm.nih.gov/articles/PMC8298729/"
+    title_4 = "The Efficacy and Safety of Disease-Modifying Osteoarthritis Drugs"
+    content_4 = "A network meta-analysis of randomized controlled trials."
+    assert classify_source_type(url_4, title_4, content_4) == "meta-analysis"
+
+    # Fixture 5: Nature Scientific Reports RCT
+    url_5 = "https://www.nature.com/articles/s41598-025-17505-0"
+    title_5 = "Efficacy of combined undenatured type II collagen"
+    content_5 = "A randomized, double-blind, placebo-controlled clinical trial."
+    assert classify_source_type(url_5, title_5, content_5) == "rct"
