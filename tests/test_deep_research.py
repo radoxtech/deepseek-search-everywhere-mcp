@@ -425,7 +425,7 @@ def test_number_grounding_flags_number_from_other_source() -> None:
     assert unverified_numbers[1]["number"] == "934"
     assert unverified_numbers[1]["citation"] == "[1]"
     assert (
-        cleaned_report == "Bremer reported 11 studies with 934 participants [1]. [unverified] "
+        cleaned_report == "Bremer reported 11 studies with 934 participants [1] [unverified]. "
         "Garcia observed a negative correlation with r = -0.19 [2]. "
         "An uncited sentence with 42 items."
     )
@@ -579,3 +579,14 @@ def test_decomposition_prompt_source_preferences() -> None:
     msgs_tech = build_decomposition_messages("fastmcp", sources="technical")
     text_tech = " ".join(m["content"] for m in msgs_tech).lower()
     assert "documentation" in text_tech or "release notes" in text_tech
+
+
+def test_unverified_marker_goes_before_final_punctuation() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import _mark_unverified
+
+    assert (
+        _mark_unverified("A review pooled 11 studies [1].") == "A review pooled 11 studies [1] [unverified]."
+    )
+    assert _mark_unverified("Effect was 0,45 [2]!") == "Effect was 0,45 [2] [unverified]!"
+    assert _mark_unverified("No punctuation [1]") == "No punctuation [1] [unverified]"
+    assert _mark_unverified('He said "18% [1]."') == 'He said "18% [1] [unverified]."'

@@ -1396,6 +1396,17 @@ def _extract_numbers_and_ranges(text: str) -> list[tuple[str, str, str | None]]:
     return out
 
 
+_SENTENCE_END_RE = re.compile(r"([.!?]+)([\"'”’)\]]*)\s*$")
+
+
+def _mark_unverified(sentence: str) -> str:
+    """Insert ' [unverified]' before a sentence's final punctuation (or append it when there is none)."""
+    match = _SENTENCE_END_RE.search(sentence)
+    if match is None:
+        return f"{sentence.rstrip()} [unverified]"
+    return f"{sentence[: match.start()].rstrip()} [unverified]{match.group(1)}{match.group(2)}"
+
+
 def ground_report_numbers(
     report: str,
     synthesis_context: Sequence[dict[str, Any]],
@@ -1406,7 +1417,7 @@ def ground_report_numbers(
     Splits the report into sentences. For sentences with [n] citations, extracts numbers
     (normalized for decimal comma/dot, en-dash ranges, %, unicode minus and thousands separators)
     and verifies that each number appears in the content of at least one cited source.
-    Sentences with unverified numbers receive a trailing ' [unverified]' marker.
+    Sentences with unverified numbers receive an ' [unverified]' marker before the final punctuation.
     Returns (cleaned_report, unverified_numbers, total_unverified_count, notes).
     """
     if not report:
@@ -1495,8 +1506,8 @@ def ground_report_numbers(
                         }
                     )
 
-            if has_unverified and not sent.endswith(" [unverified]"):
-                new_sentences.append(f"{sent} [unverified]")
+            if has_unverified and "[unverified]" not in sent:
+                new_sentences.append(_mark_unverified(sent))
             else:
                 new_sentences.append(sent)
 
