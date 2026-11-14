@@ -1906,3 +1906,54 @@ def test_grounding_sentence_splitting_and_skipping_years() -> None:
     assert count_2w == 1
     assert "[unverified]" in cleaned_2w
     assert unverified_2w[0]["number"] == "99"
+
+
+def test_grounding_negative_numbers_with_spaced_minus_and_parens() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ground_report_numbers
+
+    # Exact excerpt from Source [4] (PMC8298729) in E2 run:
+    sources_4 = [
+        {
+            "id": 1,
+            "title": "Disease-Modifying Osteoarthritis Drugs",
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8298729/",
+            "content": (
+                "95% CI symptoms (glucosamine: pain: − 0.15 [− 0.25, − 0.05]; "
+                "function: − 0.17 [− 0.28, − 0.07])"
+            ),
+        }
+    ]
+    report_4 = "Glucosamine reduced pain (SMD −0.15, 95% CI −0.25 to −0.05) [1]."
+    cleaned_4, unverified_4, count_4, _ = ground_report_numbers(report_4, sources_4)
+    assert count_4 == 0
+    assert "[unverified]" not in cleaned_4
+    assert unverified_4 == []
+
+    # Exact excerpt from Source [14] (OARSI PDF) in E2 run:
+    sources_14 = [
+        {
+            "id": 1,
+            "title": "Osteoarthritis and Cartilage",
+            "url": "https://www.oarsijournal.com/article/S1063-4584(24)00004-9/pdf",
+            "content": (
+                "reduced pain (standardized mean difference [SMD] - 0.35, 95% confidence interval [CI] "
+                "- 0.48 to - 0.22, moderate certainty). Corresponding to an (8.5 \\mathrm{mm}) reduction "
+                "on a (100 \\mathrm{mm}) ( (95%) CI: (- 11.7) to (- 5.4) ) visual analog scale."
+            ),
+        }
+    ]
+    report_14 = (
+        "Collagen reduced pain (SMD −0.35, 95% CI −0.48 to −0.22) corresponding to an 8.5-mm reduction "
+        "(95% CI −11.7 to −5.4) [1]."
+    )
+    cleaned_14, unverified_14, count_14, _ = ground_report_numbers(report_14, sources_14)
+    assert count_14 == 0
+    assert "[unverified]" not in cleaned_14
+    assert unverified_14 == []
+
+    # True positive: a negative number not present in source must still be flagged
+    report_false = "Collagen reduced pain dramatically (SMD −0.99) [1]."
+    cleaned_f, unverified_f, count_f, _ = ground_report_numbers(report_false, sources_14)
+    assert count_f == 1
+    assert "[unverified]" in cleaned_f
+    assert unverified_f[0]["number"] == "-0.99"

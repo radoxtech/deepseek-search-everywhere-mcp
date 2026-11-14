@@ -1344,7 +1344,7 @@ def sanitize_citations(text: str, max_id: int) -> str:
 
 
 _GROUNDING_NUM_RE = re.compile(
-    r"(?<![A-Za-z0-9_])([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?)(?:\s*-\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
+    r"(?<![A-Za-z0-9_])([+-]?\s*(?:\d+(?:\.\d+)?|\.\d+)%?)(?:\s*-\s*([+-]?\s*(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
 )
 
 
@@ -1359,11 +1359,12 @@ def _normalize_for_numbers(text: str) -> str:
     t = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", t)
     t = re.sub(r"(?<=\d),(?=\d)", ".", t)
     t = re.sub(r"(?<=\d)\s*-\s*(?=\d)", "-", t)
+    t = re.sub(r"(?<![A-Za-z0-9_])([+-])\s+(?=\d)", r"\1", t)
     return t
 
 
 def _to_canon_number(s: str) -> str:
-    clean = s.strip().rstrip("%").strip()
+    clean = "".join(s.split()).rstrip("%").strip()
     if not clean:
         return ""
     is_neg = clean.startswith("-")
@@ -1585,12 +1586,28 @@ def ground_report_numbers(
                         or any(clean_raw in text for text in combined_texts)
                         or any(canon_a in text for text in combined_texts)
                     )
+                    if not grounded and canon_a.startswith("-"):
+                        abs_val = canon_a.lstrip("-")
+                        minus_re = re.compile(r"(?:[-−–—]\s*|\bminus\s*)" + re.escape(abs_val))
+                        if any(minus_re.search(text) for text in combined_texts):
+                            grounded = True
                 else:
                     grounded = (
                         (canon_a, canon_b) in union_ranges
                         or (canon_a in union_nums and canon_b in union_nums)
                         or any(clean_raw in text for text in combined_texts)
                     )
+                    if not grounded and (canon_a.startswith("-") or canon_b.startswith("-")):
+                        match_a = canon_a in union_nums or any(
+                            re.search(r"(?:[-−–—]\s*|\bminus\s*)" + re.escape(canon_a.lstrip("-")), text)
+                            for text in combined_texts
+                        )
+                        match_b = canon_b in union_nums or any(
+                            re.search(r"(?:[-−–—]\s*|\bminus\s*)" + re.escape(canon_b.lstrip("-")), text)
+                            for text in combined_texts
+                        )
+                        if match_a and match_b:
+                            grounded = True
 
                 if not grounded:
                     has_unverified = True
