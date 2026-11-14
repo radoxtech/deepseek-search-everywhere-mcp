@@ -3196,7 +3196,7 @@ async def _execute_research_pipeline(
     await _report_job_progress(
         job, "synthesis", synth_step, total_steps, "Synthesizing cited research report"
     )
-    synthesis_context = select_synthesis_context(sources, depth=depth, sources_pref=sources_pref)
+    synthesis_context = select_synthesis_context(sources, depth=depth, sources_pref=sources_pref, notes=notes)
     synthesis_context, guard_notes = apply_token_guard(synthesis_context)
     notes.extend(guard_notes)
     fetch_cost = fill.requests_used * COST_PER_REQUEST

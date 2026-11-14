@@ -1196,23 +1196,86 @@ def clean_source_title(title: Any, url: str = "") -> str:
     return text
 
 
+SCHOLARLY_SOURCE_TYPES = frozenset(
+    {
+        "meta-analysis",
+        "systematic_review",
+        "rct",
+        "study",
+        "guideline",
+        "preprint",
+        "review",
+    }
+)
+
+
+def is_scholarly_candidate(s: dict[str, Any]) -> bool:
+    """Return True if candidate is scholarly by host, DOI/PMID/PMCID, or scholarly source_type."""
+    url = s.get("url") or ""
+    host = _url_host(url)
+    if is_scholarly_host(host) or is_guideline_body(host):
+        return True
+    if s.get("doi") or s.get("pmid") or s.get("pmcid"):
+        return True
+    st = s.get("source_type") or classify_source_type(
+        url,
+        s.get("title") or "",
+        s.get("content") or "",
+        doi=s.get("doi"),
+        pmid=s.get("pmid"),
+        pmcid=s.get("pmcid"),
+    )
+    return st in SCHOLARLY_SOURCE_TYPES
+
+
 def select_synthesis_context(
     sources: list[dict[str, Any]],
     depth: str = "medium",
     sources_pref: str = "any",
+    notes: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Select up to tier K non-empty sources and cap per-page and total characters."""
     cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
     valid_sources = [s for s in sources if s.get("content")]
-    # Prioritize by sources preference, rerank score and authority
-    valid_sources.sort(
-        key=lambda s: (
-            source_preference_score(s, sources_pref),
-            s.get("rerank_score") or 0.0,
-            s.get("authority") or 0.0,
-        ),
-        reverse=True,
-    )
+
+    if sources_pref == "academic":
+        threshold = max(4, cfg.k_sources // 2)
+        scholarly_candidates = [s for s in valid_sources if is_scholarly_candidate(s)]
+        non_scholarly_candidates = [s for s in valid_sources if not is_scholarly_candidate(s)]
+
+        if len(scholarly_candidates) >= threshold:
+            if non_scholarly_candidates and notes is not None:
+                notes.append(
+                    f"Excluded {len(non_scholarly_candidates)} non-scholarly candidate(s) "
+                    "(blog, vendor, news, other) in academic mode."
+                )
+            valid_sources = scholarly_candidates
+        else:
+            if non_scholarly_candidates and notes is not None:
+                notes.append(
+                    f"Retained non-scholarly candidate(s) ranked last in academic mode "
+                    f"(insufficient scholarly candidates: {len(scholarly_candidates)} < {threshold})."
+                )
+            valid_sources.sort(
+                key=lambda s: (
+                    1 if is_scholarly_candidate(s) else 0,
+                    source_preference_score(s, sources_pref),
+                    s.get("rerank_score") or 0.0,
+                    s.get("authority") or 0.0,
+                ),
+                reverse=True,
+            )
+
+    if sources_pref != "academic" or (sources_pref == "academic" and len(scholarly_candidates) >= threshold):
+        # Prioritize by sources preference, rerank score and authority
+        valid_sources.sort(
+            key=lambda s: (
+                source_preference_score(s, sources_pref),
+                s.get("rerank_score") or 0.0,
+                s.get("authority") or 0.0,
+            ),
+            reverse=True,
+        )
     selected: list[dict[str, Any]] = []
     total_chars = 0
     for idx, s in enumerate(valid_sources[: cfg.k_sources], 1):

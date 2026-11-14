@@ -2051,3 +2051,61 @@ def test_reject_non_content_pages_and_suppress_identifiers() -> None:
     assert len(selected) == 1
     assert selected[0]["url"] == url_pubmed_article
     assert any("Skipped 1 non-content page(s) (search results, login walls, fragments)" in n for n in notes)
+
+
+def test_academic_mode_strict_exclusion_and_fallback_notes() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import select_synthesis_context
+
+    # Pool 1: 10 scholarly + 3 blog/vendor (depth="medium" -> K=10, threshold=max(4, 5)=5)
+    scholarly_items = [
+        {
+            "title": f"Paper {i}",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{30000000 + i}/",
+            "content": f"Scholarly RCT content {i}",
+            "source_type": "rct",
+            "rerank_score": 1.0,
+        }
+        for i in range(10)
+    ]
+    blog_items = [
+        {
+            "title": f"Blog {i}",
+            "url": f"https://example.com/blog/{i}",
+            "content": f"Blog opinion content {i}",
+            "source_type": "blog",
+            "rerank_score": 2.0,  # even with higher rerank score
+        }
+        for i in range(3)
+    ]
+    pool_1 = scholarly_items + blog_items
+    notes_1: list[str] = []
+    selected_1 = select_synthesis_context(pool_1, depth="medium", sources_pref="academic", notes=notes_1)
+    # Blogs/vendors excluded completely
+    assert len(selected_1) == 10
+    assert all(s["source_type"] == "rct" for s in selected_1)
+    assert any("Excluded 3 non-scholarly candidate(s)" in n for n in notes_1)
+
+    # Pool 2: 2 scholarly + 6 blogs (scholarly count 2 < threshold 5)
+    pool_2 = (
+        scholarly_items[:2]
+        + blog_items
+        + [
+            {
+                "title": f"Extra Blog {i}",
+                "url": f"https://example.com/blog/extra_{i}",
+                "content": f"Extra blog content {i}",
+                "source_type": "blog",
+                "rerank_score": 2.0,
+            }
+            for i in range(3)
+        ]
+    )
+    notes_2: list[str] = []
+    selected_2 = select_synthesis_context(pool_2, depth="medium", sources_pref="academic", notes=notes_2)
+    # Blogs kept but ranked after scholarly
+    assert len(selected_2) == 8
+    assert selected_2[0]["source_type"] == "rct"
+    assert selected_2[1]["source_type"] == "rct"
+    assert all(s["source_type"] == "blog" for s in selected_2[2:])
+    assert len(notes_2) > 0
+    assert any("Retained non-scholarly" in n for n in notes_2)
