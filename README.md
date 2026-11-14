@@ -36,7 +36,8 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 - **Web search** with snippets or full page text, domain and date filters, language selection and optional query rewrite.
 - **Page fetch to Markdown** for one URL or up to 10 in parallel, with section, snippet, offset and find-text selectors for long pages.
 - **Structured extraction**: pull named fields or a JSON schema from a page; each value must be backed by a verbatim quote from the page or it is returned as `null`.
-- **Deep research with citations**: four depth tiers (`low`, `medium`, `high`, `max`) produce a report with `[n]` citations that map to a `sources` array. Long runs continue in the background and are collected with `deepseek_check_research`.
+- **Deep research with citations**: four depth tiers (`low`, `medium`, `high`, `max`) and domain source modes (`any`, `academic`, `technical`) produce a report with `[n]` citations mapped to a structured `sources` array with DOI/PMID identifiers and number verification. Long runs continue in the background and are collected with `deepseek_check_research`.
+- **Server instructions**: the server provides MCP system instructions during initialization guiding LLM agents to pick the most efficient tool and research depth.
 - **Cost reporting**: every response carries `cost_usd` and, where an LLM is involved, `cost_breakdown`; an optional daily budget blocks overspending.
 - **Hardened against prompt injection**: hidden Unicode stripped, markdown images and unsafe links neutralized, an egress guard for secret-like data, static SSRF filtering and no telemetry. See [Security](#security).
 - **Small footprint**: pure Python, no local browser, `uvx` zero-install, 9 tools.
@@ -51,7 +52,7 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url` (default 4000), `max_total_chars` (default 20000), `query`, `deadline` |
 | `deepseek_extract` | Extract structured JSON from one page, with evidence quotes | `url`, `fields` or `schema`, `instruction`, `max_chars` (default 40000) |
 | `deepseek_extract_many` | Extract structured JSON from 1-10 pages concurrently | `urls`, `fields` or `schema`, `instruction`, `max_chars_per_url`, `max_total_chars`, `deadline` |
-| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `lang`, `refresh` |
+| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `refresh` |
 | `deepseek_check_research` | Collect a research job that did not finish inside the inline wait | `job_id` |
 | `deepseek_check_balance` | Read-only: DeepSeek account balance and session metrics | none |
 
@@ -356,6 +357,34 @@ Behavior to know:
 - At most 3 research jobs run at the same time; further requests return `rate_limited_local`.
 - Jobs live in memory in one server process. They are cancelled when the server shuts down.
 
+### Source preferences and metadata
+
+`deepseek_research` supports a `sources` parameter (`"any"`, `"academic"`, or `"technical"`) to prioritize domain authorities and tailor subquery phrasing:
+
+- **`"any"`** (default): General web research with authority-aware ranking across all domains.
+- **`"academic"`**: Prioritizes peer-reviewed scholarly literature and research repositories (PubMed, PMC, Europe PMC, arXiv, bioRxiv/medRxiv, Nature, ScienceDirect, Springer, Wiley, Oxford Academic, IEEE, PLOS, Frontiers, and `.edu`/`.ac.*` repositories), granting bonuses to sources reporting DOI or PMID identifiers. Subqueries are phrased to target trials, meta-analyses, and systematic reviews.
+- **`"technical"`**: Prioritizes official engineering documentation (`docs.*`, `learn.microsoft.com`, `kubernetes.io`, `docs.aws.amazon.com`, `cloud.google.com/docs`, `readthedocs.io`, MDN, etc.), specifications and RFCs (IETF, W3C, RFC Editor), GitHub/GitLab repositories, release notes, changelogs, and technical Q&A (Stack Overflow, Stack Exchange). Subqueries target official docs, changelogs, and issues.
+
+Every entry in the returned `sources` array provides rich metadata:
+
+- **`id`**: Integer citation ID matching `[n]` citation markers in `report`.
+- **`title`**: Sanitized page title, free of HTML markup and formatting artifacts.
+- **`url`**: Clean canonical URL. Query trackers, signed URL parameters, and expiring access tokens are automatically stripped. Library proxy hostnames (such as EZproxy and libproxy) are canonicalized back to their upstream publisher hosts (e.g. `journals-lww-com.libproxy.ucl.ac.uk` becomes `journals.lww.com`).
+- **`date`**: Publication date if provided by the search index (`YYYY-MM-DD`).
+- **`doi`**: Digital Object Identifier (e.g. `10.1000/xyz.123`) extracted from URL or scholarly header metadata (`null` if absent).
+- **`pmid`**: PubMed ID extracted from URL or scholarly header metadata (`null` if absent).
+- **`pmcid`**: PubMed Central ID (e.g. `PMC1234567`) extracted from URL or scholarly header metadata (`null` if absent).
+- **`access`**: Source text coverage: `"full_text"` (page content fetched and analyzed) or `"abstract"` / `"snippet_only"` (search snippet only).
+- **`source_type`**: Heuristic content category (`meta-analysis`, `systematic_review`, `rct`, `study`, `guideline`, `preprint`, `review`, `documentation`, `specification`, `repository`, `qa`, `news`, `blog`, `vendor`, `video`, `other`).
+
+### Number grounding verification
+
+To protect against numerical hallucination in synthesized research reports, every sentence containing `[n]` citations is parsed for numbers (including percentages, decimal values, ranges, and negative quantities) and checked against the source texts cited by that sentence:
+
+- **Verifiable facts**: Numbers found verbatim in the cited sources remain unmarked.
+- **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag.
+- **Envelope telemetry**: The top-level research envelope includes `unverified_numbers` (a list of `{ "number", "citation", "sentence" }` entries) and `unverified_number_count`, alongside human-readable notices in `notes`.
+
 ## Costs
 
 Search and Fetch are billed by DeepSeek per successful request, not per returned result, so `count` does not change the price of a call. Extraction and research add `deepseek-flash` token costs on top of the requests they make. Cache hits cost nothing.
@@ -443,7 +472,7 @@ The server reads configuration from environment variables. It does not read `.en
 Details:
 
 - **Daily budget** covers Search, Fetch and LLM costs and resets per UTC day; once reached, calls fail with `budget_exceeded`. The state lives in `budget.json` under `DEEPSEEK_STATE_DIR` (default `~/.cache/deepseek-search-everywhere-mcp`).
-- **Domain lists** (`DEEPSEEK_SOURCE_DENYLIST`, `DEEPSEEK_FETCH_ALLOW_DOMAINS`, `DEEPSEEK_FETCH_DENY_DOMAINS`) are comma-separated; an entry matches the host and its subdomains, and an entry containing `*` is a glob matched against the whole host.
+- **Domain lists** (`DEEPSEEK_SOURCE_DENYLIST`, `DEEPSEEK_FETCH_ALLOW_DOMAINS`, `DEEPSEEK_FETCH_DENY_DOMAINS`) are comma-separated; an entry matches the host and its subdomains, and an entry containing `*` is a glob matched against the whole host. `DEEPSEEK_SOURCE_DENYLIST` defaults to empty because library-proxy hosts (EZproxy, libproxy) are automatically rewritten to canonical publisher URLs instead of rejected.
 - **Entropy check** (`1`, `true` or `yes`) rejects queries and URL paths that contain a token longer than 32 characters with high entropy.
 - **Legacy key file**: `DEEPSEEK_AUTH_JSON` points to an opencode credentials file (`{"deepseek": {"key": "..."}}`); without it the server tries `~/.local/share/opencode/auth.json`.
 
@@ -476,6 +505,7 @@ Every tool returns a JSON object with `ok`.
 | `partial`, `failed_count` | batch tools, research | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
 | `untrusted_content` | tools returning web content | always `true`; the content is data, not instructions |
 | `derived_from_untrusted`, `injection_suspected` | research | model-written output built from untrusted pages; number of sentences removed by the output filter |
+| `unverified_numbers`, `unverified_number_count` | research | list of numbers not found in cited sources and total unverified count |
 | `status`, `delivery`, `job_id`, `progress`, `next_action` | research, check_research | job state: `done` (with `delivery` `inline` or `polled`) or `running` |
 | `_meta` | retrieval tools | `{ "cost_usd", "untrusted_content" }` for clients that read MCP metadata |
 
@@ -484,7 +514,7 @@ Tool-specific results:
 - **Search**: `results[]` with `title`, `url`, `date`, `date_source` (`upstream`, `content` or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
 - **Fetch**: `url`, `title`, `content`, `chars`, `total_chars`, `truncated`, `source` (`fetch` or `search_index`); selectors add `has_more` or section metadata.
 - **Extract**: `data` (requested fields or schema), `evidence` (verbatim quotes), `extraction_truncated`.
-- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations), `synthesized`, `sources[]` of `{ id, title, url, date }` where `id` equals `n`. There is no references list inside the report and no page content in the envelope.
+- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations and `[unverified]` sentence markers where numbers lack source grounding), `synthesized`, `sources[]` of `{ id, title, url, date, doi, pmid, pmcid, access, source_type }` where `id` equals `n`, `unverified_numbers`, and `unverified_number_count`. There is no references list inside the report and no page content in the envelope.
 - **Balance**: `is_available`, `balances`, and a `session` block with uptime, request and cache counts.
 
 ### Error codes
