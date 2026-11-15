@@ -694,3 +694,13 @@ def test_fragment_title_stays_without_a_better_one() -> None:
     assert (
         deep_research.best_source_title("Patch size", "https://arxiv.org/abs/1", "no heading") == "Patch size"
     )
+
+
+def test_grounding_drop_removes_sentences_and_empty_paragraphs() -> None:
+    report = "Intro 35 surveys ran [1]. Then 77% failed [1].\n\nOnly 88 left [1].\n\nNo numbers here."
+    cleaned, unverified, count, notes = deep_research.ground_report_numbers(
+        report, _GROUNDING_SOURCE, drop=True
+    )
+    assert cleaned == "Intro 35 surveys ran [1].\n\nNo numbers here."
+    assert count == 2 and [u["number"] for u in unverified] == ["77%", "88"]
+    assert any("Removed 2 sentence(s)" in note for note in notes)

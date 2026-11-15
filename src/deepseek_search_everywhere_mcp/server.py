@@ -2722,6 +2722,15 @@ async def deepseek_research(
         bool,
         Field(description="Remove boilerplate from fetched source pages before synthesis (default True)"),
     ] = True,
+    unverified: Annotated[
+        Literal["flag", "drop"],
+        Field(
+            description=(
+                "Sentences with numbers not found in their sources: 'flag' marks them (default), "
+                "'drop' removes them"
+            )
+        ),
+    ] = "flag",
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Execute multi-angle research on a topic and generate a cited briefing report.
@@ -2732,7 +2741,9 @@ async def deepseek_research(
     at depth "low" to ~$0.03 at "max". Reads 6-24 sources (60k-500k context chars) depending
     on depth. Supports source preference (sources="any"|"academic"|"technical"). Depth tiers
     ("low", "medium", "high", "max") scale subquery breadth and source depth. At most 3 research
-    jobs run at once; a fourth returns rate_limited_local. Untrusted source content is sanitized.
+    jobs run at once; a fourth returns rate_limited_local. Sentences whose numbers are missing from
+    their cited sources are marked [unverified], or removed with unverified="drop". Untrusted source
+    content is sanitized.
 
     When NOT to use: Do not use for simple factual lookups or single queries (use deepseek_search),
     for multiple independent queries (use deepseek_search_many), for reading known URLs (use
@@ -2754,14 +2765,18 @@ async def deepseek_research(
             "bad_request",
             f"Invalid sources preference '{sources}'. Expected one of: any, academic, technical.",
         )
+    if unverified not in {"flag", "drop"}:
+        return _fail("bad_request", f"unverified must be 'flag' or 'drop', got {unverified!r}.")
 
     settings = get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
     store.prune_expired(_clock())
 
-    existing = store.find_active_match(clean_topic, depth, lang, sources=sources)
+    existing = store.find_active_match(clean_topic, depth, lang, sources=sources, unverified=unverified)
     if existing is None and not refresh:
-        finished = store.find_finished_match(clean_topic, depth, lang, _clock(), sources=sources)
+        finished = store.find_finished_match(
+            clean_topic, depth, lang, _clock(), sources=sources, unverified=unverified
+        )
         if finished is not None and finished.result is not None:
             return _reuse_finished_result(finished.result)
     if existing is not None and existing.task is not None and not existing.task.done():
@@ -2783,6 +2798,7 @@ async def deepseek_research(
             depth=depth,
             lang=lang,
             sources=sources,
+            unverified=unverified,
             created_at=_clock(),
             ctx=ctx,
         )
@@ -3493,7 +3509,7 @@ async def _execute_research_pipeline(
     )
     clean_report, s_notes = sanitize_untrusted_text(clean_report)
     clean_report, unverified_numbers, unverified_count, unverified_notes = ground_report_numbers(
-        clean_report, synthesis_context
+        clean_report, synthesis_context, drop=job.unverified == "drop"
     )
     notes.extend(filter_notes)
     notes.extend(condense_notes)

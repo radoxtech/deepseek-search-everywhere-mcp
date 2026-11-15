@@ -38,6 +38,7 @@ class ResearchJob:
     lang: str | None
     created_at: float
     sources: str = "any"
+    unverified: str = "flag"
     task: asyncio.Task[dict[str, Any]] | None = None
     completed_at: float | None = None
     result: dict[str, Any] | None = None
@@ -46,8 +47,8 @@ class ResearchJob:
     progress_history: list[dict[str, Any]] = field(default_factory=list)
     ctx: Any = None
 
-    def normalize_key(self) -> tuple[str, str, str | None, str]:
-        return (normalize_topic_key(self.topic), self.depth, self.lang, self.sources)
+    def normalize_key(self) -> tuple[str, str, str | None, str, str]:
+        return (normalize_topic_key(self.topic), self.depth, self.lang, self.sources, self.unverified)
 
 
 class ResearchJobStore:
@@ -69,9 +70,9 @@ class ResearchJobStore:
         return sum(1 for j in self._jobs.values() if j.task is not None and not j.task.done())
 
     def find_active_match(
-        self, topic: str, depth: str, lang: str | None, sources: str = "any"
+        self, topic: str, depth: str, lang: str | None, sources: str = "any", unverified: str = "flag"
     ) -> ResearchJob | None:
-        target_key = (normalize_topic_key(topic), depth, lang, sources)
+        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified)
         for job in self._jobs.values():
             if job.task is not None and not job.task.done():
                 if job.normalize_key() == target_key:
@@ -79,10 +80,16 @@ class ResearchJobStore:
         return None
 
     def find_finished_match(
-        self, topic: str, depth: str, lang: str | None, now: float, sources: str = "any"
+        self,
+        topic: str,
+        depth: str,
+        lang: str | None,
+        now: float,
+        sources: str = "any",
+        unverified: str = "flag",
     ) -> ResearchJob | None:
         """Return the newest successfully finished job for the key that is still within the TTL."""
-        target_key = (normalize_topic_key(topic), depth, lang, sources)
+        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified)
         best: ResearchJob | None = None
         for job in self._jobs.values():
             if job.completed_at is None or (now - job.completed_at) > self.ttl:
@@ -1826,13 +1833,16 @@ def ground_report_numbers(
     report: str,
     synthesis_context: Sequence[dict[str, Any]],
     max_unverified: int = 50,
+    *,
+    drop: bool = False,
 ) -> tuple[str, list[dict[str, str]], int, list[str]]:
     """Verify that factual numbers in cited sentences appear in the cited source content.
 
     Splits the report into sentences. For sentences with [n] citations, extracts numbers
     (normalized for decimal comma/dot, en-dash ranges, %, unicode minus and thousands separators)
     and verifies that each number appears in the content of at least one cited source.
-    Sentences with unverified numbers receive an ' [unverified]' marker before the final punctuation.
+    Sentences with unverified numbers receive an ' [unverified]' marker before the final punctuation,
+    or with ``drop`` are removed from the report (they stay listed in the unverified numbers).
     Returns (cleaned_report, unverified_numbers, total_unverified_count, notes).
     """
     if not report:
@@ -1852,6 +1862,7 @@ def ground_report_numbers(
         source_index[idx] = (nums, ranges, clean_norm)
 
     unverified_list: list[dict[str, str]] = []
+    dropped = 0
 
     paragraphs = report.split("\n\n")
     cleaned_paragraphs: list[str] = []
@@ -1939,12 +1950,15 @@ def ground_report_numbers(
                         }
                     )
 
-            if has_unverified and "[unverified]" not in sent:
+            if has_unverified and drop:
+                dropped += 1
+            elif has_unverified and "[unverified]" not in sent:
                 new_sentences.append(_mark_unverified(sent))
             else:
                 new_sentences.append(sent)
 
-        cleaned_paragraphs.append(" ".join(new_sentences))
+        if new_sentences:
+            cleaned_paragraphs.append(" ".join(new_sentences))
 
     cleaned_report = "\n\n".join(cleaned_paragraphs)
     total_count = len(unverified_list)
@@ -1953,5 +1967,7 @@ def ground_report_numbers(
         notes.append(
             f"Flagged {total_count} unverified number(s) in report not found in cited source content."
         )
+    if dropped:
+        notes.append(f"Removed {dropped} sentence(s) with unverified numbers from the report.")
 
     return cleaned_report, unverified_list[:max_unverified], total_count, notes

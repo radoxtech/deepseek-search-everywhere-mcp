@@ -1808,6 +1808,41 @@ async def test_research_flags_unverified_numbers_in_envelope(fake_upstream: Any)
     assert any("unverified number(s)" in n for n in res["notes"])
 
 
+async def test_research_drops_unverified_sentences_on_request(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "Bremer 2025 Study",
+            "url": "https://example.com/1",
+            "content": "Bremer evaluated 4 RCTs with 200 participants. " * 5,
+        },
+    ]
+    report = "Bremer reported 11 studies [1]. Bremer evaluated 4 RCTs with 200 participants [1]."
+    fake_upstream(DeepResearchUpstream(search_results=results, report_text=report))
+    res = await server.deepseek_research("drop topic", depth="low", unverified="drop")
+    assert res["ok"] is True
+    assert "11 studies" not in res["report"]
+    assert "200 participants" in res["report"]
+    assert "[unverified]" not in res["report"]
+    assert res["unverified_number_count"] == 1
+    assert res["unverified_numbers"][0]["number"] == "11"
+    assert any("Removed 1 sentence(s)" in n for n in res["notes"])
+
+
+async def test_research_unverified_mode_is_part_of_the_job_key(fake_upstream: Any) -> None:
+    results = [{"title": "T", "url": "https://example.com/1", "content": "Value is 4. " * 30}]
+    fake_upstream(DeepResearchUpstream(search_results=results, report_text="Value is 9 [1]."))
+    flagged = await server.deepseek_research("key topic", depth="low")
+    dropped = await server.deepseek_research("key topic", depth="low", unverified="drop")
+    assert "[unverified]" in flagged["report"]
+    assert dropped.get("cached") is not True
+    assert "9" not in (dropped["report"] or "")
+
+
+async def test_research_rejects_an_unknown_unverified_mode() -> None:
+    res = await server.deepseek_research("topic", unverified="hide")  # type: ignore[arg-type]
+    assert res["error"]["code"] == "bad_request"
+
+
 async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
     results = [
         {

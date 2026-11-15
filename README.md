@@ -52,7 +52,7 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url` (default 4000), `max_total_chars` (default 20000), `query`, `deadline` |
 | `deepseek_extract` | Extract structured JSON from one page, with evidence quotes | `url`, `fields` or `schema`, `instruction`, `max_chars` (default 40000) |
 | `deepseek_extract_many` | Extract structured JSON from 1-10 pages concurrently | `urls`, `fields` or `schema`, `instruction`, `max_chars_per_url`, `max_total_chars`, `deadline` |
-| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `refresh` |
+| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `unverified` (`flag` or `drop`; default `flag`), `refresh` |
 | `deepseek_check_research` | Collect a research job that did not finish inside the inline wait | `job_id` |
 | `deepseek_check_balance` | Read-only: DeepSeek account balance and session metrics | none |
 
@@ -382,7 +382,7 @@ Every entry in the returned `sources` array provides rich metadata:
 To protect against numerical hallucination in synthesized research reports, every sentence containing `[n]` citations is parsed for numbers (including percentages, decimal values, ranges, and negative quantities) and checked against the source texts cited by that sentence:
 
 - **Verifiable facts**: Numbers found verbatim in the cited sources remain unmarked.
-- **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag.
+- **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag. With `unverified="drop"` such sentences are removed from the report instead; they stay listed in `unverified_numbers`. The mode is part of the job key, so a flagged and a dropped run of the same topic are separate jobs.
 - **Envelope telemetry**: The top-level research envelope includes `unverified_numbers` (a list of `{ "number", "citation", "sentence" }` entries) and `unverified_number_count`, alongside human-readable notices in `notes`.
 
 ## Costs
