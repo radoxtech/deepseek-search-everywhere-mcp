@@ -2723,8 +2723,8 @@ async def deepseek_research(
     citations [1], [2] match the ids in the returned sources array. Typical cost is ~$0.003
     at depth "low" to ~$0.03 at "max". Reads 6-24 sources (60k-500k context chars) depending
     on depth. Supports source preference (sources="any"|"academic"|"technical"). Depth tiers
-    ("low", "medium", "high", "max") scale subquery breadth and source depth. Untrusted
-    source content is sanitized.
+    ("low", "medium", "high", "max") scale subquery breadth and source depth. At most 3 research
+    jobs run at once; a fourth returns rate_limited_local. Untrusted source content is sanitized.
 
     When NOT to use: Do not use for simple factual lookups or single queries (use deepseek_search),
     for multiple independent queries (use deepseek_search_many), for reading known URLs (use
@@ -2764,7 +2764,9 @@ async def deepseek_research(
         if store.count_active() >= settings.research_max_jobs:
             return _fail(
                 "rate_limited_local",
-                "Maximum concurrent research jobs reached. Try again later.",
+                f"At most {settings.research_max_jobs} research jobs run at once and that many are "
+                "running. Collect a running job with deepseek_check_research or wait for one to "
+                "finish (usually 30-180 s), then retry with the same arguments.",
             )
         job_id = str(uuid.uuid4())
         job = ResearchJob(

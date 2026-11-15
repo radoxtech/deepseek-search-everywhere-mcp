@@ -354,7 +354,7 @@ Behavior to know:
 
 - An identical request (same topic, depth and language) made while a job is running joins that job and gets the same `job_id`, so a retry never doubles the cost.
 - A finished result is reused for 30 minutes at zero cost (`cached: true`, `cost_usd: 0`); pass `refresh=true` to run again.
-- At most 3 research jobs run at the same time; further requests return `rate_limited_local`.
+- At most 3 research jobs run at the same time; further requests return `rate_limited_local` with advice to collect a running job with `deepseek_check_research` or retry after one finishes (usually 30-180 s).
 - Jobs live in memory in one server process. They are cancelled when the server shuts down.
 
 ### Source preferences and metadata

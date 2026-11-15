@@ -284,6 +284,8 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
     res4 = await server.deepseek_research("topic 4", depth="low")
     assert res4["ok"] is False
     assert res4["error"]["code"] == "rate_limited_local"
+    assert "At most 3 research jobs" in res4["error"]["message"]
+    assert "deepseek_check_research" in res4["error"]["message"]
 
 
 async def test_check_research_long_poll_returns_polled_done(
