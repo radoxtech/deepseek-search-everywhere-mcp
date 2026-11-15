@@ -1114,6 +1114,47 @@ def is_scholarly_host(host: str) -> bool:
     return False
 
 
+# An author line near the top of a page: "Authors: A, B and C" (arXiv, papers), "Autorzy: ..." or a
+# "By A and B" byline at the start of a line (blogs, news).
+_AUTHOR_LINE_RE = re.compile(r"(?mi)^[ \t>*_#]*(?:authors?|autorzy|autor)\s*:\s*(.+)$|^[ \t>*_]*by\s+(.+)$")
+_AUTHOR_SPLIT_RE = re.compile(r"\s*(?:,|;|\band\b|\bi\b|&)\s*")
+# Footnote markers and affiliations glued to a name: "Jane Doe1,2", "Jane Doe*", "Jane Doe (MIT)".
+_AUTHOR_NOISE_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]|[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹⁰]+")
+# 2-5 capitalized words; lowercase name particles ("van", "de", "von") are allowed between them.
+_AUTHOR_NAME_RE = re.compile(
+    r"^[A-ZÀ-ÖØ-ÞĀ-Ž][\w.'’-]*(?:\s+(?:(?:van|von|de|der|den|da|di|du|la|le|del|dos|bin|al)\s+){0,2}"
+    r"[A-ZÀ-ÖØ-ÞĀ-Ž][\w.'’-]*){1,4}$"
+)
+_AUTHOR_WINDOW = 1500
+MAX_SOURCE_AUTHORS = 20
+
+
+def source_authors(url: str, content: str = "") -> list[str] | None:
+    """Return author names from an author line near the top of a source's text, or None.
+
+    Only an explicit "Authors:"/"Autorzy:" label or a "By ..." byline within the first
+    ``_AUTHOR_WINDOW`` characters is read; names are split on commas, semicolons and "and", stripped
+    of footnote markers and affiliations in brackets, and kept only when they look like 2-5 word
+    personal names. Affiliations are not extracted. Non-content pages return None.
+    """
+    if not isinstance(content, str) or not content or is_non_content_page(url, content=content):
+        return None
+    match = _AUTHOR_LINE_RE.search(content[:_AUTHOR_WINDOW])
+    if match is None:
+        return None
+    line = _TITLE_MD_LINK_RE.sub(r"\1", match.group(1) or match.group(2) or "")
+    names: list[str] = []
+    for part in _AUTHOR_SPLIT_RE.split(line):
+        name = " ".join(_AUTHOR_NOISE_RE.sub(" ", part).replace("*", " ").split()).strip(" .")
+        if name.lower() in {"et al", "others"} or not _AUTHOR_NAME_RE.match(name):
+            continue
+        if name not in names:
+            names.append(name)
+        if len(names) >= MAX_SOURCE_AUTHORS:
+            break
+    return names or None
+
+
 def source_identifiers(url: str, content: str = "") -> dict[str, str | None]:
     """Return the DOI, PMID and PMCID found in a source URL or scholarly header (None when absent).
 

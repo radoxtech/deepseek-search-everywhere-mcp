@@ -1225,6 +1225,7 @@ async def test_lean_envelope_contains_no_page_content_on_success(fake_upstream: 
             "pmcid",
             "access",
             "source_type",
+            "authors",
         }
 
     serialized = json.dumps(res)

@@ -704,3 +704,24 @@ def test_grounding_drop_removes_sentences_and_empty_paragraphs() -> None:
     assert cleaned == "Intro 35 surveys ran [1].\n\nNo numbers here."
     assert count == 2 and [u["number"] for u in unverified] == ["77%", "88"]
     assert any("Removed 2 sentence(s)" in note for note in notes)
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            "Title: Attention Is All You Need\nAuthors:Ashish Vaswani, Noam Shazeer and Łukasz Kaiser\n",
+            ["Ashish Vaswani", "Noam Shazeer", "Łukasz Kaiser"],
+        ),
+        ("# Post\n\nBy Simon Willison\n\nToday I tried ...", ["Simon Willison"]),
+        ("Authors: Jane Doe1,2, John Smith* (MIT), et al.", ["Jane Doe", "John Smith"]),
+        ("# Raport\nAutorzy: Anna Kowalska i Jan Nowak", ["Anna Kowalska", "Jan Nowak"]),
+        ("Authors: Ludwig van Beethoven, Ana de la Cruz", ["Ludwig van Beethoven", "Ana de la Cruz"]),
+        ("Authors: The METR team", None),
+        ("We did it by default\nby running 5 jobs", None),
+        ("no author line here", None),
+        ("x" * 1600 + "\nAuthors: Jane Doe", None),
+    ],
+)
+def test_source_authors(content: str, expected: list[str] | None) -> None:
+    assert deep_research.source_authors("https://example.org/paper", content) == expected

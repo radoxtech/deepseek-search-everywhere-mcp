@@ -60,6 +60,7 @@ from .deep_research import (
     report_body_words,
     select_synthesis_context,
     source_access,
+    source_authors,
     source_identifiers,
     validate_r2_queries,
 )
@@ -2536,6 +2537,7 @@ def _format_public_sources(
             "access": s.get("access"),
             "source_type": s.get("source_type")
             or classify_source_type(s.get("url") or "", s.get("title") or "", s.get("content") or ""),
+            "authors": s.get("authors"),
         }
         if include_snippet:
             raw_text = s.get("snippet") or s.get("content") or ""
@@ -2572,6 +2574,7 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
         "cached": cached,
         **source_identifiers(url or "", content),
         "access": source_access("search", content),
+        "authors": source_authors(url or "", content),
         "source_type": item.get("source_type") or classify_source_type(url or "", title, content),
     }
 
@@ -2682,6 +2685,7 @@ async def _fill_gaps(
             source["cached"] = item["cached"]
             source.update(source_identifiers(source["url"] or "", source["content"]))
             source["access"] = source_access("fetch", source["content"])
+            source["authors"] = source_authors(page_url, source["content"]) or source.get("authors")
             source["source_type"] = classify_source_type(
                 source["url"] or "", source["title"], source["content"]
             )
@@ -2750,7 +2754,7 @@ async def deepseek_research(
     deepseek_fetch), or for structured entity or schema extraction (use deepseek_extract).
 
     Returns: {"ok": True, "topic": str, "depth": str, "report": str (no references list),
-    "sources": [{id, title, url, date, doi, pmid, pmcid, access, source_type}],
+    "sources": [{id, title, url, date, doi, pmid, pmcid, access, source_type, authors}],
     "cost_usd": float}.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""

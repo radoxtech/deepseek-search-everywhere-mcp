@@ -374,6 +374,7 @@ Every entry in the returned `sources` array provides rich metadata:
 - **`doi`**: Digital Object Identifier (e.g. `10.1000/xyz.123`) extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmid`**: PubMed ID extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmcid`**: PubMed Central ID (e.g. `PMC1234567`) extracted from URL or scholarly header metadata (`null` if absent).
+- **`authors`**: Author names read from an explicit `Authors:`/`Autorzy:` line or a `By ...` byline near the top of the source text, or `null` when there is none. Affiliations are not extracted.
 - **`access`**: Source text coverage: `"full_text"` (page fetched, or at least 2,000 characters of page text from the search index), `"abstract"` (shorter search text of at least 200 characters) or `"snippet_only"`.
 - **`source_type`**: Heuristic content category (`meta-analysis`, `systematic_review`, `rct`, `study`, `guideline`, `preprint`, `review`, `documentation`, `specification`, `repository`, `qa`, `news`, `blog`, `vendor`, `video`, `other`).
 
@@ -514,7 +515,7 @@ Tool-specific results:
 - **Search**: `results[]` with `title`, `url`, `date` (`YYYY-MM-DD`), `date_source` (`url` for a full date in the URL path, which wins; `upstream`; `content`; or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
 - **Fetch**: `url`, `title`, `content`, `chars`, `total_chars`, `truncated`, `source` (`fetch` or `search_index`); selectors add `has_more` or section metadata.
 - **Extract**: `data` (requested fields or schema), `evidence` (verbatim quotes), `extraction_truncated`.
-- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations and `[unverified]` sentence markers where numbers lack source grounding), `synthesized`, `sources[]` of `{ id, title, url, date, doi, pmid, pmcid, access, source_type }` where `id` equals `n`, `unverified_numbers`, and `unverified_number_count`. There is no references list inside the report and no page content in the envelope.
+- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations and `[unverified]` sentence markers where numbers lack source grounding), `synthesized`, `sources[]` of `{ id, title, url, date, doi, pmid, pmcid, access, source_type, authors }` where `id` equals `n`, `unverified_numbers`, and `unverified_number_count`. There is no references list inside the report and no page content in the envelope.
 - **Balance**: `is_available`, `balances`, and a `session` block with uptime, request and cache counts.
 
 ### Error codes
