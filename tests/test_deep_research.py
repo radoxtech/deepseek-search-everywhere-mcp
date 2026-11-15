@@ -644,3 +644,53 @@ def test_grounding_still_flags_a_missing_number() -> None:
 )
 def test_source_access(origin: str, length: int, expected: str) -> None:
     assert deep_research.source_access(origin, "x" * length) == expected
+
+
+@pytest.mark.parametrize(
+    ("title", "url"),
+    [
+        ("raw.githubusercontent.com", "https://raw.githubusercontent.com/a/b/c.md"),
+        ("Patch size", "https://arxiv.org/abs/2608.15579"),
+        ("The human baseline is included as an undated reference", "https://example.org/p.pdf"),
+        ("4.6 RQ4: Effectiveness of TestLoc in practice", "https://example.org/p"),
+        ("Item Response Theory (IRT) has become…", "https://example.org/p"),
+        ("", "https://example.org/p"),
+    ],
+)
+def test_fragment_titles_are_detected(title: str, url: str) -> None:
+    assert deep_research.is_fragment_title(title, url)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Clarifying limitations of time horizon",
+        "Attention Is All You Need",
+        "GPT-5 System Card",
+        "Kubernetes",
+        "Claude Code",
+        "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?",
+        "The State of AI Agents in 2026 Has Changed",
+        "iOS 26",
+    ],
+)
+def test_real_titles_are_kept(title: str) -> None:
+    assert not deep_research.is_fragment_title(title, "https://example.org/p")
+    assert deep_research.best_source_title(title, "https://example.org/p", "# Other heading\n") == title
+
+
+def test_fragment_title_is_replaced_by_a_content_heading() -> None:
+    content = "Title: SWE-Patch: Measuring Patch Size in Agents\n\nAbstract. We study ..."
+    assert deep_research.best_source_title("Patch size", "https://arxiv.org/abs/1", content) == (
+        "SWE-Patch: Measuring Patch Size in Agents"
+    )
+    md = "Intro text\n\n# Measuring AI Ability to Complete Long Tasks\n\n## 2.1 Setup"
+    assert deep_research.best_source_title("2.1 Setup", "https://metr.org/x", md) == (
+        "Measuring AI Ability to Complete Long Tasks"
+    )
+
+
+def test_fragment_title_stays_without_a_better_one() -> None:
+    assert (
+        deep_research.best_source_title("Patch size", "https://arxiv.org/abs/1", "no heading") == "Patch size"
+    )

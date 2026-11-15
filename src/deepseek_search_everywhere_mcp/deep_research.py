@@ -1203,6 +1203,55 @@ def clean_source_title(title: Any, url: str = "") -> str:
     return text
 
 
+# A numbered section heading ("4.6 RQ4: ...", "2. Methods"), not a document title.
+_SECTION_TITLE_RE = re.compile(r"^\d+(?:\.\d+)*\.?\s+\S")
+# A finite verb that marks a title as a sentence lifted from the body text.
+_SENTENCE_TITLE_VERB_RE = re.compile(r"\s(?:is|are|was|were|has|have|had|becomes?|became|includes?)\s")
+# A markdown H1 or a "Title:" line near the start of the content.
+_CONTENT_TITLE_RE = re.compile(r"(?m)^(?:#\s+|Title:\s*)(\S[^\n]{2,})$")
+_CONTENT_TITLE_WINDOW = 1500
+
+
+def is_fragment_title(title: Any, url: str = "") -> bool:
+    """Return True if ``title`` looks like a host name, a section heading or a body-text fragment.
+
+    Flagged: the URL host itself, a numbered section heading ("4.6 RQ4: ..."), a title cut off with an
+    ellipsis, a short lowercase phrase ("Patch size") and a sentence from the body ("The human
+    baseline is included as ...").
+    """
+    if not isinstance(title, str) or not title.strip():
+        return True
+    text = " ".join(title.split())
+    if text.lower() in {_url_host(url), _url_host(url).removeprefix("www.")}:
+        return True
+    if _SECTION_TITLE_RE.match(text) or text.endswith(("…", "...")):
+        return True
+    words = text.split()
+    if len(words) <= 2 and len(words[-1]) > 1 and words[-1][0].islower() and ":" not in text:
+        return True
+    return len(words) >= 6 and ":" not in text and _SENTENCE_TITLE_VERB_RE.search(f" {text} ") is not None
+
+
+def content_title(content: Any, url: str = "") -> str | None:
+    """Return the first markdown H1 or ``Title:`` line near the start of ``content`` that is a usable
+    title (not itself a fragment), cleaned like a source title; None when there is none."""
+    if not isinstance(content, str) or not content:
+        return None
+    for match in _CONTENT_TITLE_RE.finditer(content[:_CONTENT_TITLE_WINDOW]):
+        candidate = clean_source_title(match.group(1), url)
+        if candidate and not is_fragment_title(candidate, url):
+            return candidate
+    return None
+
+
+def best_source_title(title: Any, url: str = "", content: Any = "") -> str:
+    """Return the cleaned source title, replaced by a heading from the content when it is a fragment."""
+    cleaned = clean_source_title(title, url)
+    if is_fragment_title(cleaned, url) and (better := content_title(content, url)):
+        return better
+    return cleaned
+
+
 SCHOLARLY_SOURCE_TYPES = frozenset(
     {
         "meta-analysis",

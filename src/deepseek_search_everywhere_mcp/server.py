@@ -42,17 +42,18 @@ from .deep_research import (
     DEPTH_CONFIG,
     ResearchJob,
     apply_token_guard,
+    best_source_title,
     build_condense_messages,
     build_decomposition_messages,
     build_r2_gap_messages,
     build_synthesis_messages,
     citation_ids,
     classify_source_type,
-    clean_source_title,
     clean_source_url,
     filter_synthesis_output,
     get_job_store,
     ground_report_numbers,
+    is_fragment_title,
     normalize_citations,
     parse_subqueries,
     rank_and_diversify_sources,
@@ -2545,7 +2546,7 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
     """Turn one shaped search result into a research source (``origin`` = ``search``)."""
     url = clean_source_url(item["url"]) if isinstance(item.get("url"), str) else item.get("url")
     content = item.get("content") or ""
-    title = clean_source_title(item.get("title"), url or "")
+    title = best_source_title(item.get("title"), url or "", content)
     return {
         "id": index,
         "title": title,
@@ -2660,8 +2661,14 @@ async def _fill_gaps(
             fill.failed += 1
         elif item["content"]:
             source["content"] = item["content"]
-            if item["title"] and (not source["title"] or source["title"] == _url_host(source["url"])):
-                source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
+            page_url = source["url"] or ""
+            if is_fragment_title(source["title"], page_url):
+                # A usable fetched title (or the page's first heading) beats a host or fragment title;
+                # any fetched title still beats a blank or host-fallback one.
+                fetched = best_source_title(item["title"], page_url, item["content"])
+                blank = not source["title"] or source["title"] == _url_host(source["url"])
+                if not is_fragment_title(fetched, page_url) or (blank and item["title"]):
+                    source["title"] = fetched
             source["origin"] = "fetch"
             source["cached"] = item["cached"]
             source.update(source_identifiers(source["url"] or "", source["content"]))
