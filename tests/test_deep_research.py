@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from deepseek_search_everywhere_mcp import deep_research
 from deepseek_search_everywhere_mcp.deep_research import (
     DEPTH_CONFIG,
     build_decomposition_messages,
@@ -590,3 +591,42 @@ def test_unverified_marker_goes_before_final_punctuation() -> None:
     assert _mark_unverified("Effect was 0,45 [2]!") == "Effect was 0,45 [2] [unverified]!"
     assert _mark_unverified("No punctuation [1]") == "No punctuation [1] [unverified]"
     assert _mark_unverified('He said "18% [1]."') == 'He said "18% [1] [unverified]."'
+
+
+_GROUNDING_SOURCE = [
+    {
+        "title": "Note",
+        "date": "2026-01-22",
+        "content": "In total 90.50% of episodes failed. We ran 35 surveys. Temperature fell by −5 °C. "
+        "Tasks took 5 to 61 minutes.",
+    }
+]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Results — 90.50% of episodes failed [1].",
+        "Results—90.50% of episodes failed [1].",
+        "They ran – 35 surveys [1].",
+        "The note is dated 22 January 2026 [1].",
+        "The note is dated January 22, 2026 [1].",
+        "Notatka z 22 stycznia 2026 [1].",
+        "The note of 2026-01-22 lists 35 surveys [1].",
+        "COVID-19 data covered 35 surveys [1].",
+        "Temperature fell −5 °C [1].",
+        "Tasks took 5–61 minutes [1].",
+    ],
+)
+def test_grounding_ignores_dashes_dates_and_names(sentence: str) -> None:
+    report, unverified, count, _ = deep_research.ground_report_numbers(sentence, _GROUNDING_SOURCE)
+    assert (unverified, count) == ([], 0)
+    assert "[unverified]" not in report
+
+
+def test_grounding_still_flags_a_missing_number() -> None:
+    _, unverified, count, _ = deep_research.ground_report_numbers(
+        "Results — 77% of episodes failed [1].", _GROUNDING_SOURCE
+    )
+    assert count == 1
+    assert unverified[0]["number"] == "77%"

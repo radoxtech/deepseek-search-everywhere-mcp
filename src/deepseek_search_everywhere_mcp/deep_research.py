@@ -1580,23 +1580,50 @@ def sanitize_citations(text: str, max_id: int) -> str:
     return normalize_citations(text, max_id)
 
 
+# A number (optionally signed, decimal, percent) or a range of two. A sign must touch the digits, and a
+# number that follows "letter-" is part of a name ("COVID-19", "GPT-5"), not a finding.
 _GROUNDING_NUM_RE = re.compile(
-    r"(?<![A-Za-z0-9_])([+-]?\s*(?:\d+(?:\.\d+)?|\.\d+)%?)(?:\s*-\s*([+-]?\s*(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
+    r"(?<![A-Za-z0-9_])(?<![A-Za-z]-)([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?)"
+    r"(?:\s*-\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
+)
+
+# English (capitalized) and Polish (lowercase, nominative and genitive) month names for date stripping.
+_GROUNDING_MONTHS = (
+    "January|February|March|April|May|June|July|August|September|October|November|December|"
+    "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|"
+    "styczeń|stycznia|luty|lutego|marzec|marca|kwiecień|kwietnia|maj|maja|czerwiec|czerwca|"
+    "lipiec|lipca|sierpień|sierpnia|wrzesień|września|październik|października|listopad|listopada|"
+    "grudzień|grudnia"
+)
+# Calendar dates are metadata, not findings: "2026-01-22", "22 January 2026", "January 22, 2026",
+# "22 stycznia 2026", "22 Jan". A month and year without a day keeps its year (handled as a bare year).
+_GROUNDING_DATE_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?<![\w.])\d{4}-\d{1,2}-\d{1,2}(?![\w.]|-\d)"),
+    re.compile(r"(?<![\w.])\d{1,2}\.?\s+(?:" + _GROUNDING_MONTHS + r")\b\.?(?:,?\s+\d{4}\b)?"),
+    re.compile(r"\b(?:" + _GROUNDING_MONTHS + r")\.?\s+\d{1,2}(?:st|nd|rd|th)?\b(?!\.\d|%)(?:,?\s+\d{4}\b)?"),
 )
 
 
 def _normalize_for_numbers(text: str) -> str:
-    """Normalize whitespace, minus signs, dashes, commas and strip non-factual numbers."""
-    t = text.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-").replace("\xa0", " ")
+    """Normalize whitespace, minus signs, dashes, commas and strip non-factual numbers.
+
+    An em dash is punctuation ("results — 90% of"), never a minus; between two digits it is a range.
+    A dash or hyphen separated from the digits by a space is not a sign either. Calendar dates,
+    DOIs, PMIDs, citation markers, URLs and R²/I² labels are removed.
+    """
+    t = text.replace("\u2212", "-").replace("\xa0", " ")
+    t = re.sub(r"(?<=\d)\s*\u2014\s*(?=\d)", "-", t)
+    t = t.replace("\u2014", " ").replace("\u2013", "-")
     t = re.sub(r"10\.\d{4,9}/[^\s\"<>]+", " ", t)
     t = re.sub(r"(?i)\bpmid\s*[:\s]?\s*\d+\b", " ", t)
     t = re.sub(r"\[\^?\d+\]", " ", t)
     t = re.sub(r"https?://\S+", " ", t)
+    for date_re in _GROUNDING_DATE_RES:
+        t = date_re.sub(" ", t)
     t = re.sub(r"\b[IR][²2]\b", " ", t)
     t = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", t)
     t = re.sub(r"(?<=\d),(?=\d)", ".", t)
     t = re.sub(r"(?<=\d)\s*-\s*(?=\d)", "-", t)
-    t = re.sub(r"(?<![A-Za-z0-9_])([+-])\s+(?=\d)", r"\1", t)
     return t
 
 
