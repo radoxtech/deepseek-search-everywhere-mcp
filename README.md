@@ -46,8 +46,8 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 
 | Tool | What it does | Key parameters |
 |---|---|---|
-| `deepseek_search` | Search the web for one query; returns ranked results with snippets, or full page text | `query`, `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `include_domains`, `exclude_domains`, `after`, `before`, `exclude_terms`, `exact_phrases`, `rewrite`, `max_total_chars`, `refresh` |
-| `deepseek_search_many` | Run 1-5 searches concurrently; partial results are returned if the deadline hits | `queries`, plus the filters of `deepseek_search`, `deadline` |
+| `deepseek_search` | Search the web for one query; returns ranked results with snippets, or full page text | `query`, `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `include_domains`, `exclude_domains`, `after`, `before`, `exclude_terms`, `exact_phrases`, `rewrite`, `max_total_chars` (default 20000), `refresh` |
+| `deepseek_search_many` | Run 1-5 searches concurrently; partial results are returned if the deadline hits, and unique queries past the fifth are skipped and listed in `skipped_queries` | `queries`, plus the filters of `deepseek_search`, `max_total_chars` (default 20000), `deadline` |
 | `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `max_chars` (default 20000), one optional selector: `section`, `query` (+`max_snippets`), `offset`+`limit`, or `find_text`; `strip_boilerplate`, `fallback_to_search`, `refresh` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url` (default 4000), `max_total_chars` (default 20000), `query`, `deadline` |
 | `deepseek_extract` | Extract structured JSON from one page, with evidence quotes | `url`, `fields` or `schema`, `instruction`, `max_chars` (default 40000) |

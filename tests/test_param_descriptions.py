@@ -38,8 +38,8 @@ def test_search_many_queries_description_matches_validation() -> None:
     assert stated == server.MAX_QUERIES
     too_many = [f"query number {i}" for i in range(stated + 1)]
     res = asyncio.run(server.deepseek_search_many(too_many))
-    assert res["ok"] is False and res["error"]["code"] == "bad_request"
-    assert str(stated) in res["error"]["message"]
+    assert res["count"] == stated
+    assert res["skipped_queries"] == too_many[stated:]
 
 
 def test_fetch_max_snippets_description_matches_clamp() -> None:

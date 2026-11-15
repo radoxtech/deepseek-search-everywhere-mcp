@@ -1562,7 +1562,8 @@ async def deepseek_search_many(
     queries: Annotated[
         list[str],
         Field(
-            description=f"Search queries to execute concurrently (1-{MAX_QUERIES} queries, each <= 128 chars)"
+            description=f"Search queries to run concurrently (1-{MAX_QUERIES} queries run, extras skipped; "
+            "each <= 128 chars)"
         ),
     ],
     *,
@@ -1640,8 +1641,6 @@ async def deepseek_search_many(
         return _fail("bad_request", "content must be 'snippets' or 'full'.")
     if not isinstance(queries, list) or not queries:
         return _fail("bad_request", "queries must be a non-empty list of strings.")
-    if len(queries) > MAX_QUERIES:
-        return _fail("bad_request", f"queries must contain between 1 and {MAX_QUERIES} entries.")
     if not all(isinstance(q, str) for q in queries):
         return _fail("bad_request", "all items in queries must be strings.")
     if count < 1 or count > MAX_COUNT:
@@ -1664,6 +1663,8 @@ async def deepseek_search_many(
 
     if not unique_queries:
         return _fail("bad_request", "queries must contain at least one non-empty query.")
+    skipped_queries = unique_queries[MAX_QUERIES:]
+    unique_queries = unique_queries[:MAX_QUERIES]
 
     per_query_chars = max(1000, max_total_chars // len(unique_queries))
 
@@ -1704,6 +1705,11 @@ async def deepseek_search_many(
     notes: list[str] = []
     if duplicates:
         notes.append(f"deduped {duplicates} duplicate query/queries")
+    if skipped_queries:
+        notes.append(
+            f"ran the first {MAX_QUERIES} queries; {len(skipped_queries)} skipped (listed in "
+            "skipped_queries): send them in another call"
+        )
 
     for q, task in zip(unique_queries, tasks, strict=True):
         if task.cancelled():
@@ -1764,6 +1770,8 @@ async def deepseek_search_many(
         "notes": notes,
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }
+    if skipped_queries:
+        envelope["skipped_queries"] = skipped_queries
     if _fit_payload_budget(envelope, max_total_chars):
         envelope["notes"].append(TRUNCATED_NOTE)
         _fit_payload_budget(envelope, max_total_chars)
