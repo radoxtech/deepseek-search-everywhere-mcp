@@ -511,7 +511,7 @@ Every tool returns a JSON object with `ok`.
 
 Tool-specific results:
 
-- **Search**: `results[]` with `title`, `url`, `date`, `date_source` (`upstream`, `content` or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
+- **Search**: `results[]` with `title`, `url`, `date` (`YYYY-MM-DD`), `date_source` (`url` for a full date in the URL path, which wins; `upstream`; `content`; or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
 - **Fetch**: `url`, `title`, `content`, `chars`, `total_chars`, `truncated`, `source` (`fetch` or `search_index`); selectors add `has_more` or section metadata.
 - **Extract**: `data` (requested fields or schema), `evidence` (verbatim quotes), `extraction_truncated`.
 - **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations and `[unverified]` sentence markers where numbers lack source grounding), `synthesized`, `sources[]` of `{ id, title, url, date, doi, pmid, pmcid, access, source_type }` where `id` equals `n`, `unverified_numbers`, and `unverified_number_count`. There is no references list inside the report and no page content in the envelope.

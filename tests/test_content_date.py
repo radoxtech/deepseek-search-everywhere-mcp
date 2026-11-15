@@ -65,7 +65,7 @@ def test_web_search_uses_summary_without_content(fake_upstream) -> None:
 def test_upstream_date_wins(fake_upstream) -> None:
     upstream = "2025-11-23T16:00:00+00:00"
     result = _result(fake_upstream, content_mode="full", date=upstream, content=REPORT)
-    assert (result["date"], result["date_source"]) == (upstream, "upstream")
+    assert (result["date"], result["date_source"]) == ("2025-11-24", "upstream")
 
 
 def test_no_date_anywhere_stays_null(fake_upstream) -> None:
@@ -171,4 +171,63 @@ def test_search_reads_a_month_date_from_content(fake_upstream) -> None:
 def test_upstream_date_wins_over_a_month_date(fake_upstream) -> None:
     upstream = "2025-11-23T16:00:00+00:00"
     result = _result(fake_upstream, content_mode="full", date=upstream, content=JOURNAL_TOC)
-    assert (result["date"], result["date_source"]) == (upstream, "upstream")
+    assert (result["date"], result["date_source"]) == ("2025-11-24", "upstream")
+
+
+@pytest.mark.parametrize(
+    ("upstream", "expected"),
+    [
+        # A date-only value stored as UTC+8 midnight comes back as 16:00 UTC the day before.
+        ("2026-01-21T16:00:00+00:00", "2026-01-22"),
+        ("2026-03-19T16:00:00Z", "2026-03-20"),
+        ("2025-12-31T16:00:00+00:00", "2026-01-01"),
+        # Any other timestamp keeps its UTC date.
+        ("2026-01-15T00:00:00Z", "2026-01-15"),
+        ("2026-01-15T23:59:00+00:00", "2026-01-15"),
+        ("2026-01-15T10:00:00+08:00", "2026-01-15"),
+        ("2026-01-15", "2026-01-15"),
+        ("2026-01-15T16:00:00", "2026-01-15"),
+        ("last week", "last week"),
+        (1767225600, 1767225600),
+    ],
+)
+def test_upstream_date(upstream: Any, expected: Any) -> None:
+    assert server._upstream_date(upstream) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://metr.org/notes/2026-01-22-clarifying-limitations/", "2026-01-22"),
+        (
+            "https://github.com/guzus/ai-research-arm/blob/main/x/2026-06-26T051353--cursor-eval.md",
+            "2026-06-26",
+        ),
+        ("https://example.com/blog/2025/03/20/post", "2025-03-20"),
+        ("https://example.com/2025/03/post", None),
+        ("https://example.com/2025-03/20/post", None),
+        ("https://example.com/item/12025-06-26", None),
+        ("https://example.com/2025-02-30-post", None),
+        ("https://example.com/1989-01-01-old", None),
+        ("https://example.com/page?date=2025-03-20", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_url_date(url: Any, expected: str | None) -> None:
+    assert server._url_date(url, TODAY) == expected
+
+
+def test_url_date_wins_over_upstream(fake_upstream) -> None:
+    result = _result(
+        fake_upstream,
+        url="https://metr.org/notes/2026-01-22-clarifying-limitations/",
+        date="2026-01-13T16:00:00+00:00",
+        content=REPORT,
+    )
+    assert (result["date"], result["date_source"]) == ("2026-01-22", "url")
+
+
+def test_url_date_fills_a_missing_upstream_date(fake_upstream) -> None:
+    result = _result(fake_upstream, url="https://example.com/blog/2025/03/20/post", date=None, content="x")
+    assert (result["date"], result["date_source"]) == ("2025-03-20", "url")

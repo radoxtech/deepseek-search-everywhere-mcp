@@ -25,7 +25,8 @@ import urllib.parse
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import time as dt_time
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, ParamSpec
 
@@ -1057,10 +1058,65 @@ def _content_date(title: Any, text: Any, today: date | None = None) -> str | Non
     return None
 
 
-def _dated(upstream: Any, title: Any, text: Any) -> tuple[Any, str | None]:
-    """Return ``(date, date_source)``: the upstream date, else one found in the content, else None."""
+# The upstream index stores a date-only publication date as midnight in UTC+8 and returns it converted
+# to UTC, so 2026-01-22 arrives as "2026-01-21T16:00:00+00:00". That exact time is read back in UTC+8.
+_UPSTREAM_DATE_ZONE = timezone(timedelta(hours=8))
+_UPSTREAM_MIDNIGHT_UTC = dt_time(16, 0)
+# A full Y-M-D date in a URL path ("/2026-06-26T05...", "/2026/03/20/"), not part of a longer number.
+_URL_DATE = re.compile(r"(?<!\d)(\d{4})([-/])(\d{2})\2(\d{2})(?!\d)")
+
+
+def _upstream_date(upstream: Any) -> Any:
+    """Return the upstream date as ``YYYY-MM-DD``; a value that is not an ISO date is returned unchanged.
+
+    A timestamp at exactly 16:00:00 UTC is a UTC+8 midnight (a date-only value) and gives the next
+    calendar day; any other timezone-aware timestamp gives its UTC date.
+    """
+    if not isinstance(upstream, str):
+        return upstream
+    try:
+        parsed = datetime.fromisoformat(upstream.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return upstream
+    if parsed.tzinfo is None:
+        return parsed.date().isoformat()
+    utc = parsed.astimezone(UTC)
+    if utc.timetz().replace(tzinfo=None) == _UPSTREAM_MIDNIGHT_UTC:
+        return utc.astimezone(_UPSTREAM_DATE_ZONE).date().isoformat()
+    return utc.date().isoformat()
+
+
+def _url_date(url: Any, today: date | None = None) -> str | None:
+    """Return the first valid ``YYYY-MM-DD`` date in a URL's path (year 1990 to next year), or None."""
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        path = urllib.parse.urlsplit(url).path
+    except ValueError:
+        return None
+    max_year = (today or datetime.now(UTC).date()).year + 1
+    for match in _URL_DATE.finditer(path):
+        year, month, day = int(match[1]), int(match[3]), int(match[4])
+        if not MIN_CONTENT_YEAR <= year <= max_year:
+            continue
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _dated(upstream: Any, title: Any, text: Any, url: Any = None) -> tuple[Any, str | None]:
+    """Return ``(date, date_source)``: a date in the URL path, else the upstream date, else one found
+    in the content, else None.
+
+    A URL that carries a full date (blog posts, notes, dated repository paths) names the publication
+    day more reliably than the upstream metadata, which can hold the date of the site or repository.
+    """
+    if found := _url_date(url):
+        return found, "url"
     if upstream:
-        return upstream, "upstream"
+        return _upstream_date(upstream), "upstream"
     found = _content_date(title, text)
     return (found, "content") if found else (None, None)
 
@@ -1068,7 +1124,7 @@ def _dated(upstream: Any, title: Any, text: Any) -> tuple[Any, str | None]:
 def _result_entry(item: dict[str, Any]) -> dict[str, Any]:
     """Map one upstream result to its metadata fields, with the host as a blank-title fallback."""
     when, date_source = _dated(
-        item.get("date"), item.get("title"), item.get("content") or item.get("summary")
+        item.get("date"), item.get("title"), item.get("content") or item.get("summary"), item.get("url")
     )
     entry: dict[str, Any] = {
         "title": _title_or_host(item),
