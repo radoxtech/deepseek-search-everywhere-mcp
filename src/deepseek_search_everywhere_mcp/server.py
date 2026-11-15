@@ -2839,7 +2839,7 @@ async def deepseek_research(
             "job_id": job.job_id,
             "depth": depth,
             "elapsed_ms": elapsed_ms,
-            "progress": job.progress,
+            "progress": _progress_view(job),
             "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
         }
     finally:
@@ -2935,11 +2935,28 @@ async def deepseek_check_research(
             "job_id": job.job_id,
             "depth": job.depth,
             "elapsed_ms": elapsed_ms,
-            "progress": job.progress,
+            "progress": _progress_view(job),
             "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
         }
     finally:
         job.ctx = None
+
+
+def _progress_view(job: ResearchJob) -> dict[str, Any]:
+    """Return the public progress of a running job.
+
+    Besides ``phase``, ``step`` and ``of`` (and ``detail`` for a sub-step such as a synthesis retry
+    or condensing), it carries ``phase_elapsed_ms``, the time spent in the current phase or sub-step,
+    and ``deadline_ms``, the hard time cap of the job's depth, so a caller polling a long synthesis can
+    tell that the job is alive and how long it can still take.
+    """
+    view = dict(job.progress)
+    if job.phase_started_at is not None:
+        view["phase_elapsed_ms"] = max(0, int((_clock() - job.phase_started_at) * 1000))
+    cfg = DEPTH_CONFIG.get(job.depth)
+    if cfg is not None:
+        view["deadline_ms"] = int(cfg.deadline_s * 1000)
+    return view
 
 
 async def _report_job_progress(
@@ -2948,10 +2965,15 @@ async def _report_job_progress(
     step: int,
     total_steps: int,
     message: str | None = None,
+    *,
+    detail: str | None = None,
 ) -> None:
     """Update job progress state and emit FastMCP progress notification if context is attached."""
-    event = {"phase": phase, "step": step, "of": total_steps}
+    event: dict[str, Any] = {"phase": phase, "step": step, "of": total_steps}
+    if detail:
+        event["detail"] = detail
     job.progress = event
+    job.phase_started_at = _clock()
     job.progress_history.append(event)
     if job.ctx is not None and hasattr(job.ctx, "report_progress"):
         try:
@@ -3434,6 +3456,14 @@ async def _execute_research_pipeline(
     discarded_attempt_cost = 0.0
     if needs_retry and rem_retry >= 8.0:
         notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
+        await _report_job_progress(
+            job,
+            "synthesis",
+            synth_step,
+            total_steps,
+            "Retrying synthesis with thinking disabled",
+            detail="retry",
+        )
         retry_kwargs = {
             "messages": synthesis_messages,
             "thinking": {"type": "disabled"},
@@ -3500,6 +3530,10 @@ async def _execute_research_pipeline(
     }
     filtered_report, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
     clean_report = normalize_citations(filtered_report, max_id=len(synthesis_context))
+    if report_body_words(clean_report) > cfg.max_words:
+        await _report_job_progress(
+            job, "synthesis", synth_step, total_steps, "Condensing an over-length report", detail="condense"
+        )
     clean_report, condense_cost, condense_called, condense_notes = await _condense_report(
         clean_report,
         depth=depth,

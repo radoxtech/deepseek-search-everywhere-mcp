@@ -238,6 +238,34 @@ async def test_research_cancellation_does_not_cancel_background_job(
     assert res["ok"] is True
 
 
+async def test_running_research_progress_carries_timing(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+
+    class SlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                await asyncio.sleep(0.15)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(SlowUpstream())
+    res = await server.deepseek_research("timing topic", depth="high")
+    assert res["status"] == "running"
+    progress = res["progress"]
+    assert {"phase", "step", "of"} <= progress.keys()
+    assert progress["deadline_ms"] == int(server.DEPTH_CONFIG["high"].deadline_s * 1000)
+    assert progress["phase_elapsed_ms"] >= 0
+
+
+async def test_progress_reports_a_synthesis_sub_step(fake_upstream: Any) -> None:
+    job = server.ResearchJob(job_id="j", topic="t", depth="low", lang=None, created_at=0.0)
+    await server._report_job_progress(job, "synthesis", 4, 4, detail="retry")
+    view = server._progress_view(job)
+    assert (view["phase"], view["detail"]) == ("synthesis", "retry")
+    assert "phase_elapsed_ms" in view
+
+
 async def test_research_duplicate_joins_running_job(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

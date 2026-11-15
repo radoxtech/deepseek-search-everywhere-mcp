@@ -45,6 +45,7 @@ class ResearchJob:
     exception: BaseException | None = None
     progress: dict[str, Any] = field(default_factory=lambda: {"phase": "starting", "step": 0, "of": 4})
     progress_history: list[dict[str, Any]] = field(default_factory=list)
+    phase_started_at: float | None = None
     ctx: Any = None
 
     def normalize_key(self) -> tuple[str, str, str | None, str, str]:
