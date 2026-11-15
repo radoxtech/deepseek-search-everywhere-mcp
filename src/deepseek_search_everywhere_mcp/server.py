@@ -904,9 +904,10 @@ def _check_search_args(
         if ops_len:
             return _fail(
                 "query_too_long",
-                f"query must be at most {budget} characters when filters ({ops_len} chars) are applied.",
+                f"query is {len(query)} characters; it must be at most {budget} when filters "
+                f"({ops_len} chars) are applied ({MAX_QUERY} in total).",
             )
-        return _fail("query_too_long", f"query must be at most {MAX_QUERY} characters.")
+        return _fail("query_too_long", f"query is {len(query)} characters; it must be at most {MAX_QUERY}.")
     if not 1 <= count <= MAX_COUNT:
         return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
     if lang and not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2})?", lang):
