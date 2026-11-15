@@ -47,7 +47,11 @@ _MD_IMAGE_RE = re.compile(r"(?<!\\)!\[(?P<alt>[^\]]*)\]\((?P<url>[^\)]*)\)")
 
 # Markdown links: [label](url) where label is not preceded by !
 # Supports balanced parentheses in URL up to 1 level deep.
-_MD_LINK_RE = re.compile(r"(?<!\!)\[(?P<label>[^\]]*)\]\((?P<url>(?:[^\(\)\s]+|\([^\(\)\s]*\))*)\)")
+# The URL body is written as ``[^()\s]*(?:\([^()\s]*\)[^()\s]*)*`` instead of the
+# former ``(?:[^()\s]+|\([^()\s]*\))*``. The old form nested two quantifiers over the
+# same character class and backtracked exponentially on an unterminated link such as
+# ``[x](aaaa...`` (4 KB was enough to peg a CPU for minutes); this form is linear.
+_MD_LINK_RE = re.compile(r"(?<!\!)\[(?P<label>[^\]]*)\]\((?P<url>[^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)")
 
 
 def _is_emoji_component(char: str) -> bool:
