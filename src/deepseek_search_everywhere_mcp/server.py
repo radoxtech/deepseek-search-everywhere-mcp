@@ -2504,8 +2504,9 @@ def _format_public_sources(
     """Format research sources into a lean public list omitting full page content.
 
     Each item carries the identifiers extracted from the URL/content (``doi``, ``pmid``,
-    ``pmcid``) and ``access``: ``full_text`` for a fetched page, ``abstract`` for search content
-    of at least 200 characters and ``snippet_only`` otherwise.
+    ``pmcid``) and ``access``: ``full_text`` for a fetched page or search content of at least 2000
+    characters, ``abstract`` for search content of at least 200 characters and ``snippet_only``
+    otherwise.
     On success, sources carry no page content; on fallback paths, a 400-character sanitized
     snippet is included.
     """

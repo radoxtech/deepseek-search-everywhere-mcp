@@ -374,7 +374,7 @@ Every entry in the returned `sources` array provides rich metadata:
 - **`doi`**: Digital Object Identifier (e.g. `10.1000/xyz.123`) extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmid`**: PubMed ID extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmcid`**: PubMed Central ID (e.g. `PMC1234567`) extracted from URL or scholarly header metadata (`null` if absent).
-- **`access`**: Source text coverage: `"full_text"` (page content fetched and analyzed) or `"abstract"` / `"snippet_only"` (search snippet only).
+- **`access`**: Source text coverage: `"full_text"` (page fetched, or at least 2,000 characters of page text from the search index), `"abstract"` (shorter search text of at least 200 characters) or `"snippet_only"`.
 - **`source_type`**: Heuristic content category (`meta-analysis`, `systematic_review`, `rct`, `study`, `guideline`, `preprint`, `review`, `documentation`, `specification`, `repository`, `qa`, `news`, `blog`, `vendor`, `video`, `other`).
 
 ### Number grounding verification

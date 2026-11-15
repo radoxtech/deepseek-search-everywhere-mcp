@@ -630,3 +630,17 @@ def test_grounding_still_flags_a_missing_number() -> None:
     )
     assert count == 1
     assert unverified[0]["number"] == "77%"
+
+
+@pytest.mark.parametrize(
+    ("origin", "length", "expected"),
+    [
+        ("fetch", 10, "full_text"),
+        ("search", deep_research.SOURCE_FULL_TEXT_CHARS, "full_text"),
+        ("search", deep_research.SOURCE_FULL_TEXT_CHARS - 1, "abstract"),
+        ("search", deep_research.SOURCE_SNIPPET_ONLY_CHARS, "abstract"),
+        ("search", deep_research.SOURCE_SNIPPET_ONLY_CHARS - 1, "snippet_only"),
+    ],
+)
+def test_source_access(origin: str, length: int, expected: str) -> None:
+    assert deep_research.source_access(origin, "x" * length) == expected

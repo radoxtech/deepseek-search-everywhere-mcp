@@ -1056,6 +1056,8 @@ _EXPLICIT_DOI_RE = re.compile(
 _EXPLICIT_PMID_RE = re.compile(r"(?i)\bpmid\s*[:\s]\s*(\d+)\b")
 _REF_HEADING_RE = re.compile(r"(?mi)^(?:#{1,4}\s*)?(?:References|Bibliography|Works Cited)\s*(?::|\n|\r|$)")
 SOURCE_SNIPPET_ONLY_CHARS = 200
+# Search content (content="full") at least this long is the page body itself, not an abstract.
+SOURCE_FULL_TEXT_CHARS = 2000
 
 SCHOLARLY_HOST_DOMAINS = frozenset(
     {
@@ -1167,10 +1169,15 @@ def source_identifiers(url: str, content: str = "") -> dict[str, str | None]:
 
 
 def source_access(origin: str, content: str) -> str:
-    """Classify a source: a fetched page is ``full_text``; search text of >= 200 chars is ``abstract``."""
-    if origin == "fetch":
+    """Classify a source's text coverage.
+
+    A fetched page, or search content of at least ``SOURCE_FULL_TEXT_CHARS`` (the page body the index
+    returned), is ``full_text``; shorter search text of at least 200 characters is ``abstract``.
+    """
+    length = len(content or "")
+    if origin == "fetch" or length >= SOURCE_FULL_TEXT_CHARS:
         return "full_text"
-    return "abstract" if len(content or "") >= SOURCE_SNIPPET_ONLY_CHARS else "snippet_only"
+    return "abstract" if length >= SOURCE_SNIPPET_ONLY_CHARS else "snippet_only"
 
 
 def clean_source_title(title: Any, url: str = "") -> str:
