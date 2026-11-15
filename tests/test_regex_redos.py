@@ -106,6 +106,10 @@ def test_md_link_regex_keeps_behaviour(text: str, expected: str) -> None:
 _QUADRATIC = pytest.mark.xfail(strict=True, reason="quadratic regex backtracking, not fixed yet")
 
 LINEAR_CASES = [
+    # A sign must touch its digits, so a run of spaces no longer backtracks.
+    pytest.param(_extract_numbers_and_ranges, _repeat(" "), id="grounding-numbers"),
+    pytest.param(_extract_numbers_and_ranges, _repeat("- "), id="grounding-dashes"),
+    pytest.param(_extract_numbers_and_ranges, _repeat("1 January "), id="grounding-dates"),
     pytest.param(_unescape_markdown, _repeat("\\*"), id="unescape-markdown-escapes"),
     pytest.param(_strip_html_tags, _repeat("<p>"), id="strip-html-dense-tags"),
     pytest.param(sanitize_untrusted_text, _repeat("[a](https://x.y) "), id="sanitize-many-links"),
@@ -118,7 +122,6 @@ QUADRATIC_CASES = [
     pytest.param(sanitize_untrusted_text, _repeat("[1,"), id="md-link-many-openers", marks=_QUADRATIC),
     pytest.param(_unescape_markdown, _repeat("`"), id="markdown-token-backticks", marks=_QUADRATIC),
     pytest.param(_strip_html_tags, _repeat(" \t", suffix="<"), id="tag-token-whitespace", marks=_QUADRATIC),
-    pytest.param(_extract_numbers_and_ranges, _repeat(" "), id="grounding-numbers", marks=_QUADRATIC),
     pytest.param(
         lambda t: normalize_citations(t, 10), _repeat(" \t"), id="citations-punct", marks=_QUADRATIC
     ),

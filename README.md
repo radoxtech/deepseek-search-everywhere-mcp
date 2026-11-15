@@ -46,13 +46,13 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 
 | Tool | What it does | Key parameters |
 |---|---|---|
-| `deepseek_search` | Search the web for one query; returns ranked results with snippets, or full page text | `query`, `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `include_domains`, `exclude_domains`, `after`, `before`, `exclude_terms`, `exact_phrases`, `rewrite`, `max_total_chars`, `refresh` |
-| `deepseek_search_many` | Run 1-5 searches concurrently; partial results are returned if the deadline hits | `queries`, plus the filters of `deepseek_search`, `deadline` |
+| `deepseek_search` | Search the web for one query; returns ranked results with snippets, or full page text | `query`, `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `include_domains`, `exclude_domains`, `after`, `before`, `exclude_terms`, `exact_phrases`, `rewrite`, `max_total_chars` (default 20000), `refresh` |
+| `deepseek_search_many` | Run 1-5 searches concurrently; partial results are returned if the deadline hits, and unique queries past the fifth are skipped and listed in `skipped_queries` | `queries`, plus the filters of `deepseek_search`, `max_total_chars` (default 20000), `deadline` |
 | `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `max_chars` (default 20000), one optional selector: `section`, `query` (+`max_snippets`), `offset`+`limit`, or `find_text`; `strip_boilerplate`, `fallback_to_search`, `refresh` |
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url` (default 4000), `max_total_chars` (default 20000), `query`, `deadline` |
 | `deepseek_extract` | Extract structured JSON from one page, with evidence quotes | `url`, `fields` or `schema`, `instruction`, `max_chars` (default 40000) |
 | `deepseek_extract_many` | Extract structured JSON from 1-10 pages concurrently | `urls`, `fields` or `schema`, `instruction`, `max_chars_per_url`, `max_total_chars`, `deadline` |
-| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `refresh` |
+| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `unverified` (`flag` or `drop`; default `flag`), `refresh` |
 | `deepseek_check_research` | Collect a research job that did not finish inside the inline wait | `job_id` |
 | `deepseek_check_balance` | Read-only: DeepSeek account balance and session metrics | none |
 
@@ -347,14 +347,14 @@ Many MCP clients cancel a tool call after about 60 seconds, which is shorter tha
 
 1. The research runs as a background job inside the server process, not inside the tool call. A client timeout or a cancelled call does not stop the job.
 2. If the report is ready within 45 s, `deepseek_research` returns it inline with `status: "done"` and `delivery: "inline"`.
-3. Otherwise it returns `ok: true`, `status: "running"`, a `job_id`, `elapsed_ms`, a `progress` object (`phase`, `step`, `of`) and a `next_action` telling the agent to call `deepseek_check_research` with that `job_id` and not to start a new research.
+3. Otherwise it returns `ok: true`, `status: "running"`, a `job_id`, `elapsed_ms`, a `progress` object (`phase`, `step`, `of`, an optional `detail` for a synthesis `retry` or `condense` sub-step, `phase_elapsed_ms` spent in the current phase and `deadline_ms`, the depth's hard time cap) and a `next_action` telling the agent to call `deepseek_check_research` with that `job_id` and not to start a new research.
 4. `deepseek_check_research(job_id)` waits up to another 45 s and returns either the same final envelope (`status: "done"`, `delivery: "polled"`) or `status: "running"` again. Repeat until it is done. An unknown or expired id returns `job_not_found`; start the research again in that case (the job may have been lost on a server restart).
 
 Behavior to know:
 
 - An identical request (same topic, depth and language) made while a job is running joins that job and gets the same `job_id`, so a retry never doubles the cost.
 - A finished result is reused for 30 minutes at zero cost (`cached: true`, `cost_usd: 0`); pass `refresh=true` to run again.
-- At most 3 research jobs run at the same time; further requests return `rate_limited_local`.
+- At most 3 research jobs run at the same time; further requests return `rate_limited_local` with advice to collect a running job with `deepseek_check_research` or retry after one finishes (usually 30-180 s).
 - Jobs live in memory in one server process. They are cancelled when the server shuts down.
 
 ### Source preferences and metadata
@@ -374,7 +374,8 @@ Every entry in the returned `sources` array provides rich metadata:
 - **`doi`**: Digital Object Identifier (e.g. `10.1000/xyz.123`) extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmid`**: PubMed ID extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmcid`**: PubMed Central ID (e.g. `PMC1234567`) extracted from URL or scholarly header metadata (`null` if absent).
-- **`access`**: Source text coverage: `"full_text"` (page content fetched and analyzed) or `"abstract"` / `"snippet_only"` (search snippet only).
+- **`authors`**: Author names read from an explicit `Authors:`/`Autorzy:` line or a `By ...` byline near the top of the source text, or `null` when there is none. Affiliations are not extracted.
+- **`access`**: Source text coverage: `"full_text"` (page fetched, or at least 2,000 characters of page text from the search index), `"abstract"` (shorter search text of at least 200 characters) or `"snippet_only"`.
 - **`source_type`**: Heuristic content category (`meta-analysis`, `systematic_review`, `rct`, `study`, `guideline`, `preprint`, `review`, `documentation`, `specification`, `repository`, `qa`, `news`, `blog`, `vendor`, `video`, `other`).
 
 ### Number grounding verification
@@ -382,7 +383,7 @@ Every entry in the returned `sources` array provides rich metadata:
 To protect against numerical hallucination in synthesized research reports, every sentence containing `[n]` citations is parsed for numbers (including percentages, decimal values, ranges, and negative quantities) and checked against the source texts cited by that sentence:
 
 - **Verifiable facts**: Numbers found verbatim in the cited sources remain unmarked.
-- **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag.
+- **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag. With `unverified="drop"` such sentences are removed from the report instead; they stay listed in `unverified_numbers`. The mode is part of the job key, so a flagged and a dropped run of the same topic are separate jobs.
 - **Envelope telemetry**: The top-level research envelope includes `unverified_numbers` (a list of `{ "number", "citation", "sentence" }` entries) and `unverified_number_count`, alongside human-readable notices in `notes`.
 
 ## Costs
@@ -511,10 +512,10 @@ Every tool returns a JSON object with `ok`.
 
 Tool-specific results:
 
-- **Search**: `results[]` with `title`, `url`, `date`, `date_source` (`upstream`, `content` or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
+- **Search**: `results[]` with `title`, `url`, `date` (`YYYY-MM-DD`), `date_source` (`url` for a full date in the URL path, which wins; `upstream`; `content`; or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
 - **Fetch**: `url`, `title`, `content`, `chars`, `total_chars`, `truncated`, `source` (`fetch` or `search_index`); selectors add `has_more` or section metadata.
 - **Extract**: `data` (requested fields or schema), `evidence` (verbatim quotes), `extraction_truncated`.
-- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations and `[unverified]` sentence markers where numbers lack source grounding), `synthesized`, `sources[]` of `{ id, title, url, date, doi, pmid, pmcid, access, source_type }` where `id` equals `n`, `unverified_numbers`, and `unverified_number_count`. There is no references list inside the report and no page content in the envelope.
+- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations and `[unverified]` sentence markers where numbers lack source grounding), `synthesized`, `sources[]` of `{ id, title, url, date, doi, pmid, pmcid, access, source_type, authors }` where `id` equals `n`, `unverified_numbers`, and `unverified_number_count`. There is no references list inside the report and no page content in the envelope.
 - **Balance**: `is_available`, `balances`, and a `session` block with uptime, request and cache counts.
 
 ### Error codes

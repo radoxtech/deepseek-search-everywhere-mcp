@@ -238,6 +238,34 @@ async def test_research_cancellation_does_not_cancel_background_job(
     assert res["ok"] is True
 
 
+async def test_running_research_progress_carries_timing(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+
+    class SlowUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == "/v1/chat/completions":
+                await asyncio.sleep(0.15)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(SlowUpstream())
+    res = await server.deepseek_research("timing topic", depth="high")
+    assert res["status"] == "running"
+    progress = res["progress"]
+    assert {"phase", "step", "of"} <= progress.keys()
+    assert progress["deadline_ms"] == int(server.DEPTH_CONFIG["high"].deadline_s * 1000)
+    assert progress["phase_elapsed_ms"] >= 0
+
+
+async def test_progress_reports_a_synthesis_sub_step(fake_upstream: Any) -> None:
+    job = server.ResearchJob(job_id="j", topic="t", depth="low", lang=None, created_at=0.0)
+    await server._report_job_progress(job, "synthesis", 4, 4, detail="retry")
+    view = server._progress_view(job)
+    assert (view["phase"], view["detail"]) == ("synthesis", "retry")
+    assert "phase_elapsed_ms" in view
+
+
 async def test_research_duplicate_joins_running_job(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -284,6 +312,8 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
     res4 = await server.deepseek_research("topic 4", depth="low")
     assert res4["ok"] is False
     assert res4["error"]["code"] == "rate_limited_local"
+    assert "At most 3 research jobs" in res4["error"]["message"]
+    assert "deepseek_check_research" in res4["error"]["message"]
 
 
 async def test_check_research_long_poll_returns_polled_done(
@@ -1195,6 +1225,7 @@ async def test_lean_envelope_contains_no_page_content_on_success(fake_upstream: 
             "pmcid",
             "access",
             "source_type",
+            "authors",
         }
 
     serialized = json.dumps(res)
@@ -1804,6 +1835,41 @@ async def test_research_flags_unverified_numbers_in_envelope(fake_upstream: Any)
     assert len(res["unverified_numbers"]) == 2
     assert "[unverified]" in res["report"]
     assert any("unverified number(s)" in n for n in res["notes"])
+
+
+async def test_research_drops_unverified_sentences_on_request(fake_upstream: Any) -> None:
+    results = [
+        {
+            "title": "Bremer 2025 Study",
+            "url": "https://example.com/1",
+            "content": "Bremer evaluated 4 RCTs with 200 participants. " * 5,
+        },
+    ]
+    report = "Bremer reported 11 studies [1]. Bremer evaluated 4 RCTs with 200 participants [1]."
+    fake_upstream(DeepResearchUpstream(search_results=results, report_text=report))
+    res = await server.deepseek_research("drop topic", depth="low", unverified="drop")
+    assert res["ok"] is True
+    assert "11 studies" not in res["report"]
+    assert "200 participants" in res["report"]
+    assert "[unverified]" not in res["report"]
+    assert res["unverified_number_count"] == 1
+    assert res["unverified_numbers"][0]["number"] == "11"
+    assert any("Removed 1 sentence(s)" in n for n in res["notes"])
+
+
+async def test_research_unverified_mode_is_part_of_the_job_key(fake_upstream: Any) -> None:
+    results = [{"title": "T", "url": "https://example.com/1", "content": "Value is 4. " * 30}]
+    fake_upstream(DeepResearchUpstream(search_results=results, report_text="Value is 9 [1]."))
+    flagged = await server.deepseek_research("key topic", depth="low")
+    dropped = await server.deepseek_research("key topic", depth="low", unverified="drop")
+    assert "[unverified]" in flagged["report"]
+    assert dropped.get("cached") is not True
+    assert "9" not in (dropped["report"] or "")
+
+
+async def test_research_rejects_an_unknown_unverified_mode() -> None:
+    res = await server.deepseek_research("topic", unverified="hide")  # type: ignore[arg-type]
+    assert res["error"]["code"] == "bad_request"
 
 
 async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:

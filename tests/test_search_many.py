@@ -33,7 +33,6 @@ def _install_fake_search(fake_upstream: Any, results_map: dict[str, list[dict[st
     [
         ([], "bad_request"),
         (None, "bad_request"),
-        (["q1", "q2", "q3", "q4", "q5", "q6"], "bad_request"),
         ([123], "bad_request"),
         (["   ", "  "], "bad_request"),
     ],
@@ -42,6 +41,23 @@ def test_search_many_validation_errors(queries, expected_code):
     result = asyncio.run(server.deepseek_search_many(queries))
     assert result["ok"] is False
     assert result["error"]["code"] == expected_code
+
+
+def test_search_many_runs_the_first_five_and_reports_the_rest(fake_upstream):
+    calls = _install_fake_search(fake_upstream, {})
+    queries = ["q1", "q2", "q1", "q3", "q4", "q5", "q6", "q7"]
+    result = asyncio.run(server.deepseek_search_many(queries))
+    assert result["ok"] is True
+    assert [r["query"] for r in result["results"]] == ["q1", "q2", "q3", "q4", "q5"]
+    assert result["skipped_queries"] == ["q6", "q7"]
+    assert len(calls) == server.MAX_QUERIES
+    assert any("2 skipped" in note for note in result["notes"])
+
+
+def test_search_many_has_no_skipped_queries_within_the_limit(fake_upstream):
+    _install_fake_search(fake_upstream, {})
+    result = asyncio.run(server.deepseek_search_many(["q1", "q2"]))
+    assert "skipped_queries" not in result
 
 
 def test_search_many_deduplicates_queries_preserving_order(fake_upstream):

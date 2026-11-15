@@ -38,16 +38,18 @@ class ResearchJob:
     lang: str | None
     created_at: float
     sources: str = "any"
+    unverified: str = "flag"
     task: asyncio.Task[dict[str, Any]] | None = None
     completed_at: float | None = None
     result: dict[str, Any] | None = None
     exception: BaseException | None = None
     progress: dict[str, Any] = field(default_factory=lambda: {"phase": "starting", "step": 0, "of": 4})
     progress_history: list[dict[str, Any]] = field(default_factory=list)
+    phase_started_at: float | None = None
     ctx: Any = None
 
-    def normalize_key(self) -> tuple[str, str, str | None, str]:
-        return (normalize_topic_key(self.topic), self.depth, self.lang, self.sources)
+    def normalize_key(self) -> tuple[str, str, str | None, str, str]:
+        return (normalize_topic_key(self.topic), self.depth, self.lang, self.sources, self.unverified)
 
 
 class ResearchJobStore:
@@ -69,9 +71,9 @@ class ResearchJobStore:
         return sum(1 for j in self._jobs.values() if j.task is not None and not j.task.done())
 
     def find_active_match(
-        self, topic: str, depth: str, lang: str | None, sources: str = "any"
+        self, topic: str, depth: str, lang: str | None, sources: str = "any", unverified: str = "flag"
     ) -> ResearchJob | None:
-        target_key = (normalize_topic_key(topic), depth, lang, sources)
+        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified)
         for job in self._jobs.values():
             if job.task is not None and not job.task.done():
                 if job.normalize_key() == target_key:
@@ -79,10 +81,16 @@ class ResearchJobStore:
         return None
 
     def find_finished_match(
-        self, topic: str, depth: str, lang: str | None, now: float, sources: str = "any"
+        self,
+        topic: str,
+        depth: str,
+        lang: str | None,
+        now: float,
+        sources: str = "any",
+        unverified: str = "flag",
     ) -> ResearchJob | None:
         """Return the newest successfully finished job for the key that is still within the TTL."""
-        target_key = (normalize_topic_key(topic), depth, lang, sources)
+        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified)
         best: ResearchJob | None = None
         for job in self._jobs.values():
             if job.completed_at is None or (now - job.completed_at) > self.ttl:
@@ -1056,6 +1064,8 @@ _EXPLICIT_DOI_RE = re.compile(
 _EXPLICIT_PMID_RE = re.compile(r"(?i)\bpmid\s*[:\s]\s*(\d+)\b")
 _REF_HEADING_RE = re.compile(r"(?mi)^(?:#{1,4}\s*)?(?:References|Bibliography|Works Cited)\s*(?::|\n|\r|$)")
 SOURCE_SNIPPET_ONLY_CHARS = 200
+# Search content (content="full") at least this long is the page body itself, not an abstract.
+SOURCE_FULL_TEXT_CHARS = 2000
 
 SCHOLARLY_HOST_DOMAINS = frozenset(
     {
@@ -1102,6 +1112,47 @@ def is_scholarly_host(host: str) -> bool:
     if any(label == "ac" for label in labels[1:-1]):
         return True
     return False
+
+
+# An author line near the top of a page: "Authors: A, B and C" (arXiv, papers), "Autorzy: ..." or a
+# "By A and B" byline at the start of a line (blogs, news).
+_AUTHOR_LINE_RE = re.compile(r"(?mi)^[ \t>*_#]*(?:authors?|autorzy|autor)\s*:\s*(.+)$|^[ \t>*_]*by\s+(.+)$")
+_AUTHOR_SPLIT_RE = re.compile(r"\s*(?:,|;|\band\b|\bi\b|&)\s*")
+# Footnote markers and affiliations glued to a name: "Jane Doe1,2", "Jane Doe*", "Jane Doe (MIT)".
+_AUTHOR_NOISE_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]|[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹⁰]+")
+# 2-5 capitalized words; lowercase name particles ("van", "de", "von") are allowed between them.
+_AUTHOR_NAME_RE = re.compile(
+    r"^[A-ZÀ-ÖØ-ÞĀ-Ž][\w.'’-]*(?:\s+(?:(?:van|von|de|der|den|da|di|du|la|le|del|dos|bin|al)\s+){0,2}"
+    r"[A-ZÀ-ÖØ-ÞĀ-Ž][\w.'’-]*){1,4}$"
+)
+_AUTHOR_WINDOW = 1500
+MAX_SOURCE_AUTHORS = 20
+
+
+def source_authors(url: str, content: str = "") -> list[str] | None:
+    """Return author names from an author line near the top of a source's text, or None.
+
+    Only an explicit "Authors:"/"Autorzy:" label or a "By ..." byline within the first
+    ``_AUTHOR_WINDOW`` characters is read; names are split on commas, semicolons and "and", stripped
+    of footnote markers and affiliations in brackets, and kept only when they look like 2-5 word
+    personal names. Affiliations are not extracted. Non-content pages return None.
+    """
+    if not isinstance(content, str) or not content or is_non_content_page(url, content=content):
+        return None
+    match = _AUTHOR_LINE_RE.search(content[:_AUTHOR_WINDOW])
+    if match is None:
+        return None
+    line = _TITLE_MD_LINK_RE.sub(r"\1", match.group(1) or match.group(2) or "")
+    names: list[str] = []
+    for part in _AUTHOR_SPLIT_RE.split(line):
+        name = " ".join(_AUTHOR_NOISE_RE.sub(" ", part).replace("*", " ").split()).strip(" .")
+        if name.lower() in {"et al", "others"} or not _AUTHOR_NAME_RE.match(name):
+            continue
+        if name not in names:
+            names.append(name)
+        if len(names) >= MAX_SOURCE_AUTHORS:
+            break
+    return names or None
 
 
 def source_identifiers(url: str, content: str = "") -> dict[str, str | None]:
@@ -1167,10 +1218,15 @@ def source_identifiers(url: str, content: str = "") -> dict[str, str | None]:
 
 
 def source_access(origin: str, content: str) -> str:
-    """Classify a source: a fetched page is ``full_text``; search text of >= 200 chars is ``abstract``."""
-    if origin == "fetch":
+    """Classify a source's text coverage.
+
+    A fetched page, or search content of at least ``SOURCE_FULL_TEXT_CHARS`` (the page body the index
+    returned), is ``full_text``; shorter search text of at least 200 characters is ``abstract``.
+    """
+    length = len(content or "")
+    if origin == "fetch" or length >= SOURCE_FULL_TEXT_CHARS:
         return "full_text"
-    return "abstract" if len(content or "") >= SOURCE_SNIPPET_ONLY_CHARS else "snippet_only"
+    return "abstract" if length >= SOURCE_SNIPPET_ONLY_CHARS else "snippet_only"
 
 
 def clean_source_title(title: Any, url: str = "") -> str:
@@ -1194,6 +1250,55 @@ def clean_source_title(title: Any, url: str = "") -> str:
     if len(text) > SOURCE_TITLE_MAX:
         text = text[: SOURCE_TITLE_MAX - 1].rstrip() + "…"
     return text
+
+
+# A numbered section heading ("4.6 RQ4: ...", "2. Methods"), not a document title.
+_SECTION_TITLE_RE = re.compile(r"^\d+(?:\.\d+)*\.?\s+\S")
+# A finite verb that marks a title as a sentence lifted from the body text.
+_SENTENCE_TITLE_VERB_RE = re.compile(r"\s(?:is|are|was|were|has|have|had|becomes?|became|includes?)\s")
+# A markdown H1 or a "Title:" line near the start of the content.
+_CONTENT_TITLE_RE = re.compile(r"(?m)^(?:#\s+|Title:\s*)(\S[^\n]{2,})$")
+_CONTENT_TITLE_WINDOW = 1500
+
+
+def is_fragment_title(title: Any, url: str = "") -> bool:
+    """Return True if ``title`` looks like a host name, a section heading or a body-text fragment.
+
+    Flagged: the URL host itself, a numbered section heading ("4.6 RQ4: ..."), a title cut off with an
+    ellipsis, a short lowercase phrase ("Patch size") and a sentence from the body ("The human
+    baseline is included as ...").
+    """
+    if not isinstance(title, str) or not title.strip():
+        return True
+    text = " ".join(title.split())
+    if text.lower() in {_url_host(url), _url_host(url).removeprefix("www.")}:
+        return True
+    if _SECTION_TITLE_RE.match(text) or text.endswith(("…", "...")):
+        return True
+    words = text.split()
+    if len(words) <= 2 and len(words[-1]) > 1 and words[-1][0].islower() and ":" not in text:
+        return True
+    return len(words) >= 6 and ":" not in text and _SENTENCE_TITLE_VERB_RE.search(f" {text} ") is not None
+
+
+def content_title(content: Any, url: str = "") -> str | None:
+    """Return the first markdown H1 or ``Title:`` line near the start of ``content`` that is a usable
+    title (not itself a fragment), cleaned like a source title; None when there is none."""
+    if not isinstance(content, str) or not content:
+        return None
+    for match in _CONTENT_TITLE_RE.finditer(content[:_CONTENT_TITLE_WINDOW]):
+        candidate = clean_source_title(match.group(1), url)
+        if candidate and not is_fragment_title(candidate, url):
+            return candidate
+    return None
+
+
+def best_source_title(title: Any, url: str = "", content: Any = "") -> str:
+    """Return the cleaned source title, replaced by a heading from the content when it is a fragment."""
+    cleaned = clean_source_title(title, url)
+    if is_fragment_title(cleaned, url) and (better := content_title(content, url)):
+        return better
+    return cleaned
 
 
 SCHOLARLY_SOURCE_TYPES = frozenset(
@@ -1580,23 +1685,50 @@ def sanitize_citations(text: str, max_id: int) -> str:
     return normalize_citations(text, max_id)
 
 
+# A number (optionally signed, decimal, percent) or a range of two. A sign must touch the digits, and a
+# number that follows "letter-" is part of a name ("COVID-19", "GPT-5"), not a finding.
 _GROUNDING_NUM_RE = re.compile(
-    r"(?<![A-Za-z0-9_])([+-]?\s*(?:\d+(?:\.\d+)?|\.\d+)%?)(?:\s*-\s*([+-]?\s*(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
+    r"(?<![A-Za-z0-9_])(?<![A-Za-z]-)([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?)"
+    r"(?:\s*-\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
+)
+
+# English (capitalized) and Polish (lowercase, nominative and genitive) month names for date stripping.
+_GROUNDING_MONTHS = (
+    "January|February|March|April|May|June|July|August|September|October|November|December|"
+    "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|"
+    "styczeń|stycznia|luty|lutego|marzec|marca|kwiecień|kwietnia|maj|maja|czerwiec|czerwca|"
+    "lipiec|lipca|sierpień|sierpnia|wrzesień|września|październik|października|listopad|listopada|"
+    "grudzień|grudnia"
+)
+# Calendar dates are metadata, not findings: "2026-01-22", "22 January 2026", "January 22, 2026",
+# "22 stycznia 2026", "22 Jan". A month and year without a day keeps its year (handled as a bare year).
+_GROUNDING_DATE_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?<![\w.])\d{4}-\d{1,2}-\d{1,2}(?![\w.]|-\d)"),
+    re.compile(r"(?<![\w.])\d{1,2}\.?\s+(?:" + _GROUNDING_MONTHS + r")\b\.?(?:,?\s+\d{4}\b)?"),
+    re.compile(r"\b(?:" + _GROUNDING_MONTHS + r")\.?\s+\d{1,2}(?:st|nd|rd|th)?\b(?!\.\d|%)(?:,?\s+\d{4}\b)?"),
 )
 
 
 def _normalize_for_numbers(text: str) -> str:
-    """Normalize whitespace, minus signs, dashes, commas and strip non-factual numbers."""
-    t = text.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-").replace("\xa0", " ")
+    """Normalize whitespace, minus signs, dashes, commas and strip non-factual numbers.
+
+    An em dash is punctuation ("results — 90% of"), never a minus; between two digits it is a range.
+    A dash or hyphen separated from the digits by a space is not a sign either. Calendar dates,
+    DOIs, PMIDs, citation markers, URLs and R²/I² labels are removed.
+    """
+    t = text.replace("\u2212", "-").replace("\xa0", " ")
+    t = re.sub(r"(?<=\d)\s*\u2014\s*(?=\d)", "-", t)
+    t = t.replace("\u2014", " ").replace("\u2013", "-")
     t = re.sub(r"10\.\d{4,9}/[^\s\"<>]+", " ", t)
     t = re.sub(r"(?i)\bpmid\s*[:\s]?\s*\d+\b", " ", t)
     t = re.sub(r"\[\^?\d+\]", " ", t)
     t = re.sub(r"https?://\S+", " ", t)
+    for date_re in _GROUNDING_DATE_RES:
+        t = date_re.sub(" ", t)
     t = re.sub(r"\b[IR][²2]\b", " ", t)
     t = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", t)
     t = re.sub(r"(?<=\d),(?=\d)", ".", t)
     t = re.sub(r"(?<=\d)\s*-\s*(?=\d)", "-", t)
-    t = re.sub(r"(?<![A-Za-z0-9_])([+-])\s+(?=\d)", r"\1", t)
     return t
 
 
@@ -1743,13 +1875,16 @@ def ground_report_numbers(
     report: str,
     synthesis_context: Sequence[dict[str, Any]],
     max_unverified: int = 50,
+    *,
+    drop: bool = False,
 ) -> tuple[str, list[dict[str, str]], int, list[str]]:
     """Verify that factual numbers in cited sentences appear in the cited source content.
 
     Splits the report into sentences. For sentences with [n] citations, extracts numbers
     (normalized for decimal comma/dot, en-dash ranges, %, unicode minus and thousands separators)
     and verifies that each number appears in the content of at least one cited source.
-    Sentences with unverified numbers receive an ' [unverified]' marker before the final punctuation.
+    Sentences with unverified numbers receive an ' [unverified]' marker before the final punctuation,
+    or with ``drop`` are removed from the report (they stay listed in the unverified numbers).
     Returns (cleaned_report, unverified_numbers, total_unverified_count, notes).
     """
     if not report:
@@ -1769,6 +1904,7 @@ def ground_report_numbers(
         source_index[idx] = (nums, ranges, clean_norm)
 
     unverified_list: list[dict[str, str]] = []
+    dropped = 0
 
     paragraphs = report.split("\n\n")
     cleaned_paragraphs: list[str] = []
@@ -1856,12 +1992,15 @@ def ground_report_numbers(
                         }
                     )
 
-            if has_unverified and "[unverified]" not in sent:
+            if has_unverified and drop:
+                dropped += 1
+            elif has_unverified and "[unverified]" not in sent:
                 new_sentences.append(_mark_unverified(sent))
             else:
                 new_sentences.append(sent)
 
-        cleaned_paragraphs.append(" ".join(new_sentences))
+        if new_sentences:
+            cleaned_paragraphs.append(" ".join(new_sentences))
 
     cleaned_report = "\n\n".join(cleaned_paragraphs)
     total_count = len(unverified_list)
@@ -1870,5 +2009,7 @@ def ground_report_numbers(
         notes.append(
             f"Flagged {total_count} unverified number(s) in report not found in cited source content."
         )
+    if dropped:
+        notes.append(f"Removed {dropped} sentence(s) with unverified numbers from the report.")
 
     return cleaned_report, unverified_list[:max_unverified], total_count, notes

@@ -83,6 +83,19 @@ def test_filters_budget_guard_rejects_overflow(fake_upstream):
     assert "when filters" in result["error"]["message"]
 
 
+def test_query_too_long_reports_the_query_length(fake_upstream):
+    _install_search(fake_upstream)
+    result = asyncio.run(
+        server.deepseek_search(
+            "a" * 80, include_domains=["longdomainname1.org", "longdomainname2.org"], after="2024-01-01"
+        )
+    )
+    assert result["error"]["code"] == "query_too_long"
+    assert result["error"]["message"].startswith("query is 80 characters;")
+    plain = asyncio.run(server.deepseek_search("a" * 130))
+    assert plain["error"]["message"] == "query is 130 characters; it must be at most 128."
+
+
 def test_search_full_supports_filters(fake_upstream):
     _install_search(
         fake_upstream,

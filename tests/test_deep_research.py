@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from deepseek_search_everywhere_mcp import deep_research
 from deepseek_search_everywhere_mcp.deep_research import (
     DEPTH_CONFIG,
     build_decomposition_messages,
@@ -590,3 +591,137 @@ def test_unverified_marker_goes_before_final_punctuation() -> None:
     assert _mark_unverified("Effect was 0,45 [2]!") == "Effect was 0,45 [2] [unverified]!"
     assert _mark_unverified("No punctuation [1]") == "No punctuation [1] [unverified]"
     assert _mark_unverified('He said "18% [1]."') == 'He said "18% [1] [unverified]."'
+
+
+_GROUNDING_SOURCE = [
+    {
+        "title": "Note",
+        "date": "2026-01-22",
+        "content": "In total 90.50% of episodes failed. We ran 35 surveys. Temperature fell by −5 °C. "
+        "Tasks took 5 to 61 minutes.",
+    }
+]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Results — 90.50% of episodes failed [1].",
+        "Results—90.50% of episodes failed [1].",
+        "They ran – 35 surveys [1].",
+        "The note is dated 22 January 2026 [1].",
+        "The note is dated January 22, 2026 [1].",
+        "Notatka z 22 stycznia 2026 [1].",
+        "The note of 2026-01-22 lists 35 surveys [1].",
+        "COVID-19 data covered 35 surveys [1].",
+        "Temperature fell −5 °C [1].",
+        "Tasks took 5–61 minutes [1].",
+    ],
+)
+def test_grounding_ignores_dashes_dates_and_names(sentence: str) -> None:
+    report, unverified, count, _ = deep_research.ground_report_numbers(sentence, _GROUNDING_SOURCE)
+    assert (unverified, count) == ([], 0)
+    assert "[unverified]" not in report
+
+
+def test_grounding_still_flags_a_missing_number() -> None:
+    _, unverified, count, _ = deep_research.ground_report_numbers(
+        "Results — 77% of episodes failed [1].", _GROUNDING_SOURCE
+    )
+    assert count == 1
+    assert unverified[0]["number"] == "77%"
+
+
+@pytest.mark.parametrize(
+    ("origin", "length", "expected"),
+    [
+        ("fetch", 10, "full_text"),
+        ("search", deep_research.SOURCE_FULL_TEXT_CHARS, "full_text"),
+        ("search", deep_research.SOURCE_FULL_TEXT_CHARS - 1, "abstract"),
+        ("search", deep_research.SOURCE_SNIPPET_ONLY_CHARS, "abstract"),
+        ("search", deep_research.SOURCE_SNIPPET_ONLY_CHARS - 1, "snippet_only"),
+    ],
+)
+def test_source_access(origin: str, length: int, expected: str) -> None:
+    assert deep_research.source_access(origin, "x" * length) == expected
+
+
+@pytest.mark.parametrize(
+    ("title", "url"),
+    [
+        ("raw.githubusercontent.com", "https://raw.githubusercontent.com/a/b/c.md"),
+        ("Patch size", "https://arxiv.org/abs/2608.15579"),
+        ("The human baseline is included as an undated reference", "https://example.org/p.pdf"),
+        ("4.6 RQ4: Effectiveness of TestLoc in practice", "https://example.org/p"),
+        ("Item Response Theory (IRT) has become…", "https://example.org/p"),
+        ("", "https://example.org/p"),
+    ],
+)
+def test_fragment_titles_are_detected(title: str, url: str) -> None:
+    assert deep_research.is_fragment_title(title, url)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Clarifying limitations of time horizon",
+        "Attention Is All You Need",
+        "GPT-5 System Card",
+        "Kubernetes",
+        "Claude Code",
+        "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?",
+        "The State of AI Agents in 2026 Has Changed",
+        "iOS 26",
+    ],
+)
+def test_real_titles_are_kept(title: str) -> None:
+    assert not deep_research.is_fragment_title(title, "https://example.org/p")
+    assert deep_research.best_source_title(title, "https://example.org/p", "# Other heading\n") == title
+
+
+def test_fragment_title_is_replaced_by_a_content_heading() -> None:
+    content = "Title: SWE-Patch: Measuring Patch Size in Agents\n\nAbstract. We study ..."
+    assert deep_research.best_source_title("Patch size", "https://arxiv.org/abs/1", content) == (
+        "SWE-Patch: Measuring Patch Size in Agents"
+    )
+    md = "Intro text\n\n# Measuring AI Ability to Complete Long Tasks\n\n## 2.1 Setup"
+    assert deep_research.best_source_title("2.1 Setup", "https://metr.org/x", md) == (
+        "Measuring AI Ability to Complete Long Tasks"
+    )
+
+
+def test_fragment_title_stays_without_a_better_one() -> None:
+    assert (
+        deep_research.best_source_title("Patch size", "https://arxiv.org/abs/1", "no heading") == "Patch size"
+    )
+
+
+def test_grounding_drop_removes_sentences_and_empty_paragraphs() -> None:
+    report = "Intro 35 surveys ran [1]. Then 77% failed [1].\n\nOnly 88 left [1].\n\nNo numbers here."
+    cleaned, unverified, count, notes = deep_research.ground_report_numbers(
+        report, _GROUNDING_SOURCE, drop=True
+    )
+    assert cleaned == "Intro 35 surveys ran [1].\n\nNo numbers here."
+    assert count == 2 and [u["number"] for u in unverified] == ["77%", "88"]
+    assert any("Removed 2 sentence(s)" in note for note in notes)
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            "Title: Attention Is All You Need\nAuthors:Ashish Vaswani, Noam Shazeer and Łukasz Kaiser\n",
+            ["Ashish Vaswani", "Noam Shazeer", "Łukasz Kaiser"],
+        ),
+        ("# Post\n\nBy Simon Willison\n\nToday I tried ...", ["Simon Willison"]),
+        ("Authors: Jane Doe1,2, John Smith* (MIT), et al.", ["Jane Doe", "John Smith"]),
+        ("# Raport\nAutorzy: Anna Kowalska i Jan Nowak", ["Anna Kowalska", "Jan Nowak"]),
+        ("Authors: Ludwig van Beethoven, Ana de la Cruz", ["Ludwig van Beethoven", "Ana de la Cruz"]),
+        ("Authors: The METR team", None),
+        ("We did it by default\nby running 5 jobs", None),
+        ("no author line here", None),
+        ("x" * 1600 + "\nAuthors: Jane Doe", None),
+    ],
+)
+def test_source_authors(content: str, expected: list[str] | None) -> None:
+    assert deep_research.source_authors("https://example.org/paper", content) == expected

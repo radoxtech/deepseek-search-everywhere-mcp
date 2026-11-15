@@ -25,7 +25,8 @@ import urllib.parse
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import time as dt_time
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, ParamSpec
 
@@ -41,23 +42,25 @@ from .deep_research import (
     DEPTH_CONFIG,
     ResearchJob,
     apply_token_guard,
+    best_source_title,
     build_condense_messages,
     build_decomposition_messages,
     build_r2_gap_messages,
     build_synthesis_messages,
     citation_ids,
     classify_source_type,
-    clean_source_title,
     clean_source_url,
     filter_synthesis_output,
     get_job_store,
     ground_report_numbers,
+    is_fragment_title,
     normalize_citations,
     parse_subqueries,
     rank_and_diversify_sources,
     report_body_words,
     select_synthesis_context,
     source_access,
+    source_authors,
     source_identifiers,
     validate_r2_queries,
 )
@@ -902,9 +905,10 @@ def _check_search_args(
         if ops_len:
             return _fail(
                 "query_too_long",
-                f"query must be at most {budget} characters when filters ({ops_len} chars) are applied.",
+                f"query is {len(query)} characters; it must be at most {budget} when filters "
+                f"({ops_len} chars) are applied ({MAX_QUERY} in total).",
             )
-        return _fail("query_too_long", f"query must be at most {MAX_QUERY} characters.")
+        return _fail("query_too_long", f"query is {len(query)} characters; it must be at most {MAX_QUERY}.")
     if not 1 <= count <= MAX_COUNT:
         return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
     if lang and not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2})?", lang):
@@ -1057,10 +1061,65 @@ def _content_date(title: Any, text: Any, today: date | None = None) -> str | Non
     return None
 
 
-def _dated(upstream: Any, title: Any, text: Any) -> tuple[Any, str | None]:
-    """Return ``(date, date_source)``: the upstream date, else one found in the content, else None."""
+# The upstream index stores a date-only publication date as midnight in UTC+8 and returns it converted
+# to UTC, so 2026-01-22 arrives as "2026-01-21T16:00:00+00:00". That exact time is read back in UTC+8.
+_UPSTREAM_DATE_ZONE = timezone(timedelta(hours=8))
+_UPSTREAM_MIDNIGHT_UTC = dt_time(16, 0)
+# A full Y-M-D date in a URL path ("/2026-06-26T05...", "/2026/03/20/"), not part of a longer number.
+_URL_DATE = re.compile(r"(?<!\d)(\d{4})([-/])(\d{2})\2(\d{2})(?!\d)")
+
+
+def _upstream_date(upstream: Any) -> Any:
+    """Return the upstream date as ``YYYY-MM-DD``; a value that is not an ISO date is returned unchanged.
+
+    A timestamp at exactly 16:00:00 UTC is a UTC+8 midnight (a date-only value) and gives the next
+    calendar day; any other timezone-aware timestamp gives its UTC date.
+    """
+    if not isinstance(upstream, str):
+        return upstream
+    try:
+        parsed = datetime.fromisoformat(upstream.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return upstream
+    if parsed.tzinfo is None:
+        return parsed.date().isoformat()
+    utc = parsed.astimezone(UTC)
+    if utc.timetz().replace(tzinfo=None) == _UPSTREAM_MIDNIGHT_UTC:
+        return utc.astimezone(_UPSTREAM_DATE_ZONE).date().isoformat()
+    return utc.date().isoformat()
+
+
+def _url_date(url: Any, today: date | None = None) -> str | None:
+    """Return the first valid ``YYYY-MM-DD`` date in a URL's path (year 1990 to next year), or None."""
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        path = urllib.parse.urlsplit(url).path
+    except ValueError:
+        return None
+    max_year = (today or datetime.now(UTC).date()).year + 1
+    for match in _URL_DATE.finditer(path):
+        year, month, day = int(match[1]), int(match[3]), int(match[4])
+        if not MIN_CONTENT_YEAR <= year <= max_year:
+            continue
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _dated(upstream: Any, title: Any, text: Any, url: Any = None) -> tuple[Any, str | None]:
+    """Return ``(date, date_source)``: a date in the URL path, else the upstream date, else one found
+    in the content, else None.
+
+    A URL that carries a full date (blog posts, notes, dated repository paths) names the publication
+    day more reliably than the upstream metadata, which can hold the date of the site or repository.
+    """
+    if found := _url_date(url):
+        return found, "url"
     if upstream:
-        return upstream, "upstream"
+        return _upstream_date(upstream), "upstream"
     found = _content_date(title, text)
     return (found, "content") if found else (None, None)
 
@@ -1068,7 +1127,7 @@ def _dated(upstream: Any, title: Any, text: Any) -> tuple[Any, str | None]:
 def _result_entry(item: dict[str, Any]) -> dict[str, Any]:
     """Map one upstream result to its metadata fields, with the host as a blank-title fallback."""
     when, date_source = _dated(
-        item.get("date"), item.get("title"), item.get("content") or item.get("summary")
+        item.get("date"), item.get("title"), item.get("content") or item.get("summary"), item.get("url")
     )
     entry: dict[str, Any] = {
         "title": _title_or_host(item),
@@ -1382,8 +1441,8 @@ async def deepseek_search(
     ] = None,
     max_total_chars: Annotated[
         int,
-        Field(description="Max total characters of page text across results (default 30000)"),
-    ] = 30000,
+        Field(description="Max total characters of page text across results (default 20000)"),
+    ] = 20000,
     rewrite: Annotated[
         bool,
         Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
@@ -1421,7 +1480,7 @@ async def deepseek_search(
 
     Primary search and retrieval tool. Use for finding online facts, web pages, and sources
     for a single query (<= 128 chars). Costs flat $0.00075 per call. Returns snippets (default)
-    or full page text up to max_total_chars (default 30,000 chars). Untrusted content is sanitized.
+    or full page text up to max_total_chars (default 20,000 chars). Untrusted content is sanitized.
 
     When NOT to use: Do not use for multiple parallel queries (use deepseek_search_many),
     for reading known URLs (use deepseek_fetch), for structured schema extraction (use
@@ -1504,7 +1563,8 @@ async def deepseek_search_many(
     queries: Annotated[
         list[str],
         Field(
-            description=f"Search queries to execute concurrently (1-{MAX_QUERIES} queries, each <= 128 chars)"
+            description=f"Search queries to run concurrently (1-{MAX_QUERIES} queries run, extras skipped; "
+            "each <= 128 chars)"
         ),
     ],
     *,
@@ -1524,8 +1584,8 @@ async def deepseek_search_many(
     ] = None,
     max_total_chars: Annotated[
         int,
-        Field(description="Max total characters of page text across results (default 30000)"),
-    ] = 30000,
+        Field(description="Max total characters of page text across results (default 20000)"),
+    ] = 20000,
     rewrite: Annotated[
         bool,
         Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
@@ -1566,7 +1626,7 @@ async def deepseek_search_many(
     """Search the web with multiple queries concurrently and return ranked results per query.
 
     Batch multi-query search across 1-5 queries in parallel (each <= 128 chars). Costs $0.00075
-    per query. Max total page text across all queries defaults to 30,000 chars. Use when
+    per query. Max total page text across all queries defaults to 20,000 chars. Use when
     investigating multiple search facets, query formulations, or sub-topics at the same time.
     Preserves input order and deduplicates duplicate queries. Untrusted content is sanitized.
 
@@ -1582,8 +1642,6 @@ async def deepseek_search_many(
         return _fail("bad_request", "content must be 'snippets' or 'full'.")
     if not isinstance(queries, list) or not queries:
         return _fail("bad_request", "queries must be a non-empty list of strings.")
-    if len(queries) > MAX_QUERIES:
-        return _fail("bad_request", f"queries must contain between 1 and {MAX_QUERIES} entries.")
     if not all(isinstance(q, str) for q in queries):
         return _fail("bad_request", "all items in queries must be strings.")
     if count < 1 or count > MAX_COUNT:
@@ -1606,6 +1664,8 @@ async def deepseek_search_many(
 
     if not unique_queries:
         return _fail("bad_request", "queries must contain at least one non-empty query.")
+    skipped_queries = unique_queries[MAX_QUERIES:]
+    unique_queries = unique_queries[:MAX_QUERIES]
 
     per_query_chars = max(1000, max_total_chars // len(unique_queries))
 
@@ -1646,6 +1706,11 @@ async def deepseek_search_many(
     notes: list[str] = []
     if duplicates:
         notes.append(f"deduped {duplicates} duplicate query/queries")
+    if skipped_queries:
+        notes.append(
+            f"ran the first {MAX_QUERIES} queries; {len(skipped_queries)} skipped (listed in "
+            "skipped_queries): send them in another call"
+        )
 
     for q, task in zip(unique_queries, tasks, strict=True):
         if task.cancelled():
@@ -1706,6 +1771,8 @@ async def deepseek_search_many(
         "notes": notes,
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }
+    if skipped_queries:
+        envelope["skipped_queries"] = skipped_queries
     if _fit_payload_budget(envelope, max_total_chars):
         envelope["notes"].append(TRUNCATED_NOTE)
         _fit_payload_budget(envelope, max_total_chars)
@@ -2448,8 +2515,9 @@ def _format_public_sources(
     """Format research sources into a lean public list omitting full page content.
 
     Each item carries the identifiers extracted from the URL/content (``doi``, ``pmid``,
-    ``pmcid``) and ``access``: ``full_text`` for a fetched page, ``abstract`` for search content
-    of at least 200 characters and ``snippet_only`` otherwise.
+    ``pmcid``) and ``access``: ``full_text`` for a fetched page or search content of at least 2000
+    characters, ``abstract`` for search content of at least 200 characters and ``snippet_only``
+    otherwise.
     On success, sources carry no page content; on fallback paths, a 400-character sanitized
     snippet is included.
     """
@@ -2469,6 +2537,7 @@ def _format_public_sources(
             "access": s.get("access"),
             "source_type": s.get("source_type")
             or classify_source_type(s.get("url") or "", s.get("title") or "", s.get("content") or ""),
+            "authors": s.get("authors"),
         }
         if include_snippet:
             raw_text = s.get("snippet") or s.get("content") or ""
@@ -2488,7 +2557,7 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
     """Turn one shaped search result into a research source (``origin`` = ``search``)."""
     url = clean_source_url(item["url"]) if isinstance(item.get("url"), str) else item.get("url")
     content = item.get("content") or ""
-    title = clean_source_title(item.get("title"), url or "")
+    title = best_source_title(item.get("title"), url or "", content)
     return {
         "id": index,
         "title": title,
@@ -2505,6 +2574,7 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
         "cached": cached,
         **source_identifiers(url or "", content),
         "access": source_access("search", content),
+        "authors": source_authors(url or "", content),
         "source_type": item.get("source_type") or classify_source_type(url or "", title, content),
     }
 
@@ -2603,12 +2673,19 @@ async def _fill_gaps(
             fill.failed += 1
         elif item["content"]:
             source["content"] = item["content"]
-            if item["title"] and (not source["title"] or source["title"] == _url_host(source["url"])):
-                source["title"] = item["title"]  # a fetched title beats a blank or host-fallback one
+            page_url = source["url"] or ""
+            if is_fragment_title(source["title"], page_url):
+                # A usable fetched title (or the page's first heading) beats a host or fragment title;
+                # any fetched title still beats a blank or host-fallback one.
+                fetched = best_source_title(item["title"], page_url, item["content"])
+                blank = not source["title"] or source["title"] == _url_host(source["url"])
+                if not is_fragment_title(fetched, page_url) or (blank and item["title"]):
+                    source["title"] = fetched
             source["origin"] = "fetch"
             source["cached"] = item["cached"]
             source.update(source_identifiers(source["url"] or "", source["content"]))
             source["access"] = source_access("fetch", source["content"])
+            source["authors"] = source_authors(page_url, source["content"]) or source.get("authors")
             source["source_type"] = classify_source_type(
                 source["url"] or "", source["title"], source["content"]
             )
@@ -2649,6 +2726,15 @@ async def deepseek_research(
         bool,
         Field(description="Remove boilerplate from fetched source pages before synthesis (default True)"),
     ] = True,
+    unverified: Annotated[
+        Literal["flag", "drop"],
+        Field(
+            description=(
+                "Sentences with numbers not found in their sources: 'flag' marks them (default), "
+                "'drop' removes them"
+            )
+        ),
+    ] = "flag",
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Execute multi-angle research on a topic and generate a cited briefing report.
@@ -2658,15 +2744,17 @@ async def deepseek_research(
     citations [1], [2] match the ids in the returned sources array. Typical cost is ~$0.003
     at depth "low" to ~$0.03 at "max". Reads 6-24 sources (60k-500k context chars) depending
     on depth. Supports source preference (sources="any"|"academic"|"technical"). Depth tiers
-    ("low", "medium", "high", "max") scale subquery breadth and source depth. Untrusted
-    source content is sanitized.
+    ("low", "medium", "high", "max") scale subquery breadth and source depth. At most 3 research
+    jobs run at once; a fourth returns rate_limited_local. Sentences whose numbers are missing from
+    their cited sources are marked [unverified], or removed with unverified="drop". Untrusted source
+    content is sanitized.
 
     When NOT to use: Do not use for simple factual lookups or single queries (use deepseek_search),
     for multiple independent queries (use deepseek_search_many), for reading known URLs (use
     deepseek_fetch), or for structured entity or schema extraction (use deepseek_extract).
 
     Returns: {"ok": True, "topic": str, "depth": str, "report": str (no references list),
-    "sources": [{id, title, url, date, doi, pmid, pmcid, access, source_type}],
+    "sources": [{id, title, url, date, doi, pmid, pmcid, access, source_type, authors}],
     "cost_usd": float}.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
@@ -2681,14 +2769,18 @@ async def deepseek_research(
             "bad_request",
             f"Invalid sources preference '{sources}'. Expected one of: any, academic, technical.",
         )
+    if unverified not in {"flag", "drop"}:
+        return _fail("bad_request", f"unverified must be 'flag' or 'drop', got {unverified!r}.")
 
     settings = get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
     store.prune_expired(_clock())
 
-    existing = store.find_active_match(clean_topic, depth, lang, sources=sources)
+    existing = store.find_active_match(clean_topic, depth, lang, sources=sources, unverified=unverified)
     if existing is None and not refresh:
-        finished = store.find_finished_match(clean_topic, depth, lang, _clock(), sources=sources)
+        finished = store.find_finished_match(
+            clean_topic, depth, lang, _clock(), sources=sources, unverified=unverified
+        )
         if finished is not None and finished.result is not None:
             return _reuse_finished_result(finished.result)
     if existing is not None and existing.task is not None and not existing.task.done():
@@ -2699,7 +2791,9 @@ async def deepseek_research(
         if store.count_active() >= settings.research_max_jobs:
             return _fail(
                 "rate_limited_local",
-                "Maximum concurrent research jobs reached. Try again later.",
+                f"At most {settings.research_max_jobs} research jobs run at once and that many are "
+                "running. Collect a running job with deepseek_check_research or wait for one to "
+                "finish (usually 30-180 s), then retry with the same arguments.",
             )
         job_id = str(uuid.uuid4())
         job = ResearchJob(
@@ -2708,6 +2802,7 @@ async def deepseek_research(
             depth=depth,
             lang=lang,
             sources=sources,
+            unverified=unverified,
             created_at=_clock(),
             ctx=ctx,
         )
@@ -2748,7 +2843,7 @@ async def deepseek_research(
             "job_id": job.job_id,
             "depth": depth,
             "elapsed_ms": elapsed_ms,
-            "progress": job.progress,
+            "progress": _progress_view(job),
             "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
         }
     finally:
@@ -2844,11 +2939,28 @@ async def deepseek_check_research(
             "job_id": job.job_id,
             "depth": job.depth,
             "elapsed_ms": elapsed_ms,
-            "progress": job.progress,
+            "progress": _progress_view(job),
             "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
         }
     finally:
         job.ctx = None
+
+
+def _progress_view(job: ResearchJob) -> dict[str, Any]:
+    """Return the public progress of a running job.
+
+    Besides ``phase``, ``step`` and ``of`` (and ``detail`` for a sub-step such as a synthesis retry
+    or condensing), it carries ``phase_elapsed_ms``, the time spent in the current phase or sub-step,
+    and ``deadline_ms``, the hard time cap of the job's depth, so a caller polling a long synthesis can
+    tell that the job is alive and how long it can still take.
+    """
+    view = dict(job.progress)
+    if job.phase_started_at is not None:
+        view["phase_elapsed_ms"] = max(0, int((_clock() - job.phase_started_at) * 1000))
+    cfg = DEPTH_CONFIG.get(job.depth)
+    if cfg is not None:
+        view["deadline_ms"] = int(cfg.deadline_s * 1000)
+    return view
 
 
 async def _report_job_progress(
@@ -2857,10 +2969,15 @@ async def _report_job_progress(
     step: int,
     total_steps: int,
     message: str | None = None,
+    *,
+    detail: str | None = None,
 ) -> None:
     """Update job progress state and emit FastMCP progress notification if context is attached."""
-    event = {"phase": phase, "step": step, "of": total_steps}
+    event: dict[str, Any] = {"phase": phase, "step": step, "of": total_steps}
+    if detail:
+        event["detail"] = detail
     job.progress = event
+    job.phase_started_at = _clock()
     job.progress_history.append(event)
     if job.ctx is not None and hasattr(job.ctx, "report_progress"):
         try:
@@ -3343,6 +3460,14 @@ async def _execute_research_pipeline(
     discarded_attempt_cost = 0.0
     if needs_retry and rem_retry >= 8.0:
         notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
+        await _report_job_progress(
+            job,
+            "synthesis",
+            synth_step,
+            total_steps,
+            "Retrying synthesis with thinking disabled",
+            detail="retry",
+        )
         retry_kwargs = {
             "messages": synthesis_messages,
             "thinking": {"type": "disabled"},
@@ -3409,6 +3534,10 @@ async def _execute_research_pipeline(
     }
     filtered_report, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
     clean_report = normalize_citations(filtered_report, max_id=len(synthesis_context))
+    if report_body_words(clean_report) > cfg.max_words:
+        await _report_job_progress(
+            job, "synthesis", synth_step, total_steps, "Condensing an over-length report", detail="condense"
+        )
     clean_report, condense_cost, condense_called, condense_notes = await _condense_report(
         clean_report,
         depth=depth,
@@ -3418,7 +3547,7 @@ async def _execute_research_pipeline(
     )
     clean_report, s_notes = sanitize_untrusted_text(clean_report)
     clean_report, unverified_numbers, unverified_count, unverified_notes = ground_report_numbers(
-        clean_report, synthesis_context
+        clean_report, synthesis_context, drop=job.unverified == "drop"
     )
     notes.extend(filter_notes)
     notes.extend(condense_notes)
