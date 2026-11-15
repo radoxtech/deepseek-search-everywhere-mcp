@@ -1439,8 +1439,8 @@ async def deepseek_search(
     ] = None,
     max_total_chars: Annotated[
         int,
-        Field(description="Max total characters of page text across results (default 30000)"),
-    ] = 30000,
+        Field(description="Max total characters of page text across results (default 20000)"),
+    ] = 20000,
     rewrite: Annotated[
         bool,
         Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
@@ -1478,7 +1478,7 @@ async def deepseek_search(
 
     Primary search and retrieval tool. Use for finding online facts, web pages, and sources
     for a single query (<= 128 chars). Costs flat $0.00075 per call. Returns snippets (default)
-    or full page text up to max_total_chars (default 30,000 chars). Untrusted content is sanitized.
+    or full page text up to max_total_chars (default 20,000 chars). Untrusted content is sanitized.
 
     When NOT to use: Do not use for multiple parallel queries (use deepseek_search_many),
     for reading known URLs (use deepseek_fetch), for structured schema extraction (use
@@ -1581,8 +1581,8 @@ async def deepseek_search_many(
     ] = None,
     max_total_chars: Annotated[
         int,
-        Field(description="Max total characters of page text across results (default 30000)"),
-    ] = 30000,
+        Field(description="Max total characters of page text across results (default 20000)"),
+    ] = 20000,
     rewrite: Annotated[
         bool,
         Field(description="Rewrite search query via deepseek-flash for better retrieval (default False)"),
@@ -1623,7 +1623,7 @@ async def deepseek_search_many(
     """Search the web with multiple queries concurrently and return ranked results per query.
 
     Batch multi-query search across 1-5 queries in parallel (each <= 128 chars). Costs $0.00075
-    per query. Max total page text across all queries defaults to 30,000 chars. Use when
+    per query. Max total page text across all queries defaults to 20,000 chars. Use when
     investigating multiple search facets, query formulations, or sub-topics at the same time.
     Preserves input order and deduplicates duplicate queries. Untrusted content is sanitized.
 

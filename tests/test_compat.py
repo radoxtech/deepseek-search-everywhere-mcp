@@ -221,7 +221,7 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
         )
     assert "128" in tools["deepseek_search"].description
     desc_search_many = tools["deepseek_search_many"].description
-    assert "30,000" in desc_search_many or "30000" in desc_search_many
+    assert "20,000" in desc_search_many or "20000" in desc_search_many
     desc_fetch = tools["deepseek_fetch"].description
     assert "20,000" in desc_fetch or "20000" in desc_fetch
     desc_fetch_many = tools["deepseek_fetch_many"].description

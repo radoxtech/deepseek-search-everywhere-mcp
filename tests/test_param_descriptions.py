@@ -71,8 +71,8 @@ def test_clean_descriptions_describe_markdown_unescaping() -> None:
 def test_every_described_default_matches_the_signature() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
     checks: list[tuple[str, str, Any]] = [
-        ("deepseek_search", "max_total_chars", 30000),
-        ("deepseek_search_many", "max_total_chars", 30000),
+        ("deepseek_search", "max_total_chars", 20000),
+        ("deepseek_search_many", "max_total_chars", 20000),
         ("deepseek_fetch", "max_chars", 20000),
         ("deepseek_fetch", "max_snippets", 3),
         ("deepseek_fetch_many", "max_chars_per_url", 4000),
