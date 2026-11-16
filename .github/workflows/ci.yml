@@ -73,8 +73,11 @@ jobs:
 
   live-tests:
     name: Live LLM tests
-    # Paid live run on every PR push; skipped after merge, since main only receives tested PRs.
-    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
+    # Paid live run on every PR push. Skipped after merge (main only receives tested PRs) and on
+    # release-please PRs, which only bump the version and changelog of already tested commits.
+    if: >-
+      github.event_name == 'pull_request' && github.event.action != 'labeled' &&
+      !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
