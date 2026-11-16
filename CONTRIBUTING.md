@@ -24,7 +24,10 @@ ruff check . && ruff format --check .   # lint and format
 python -m build && twine check dist/*   # package build
 ```
 
-Live tests (`pytest -m live`) need your own `DEEPSEEK_API_KEY` and are optional.
+Live tests (`pytest -m live`, `-m live_llm`, `-m live_e2e`) need your own `DEEPSEEK_API_KEY`, cost money and are
+optional. CI runs `live` and `live_llm` once on every PR push (not after merge and not on release PRs); `live_e2e`
+runs only on manual dispatch or the `e2e` label. `live_llm` scenarios run once unless you set `LIVE_REPEATS`
+(for example `LIVE_REPEATS=3 pytest -m live_llm` before a release).
 
 ## Commits and pull requests
 

@@ -61,21 +61,12 @@ def test_dropped_parameters_not_in_search_tools(dropped_param: str) -> None:
     assert dropped_param not in inspect.signature(server.deepseek_search_many).parameters
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "_search",
-        "deepseek_search",
-        "deepseek_search_many",
-        "deepseek_fetch",
-        "deepseek_research",
-        "deepseek_extract",
-        "deepseek_extract_many",
-    ],
-)
-def test_new_parameters_are_keyword_only(name):
-    signature = inspect.signature(getattr(server, name))
-    assert signature.parameters["refresh"].kind is inspect.Parameter.KEYWORD_ONLY
+def test_refresh_is_a_keyword_only_parameter_of_cached_tools():
+    names = ["_search", "deepseek_search", "deepseek_search_many", "deepseek_fetch"]
+    names += ["deepseek_research", "deepseek_extract", "deepseek_extract_many"]
+    for name in names:
+        refresh = inspect.signature(getattr(server, name)).parameters.get("refresh")
+        assert refresh is not None and refresh.kind is inspect.Parameter.KEYWORD_ONLY, name
 
 
 def test_check_balance_has_no_parameters() -> None:
@@ -225,6 +216,52 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
     desc_fetch = tools["deepseek_fetch"].description
     assert "20,000" in desc_fetch or "20000" in desc_fetch
     desc_fetch_many = tools["deepseek_fetch_many"].description
-    assert "50,000" in desc_fetch_many or "50000" in desc_fetch_many
+    assert "20,000" in desc_fetch_many and "4,000" in desc_fetch_many
     desc_research = tools["deepseek_research"].description
     assert "6-24 sources" in desc_research or "sources" in desc_research
+
+
+def test_every_tool_has_a_title() -> None:
+    tools = asyncio.run(server.mcp.list_tools())
+    titles = [tool.annotations.title for tool in tools]
+    assert all(titles) and len(set(titles)) == len(titles)
+
+
+def test_research_description_explains_polling_and_client_synthesis() -> None:
+    tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+    research = tools["deepseek_research"].description
+    assert "deepseek_check_research" in research and '"running"' in research
+    assert 'synthesis="client"' in research
+    check = tools["deepseek_check_research"].description
+    assert "page=" in check and "report=" in check and "awaiting_report" in check
+    assert 'synthesis="client"' in server.SERVER_INSTRUCTIONS
+
+
+@pytest.mark.parametrize(
+    ("tool", "param"),
+    [
+        ("deepseek_search", "max_total_chars"),
+        ("deepseek_search_many", "max_total_chars"),
+        ("deepseek_fetch", "max_chars"),
+        ("deepseek_fetch_many", "max_chars_per_url"),
+        ("deepseek_fetch_many", "max_total_chars"),
+        ("deepseek_extract", "max_chars"),
+        ("deepseek_extract_many", "max_chars_per_url"),
+        ("deepseek_extract_many", "max_total_chars"),
+    ],
+)
+def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -> None:
+    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+    default = tools[tool].inputSchema["properties"][param]["default"]
+    assert f"{default:,}" in tools[tool].description, f"{tool}.{param} default {default} not in description"
+
+
+def test_error_codes_named_in_server_instructions_exist() -> None:
+    import re
+
+    from deepseek_search_everywhere_mcp.errors import CLOSED_ERROR_CODES
+
+    named = set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", server.SERVER_INSTRUCTIONS))
+    codes = {word for word in named if not word.startswith("deepseek_")}
+    codes -= {"job_id", "cost_usd", "error_code", "synthesis_instructions"}
+    assert codes <= CLOSED_ERROR_CODES, codes - CLOSED_ERROR_CODES

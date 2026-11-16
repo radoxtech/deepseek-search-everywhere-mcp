@@ -1,8 +1,10 @@
 """Cross-cutting behaviour of the response caches, single-flight, rate limiter and rewrite cache.
 
-Per-tool wiring is covered by ``test_search_cache.py`` and ``test_fetch_cache.py``; these
-tests exercise the pieces together. Everything runs offline on a fake clock: the limiter
-gets an injected ``sleep`` and the upstream is a stub, so no test waits for real time.
+Behaviour shared by search and fetch (single-flight, token accounting, local rate limits,
+disabled cache, reset) is tested here once; ``test_search_cache.py`` and ``test_fetch_cache.py``
+keep what is specific to one tool (cache keys, shaping, rewrite, fragments, 404 advice).
+Everything runs offline on a fake clock: the limiter gets an injected ``sleep`` and the
+upstream is a stub, so no test waits for real time.
 """
 
 from __future__ import annotations
@@ -273,6 +275,8 @@ async def test_rewrite_and_search_cache_skip_flash_and_upstream(
     assert second["cached"] is True
     assert second["query_used"] == first["query_used"] == "how sleep works"
     assert second["query_original"] == "jak działa sen"
+    assert "query rewritten (flash): 'how sleep works'" in second["notes"]
+    assert first["notes"] == second["notes"]
 
 
 async def test_concurrent_rewritten_searches_share_one_upstream_call(
@@ -313,6 +317,16 @@ async def test_cache_disabled_by_env_keeps_single_flight_but_stores_nothing(
     assert upstream.count(CHAT_PATH) == rewrites + 1
     assert sorted(limiter.acquired) == [CHAT, CHAT, FETCH, FETCH, SEARCH, SEARCH]
     assert server._get_search_cache() is None and server._get_fetch_cache() is None
+
+
+async def test_reset_state_drops_cached_searches_and_pages(upstream: Upstream) -> None:
+    await _search()
+    await server.deepseek_fetch(URL)
+    server.reset_state()
+    assert (await _search())["cached"] is False
+    assert (await server.deepseek_fetch(URL))["cached"] is False
+    assert upstream.count(server.SEARCH_PATH) == 2
+    assert upstream.count(server.FETCH_PATH) == 2
 
 
 def test_state_survives_a_cancelled_call_on_a_previous_event_loop(

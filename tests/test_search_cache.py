@@ -1,4 +1,4 @@
-"""Search wiring: response cache, single-flight, rate limiter and rewrite cache."""
+"""Search wiring: cache keys, shaping, dedupe, refresh and the rewrite cache."""
 
 from __future__ import annotations
 
@@ -7,9 +7,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server, transport
-from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
-from deepseek_search_everywhere_mcp.settings import Settings, set_settings
+from deepseek_search_everywhere_mcp import server
 
 RESULTS = [
     {"title": "One", "url": "https://example.com/one", "site_name": "Example", "content": "a" * 500},
@@ -36,14 +34,6 @@ class Upstream:
 @pytest.fixture
 def upstream(fake_upstream: Any) -> Upstream:
     return fake_upstream(Upstream())
-
-
-@pytest.fixture
-def limiter(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> RateLimiter:
-    """A limiter on a frozen clock, so token balances are exact."""
-    instance = RateLimiter.from_settings(Settings(), clock=fake_clock.monotonic)
-    monkeypatch.setattr(server, "_rate_limiter", instance)
-    return instance
 
 
 async def _search(
@@ -120,14 +110,6 @@ async def test_empty_results_are_not_cached(upstream: Upstream) -> None:
     assert len(upstream.calls) == 2
 
 
-async def test_cache_disabled_always_hits_upstream(upstream: Upstream) -> None:
-    set_settings(Settings(cache_enabled=False))
-    await _search()
-    second = await _search()
-    assert second["cached"] is False
-    assert len(upstream.calls) == 2
-
-
 async def test_api_key_is_not_part_of_the_cache_key(
     upstream: Upstream, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -142,24 +124,6 @@ async def test_cache_key_depends_only_on_endpoint_and_payload() -> None:
     reordered = {"need_content": True, "count": 5, "query": "q"}
     assert server._search_cache_key(payload) == server._search_cache_key(reordered)
     assert server._search_cache_key(payload) != server._search_cache_key({**payload, "count": 6})
-
-
-async def test_rewrite_is_cached(upstream: Upstream, monkeypatch: pytest.MonkeyPatch) -> None:
-    rewrites: list[str] = []
-
-    async def fake_rewrite(query: str) -> str:
-        rewrites.append(query)
-        return "how sleep works"
-
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
-    first = await _search("jak działa sen", rewrite=True)
-    second = await _search("jak działa sen", rewrite=True)
-    assert rewrites == ["jak działa sen"]
-    assert len(upstream.calls) == 1
-    assert second["cached"] is True
-    assert second["query_original"] == "jak działa sen"
-    assert "query rewritten (flash): 'how sleep works'" in second["notes"]
-    assert first["notes"] == second["notes"]
 
 
 async def test_failed_rewrite_is_not_cached(upstream: Upstream, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,87 +174,3 @@ async def test_concurrent_rewrites_share_one_flash_call(upstream: Upstream, fake
     assert paths.count(server.SEARCH_PATH) == 1
     assert all(envelope["ok"] is True for envelope in envelopes)
     assert server._get_rewrite_flight().in_flight() == 0
-
-
-async def test_cache_hit_takes_no_token(upstream: Upstream, limiter: RateLimiter) -> None:
-    bucket = limiter.buckets["search"]
-    await _search()
-    await _search()
-    assert bucket.tokens == bucket.burst - 1
-
-
-async def test_concurrent_searches_share_one_call_and_one_token(
-    upstream: Upstream, limiter: RateLimiter
-) -> None:
-    upstream.gate = asyncio.Event()
-    tasks = [asyncio.create_task(_search()) for _ in range(5)]
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    upstream.gate.set()
-    results = await asyncio.gather(*tasks)
-    assert len(upstream.calls) == 1
-    assert all(r["ok"] for r in results)
-    bucket = limiter.buckets["search"]
-    assert bucket.tokens == bucket.burst - 1
-
-
-async def test_cancelled_leader_refunds_its_token(upstream: Upstream, limiter: RateLimiter) -> None:
-    upstream.gate = asyncio.Event()
-    task = asyncio.create_task(_search())
-    for _ in range(5):
-        await asyncio.sleep(0)
-    assert len(upstream.calls) == 1
-    bucket = limiter.buckets["search"]
-    assert bucket.tokens == bucket.burst - 1
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    for _ in range(3):
-        await asyncio.sleep(0)
-    assert bucket.tokens == bucket.burst
-
-
-async def test_local_rate_limit_is_reported_and_not_cached(
-    upstream: Upstream, monkeypatch: pytest.MonkeyPatch, fake_clock: Any
-) -> None:
-    settings = Settings(search_qps=0.01, search_burst=1, limiter_max_wait=1)
-    monkeypatch.setattr(
-        server, "_rate_limiter", RateLimiter.from_settings(settings, clock=fake_clock.monotonic)
-    )
-    assert (await _search())["ok"] is True
-    limited = await _search(refresh=True)
-    assert limited["ok"] is False
-    assert limited["error"]["code"] == "rate_limited_local"
-    assert len(upstream.calls) == 1
-    assert (await _search())["cached"] is True
-
-
-async def test_transport_retries_take_a_single_token(
-    monkeypatch: pytest.MonkeyPatch, limiter: RateLimiter
-) -> None:
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
-    attempts: list[str] = []
-
-    async def flaky(method: str, url: str, path: str, **kwargs: Any) -> tuple[dict[str, Any], float | None]:
-        attempts.append(path)
-        if len(attempts) == 1:
-            return {"ok": False, "error": {"code": "http_503", "message": "busy"}}, 0.0
-        return {"ok": True, "data": {"results": RESULTS}}, None
-
-    async def no_sleep(delay: float) -> None:
-        return None
-
-    monkeypatch.setattr(transport, "_attempt", flaky)
-    monkeypatch.setattr(transport, "_sleep", no_sleep)
-    result = await _search()
-    assert result["ok"] is True
-    assert len(attempts) == 2
-    bucket = limiter.buckets["search"]
-    assert bucket.tokens == bucket.burst - 1
-
-
-async def test_reset_state_drops_cached_searches(upstream: Upstream) -> None:
-    await _search()
-    server.reset_state()
-    assert (await _search())["cached"] is False
-    assert len(upstream.calls) == 2

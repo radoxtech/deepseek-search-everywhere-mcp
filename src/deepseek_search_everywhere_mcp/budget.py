@@ -174,14 +174,6 @@ class DailyBudgetTracker:
         self._loaded = False
         self._disk_warning_logged = False
 
-    @property
-    def _spent_usd(self) -> float:
-        return to_usd(self._spent_micros)
-
-    @property
-    def _reserved_usd(self) -> float:
-        return to_usd(self._reserved_micros)
-
     def _prune_reservations_locked(self, now: float | None = None) -> None:
         """Drop stale reservations whose TTL expired or whose PID no longer exists."""
         if now is None:
@@ -272,17 +264,31 @@ class DailyBudgetTracker:
                 )
                 self._disk_warning_logged = True
 
+    def _roll_over_locked(self) -> bool:
+        """Start a new budget day when the UTC date changed; return whether it did."""
+        today = _utc_today()
+        if self._date == today:
+            return False
+        self._date = today
+        self._spent_micros = 0
+        self._reserved_micros = 0
+        self._reservations = {}
+        self._requests = 0
+        return True
+
+    def _drop_reservation_locked(self, res_id: str) -> None:
+        """Forget reservation ``res_id`` and recompute the reserved total from the rest."""
+        self._reservations.pop(res_id, None)
+        self._reserved_micros = sum(
+            int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
+            for r in self._reservations.values()
+        )
+
     def _sync_reserve(self, amount: float) -> tuple[str, int] | None:
         amount_micros = to_micros(amount)
         with _file_lock(self.lock_path):
             self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
+            if self._roll_over_locked():
                 self._save_locked()
 
             if (self._spent_micros + self._reserved_micros + amount_micros) > self.limit_micros:
@@ -314,19 +320,8 @@ class DailyBudgetTracker:
     def _sync_commit_reservation(self, res_id: str, reserved_micros: int, actual_micros: int) -> None:
         with _file_lock(self.lock_path):
             self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
-
-            self._reservations.pop(res_id, None)
-            self._reserved_micros = sum(
-                int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
-                for r in self._reservations.values()
-            )
+            self._roll_over_locked()
+            self._drop_reservation_locked(res_id)
             self._spent_micros += actual_micros
             self._requests += 1
             self._save_locked()
@@ -339,72 +334,14 @@ class DailyBudgetTracker:
     def _sync_release_reservation(self, res_id: str, reserved_micros: int) -> None:
         with _file_lock(self.lock_path):
             self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
-
-            self._reservations.pop(res_id, None)
-            self._reserved_micros = sum(
-                int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
-                for r in self._reservations.values()
-            )
+            self._roll_over_locked()
+            self._drop_reservation_locked(res_id)
             self._save_locked()
 
     async def _release_reservation(self, res_id: str, reserved_micros: int) -> None:
         """Release an unused reservation, restoring available budget."""
         async with self._lock:
             await asyncio.to_thread(self._sync_release_reservation, res_id, reserved_micros)
-
-    def _sync_check_budget(self, projected_cost: float) -> tuple[bool, float, float]:
-        projected_micros = to_micros(projected_cost)
-        with _file_lock(self.lock_path):
-            self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
-                self._save_locked()
-
-            spent_usd = to_usd(self._spent_micros)
-            if (self._spent_micros + self._reserved_micros + projected_micros) > self.limit_micros:
-                return False, spent_usd, self.limit_usd
-            return True, spent_usd, self.limit_usd
-
-    async def check_budget(self, projected_cost: float = 0.00075) -> tuple[bool, float, float]:
-        """Check whether ``projected_cost`` fits within today's remaining budget.
-
-        Returns ``(allowed, current_spent_usd, limit_usd)``.
-        """
-        async with self._lock:
-            return await asyncio.to_thread(self._sync_check_budget, projected_cost)
-
-    def _sync_record_spend(self, cost: float) -> None:
-        cost_micros = to_micros(cost)
-        with _file_lock(self.lock_path):
-            self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
-
-            self._spent_micros += cost_micros
-            self._requests += 1
-            self._save_locked()
-
-    async def record_spend(self, cost: float = 0.00075) -> None:
-        """Record an incurred spend after a successful upstream call."""
-        async with self._lock:
-            await asyncio.to_thread(self._sync_record_spend, cost)
 
     def _sync_get_status(self) -> dict[str, Any]:
         with _file_lock(self.lock_path):

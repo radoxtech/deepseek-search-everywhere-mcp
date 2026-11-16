@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.filters import fit_query
 
 NON_ENGLISH_QUERIES = (
     "popołudniowy spadek energii",
@@ -47,7 +48,7 @@ def test_no_language_specific_operator_without_lang(fake_upstream: Any) -> None:
 
 
 def test_with_lang_still_accepts_pl_code() -> None:
-    used, trimmed = server._with_lang("prokrastynacja", "pl")
+    used, trimmed = fit_query("prokrastynacja", lang="pl")
     assert used == "lang:pl prokrastynacja"
     assert trimmed is False
 

@@ -163,35 +163,6 @@ async def test_fetch_many_keeps_order_and_dedupes(upstream_calls: list[str]) -> 
     )
 
 
-async def test_research_sources_can_answer_the_question() -> None:
-    question = "What is the difference between TCP and UDP?"
-    envelope = await server.deepseek_research(question, depth="low")
-    _assert_ok(envelope)
-    assert envelope["synthesized"] is True
-    assert envelope["report"]
-
-
-async def test_repeated_search_is_served_from_cache(upstream_calls: list[str]) -> None:
-    query = "HTTP 418 I'm a teapot status code"
-    first = await server.deepseek_search(query, count=3)
-    _assert_results(first, 1)
-    assert first["cached"] is False
-    assert upstream_calls == [server.SEARCH_PATH]
-
-    second = await server.deepseek_search(query, count=3)
-    _assert_ok(second)
-    assert second["cached"] is True
-    assert upstream_calls == [server.SEARCH_PATH], "the repeat made another upstream call"
-    assert [r["url"] for r in second["results"]] == [r["url"] for r in first["results"]]
-
-
-async def test_fetch_of_loopback_is_blocked_without_network(upstream_calls: list[str]) -> None:
-    envelope = await server.deepseek_fetch("http://127.0.0.1/")
-    assert envelope["ok"] is False
-    assert envelope["error"]["code"] == "ssrf_blocked"
-    assert upstream_calls == []
-
-
 async def test_search_live_v2() -> None:
     query = "Rust async channel bounded vs unbounded"
     envelope = await server.deepseek_search(query, count=3, content="full")
@@ -288,7 +259,7 @@ async def test_live_auth_failed_on_invalid_key(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.live_llm
-@repeat_llm(repeats=3)
+@repeat_llm()
 async def test_live_llm_usage_and_json_mode() -> None:
     res = await server._chat_request(
         messages=[
@@ -399,7 +370,7 @@ async def test_live_llm_extract_30_field_schema_with_evidence() -> None:
 
 
 @pytest.mark.live_llm
-@repeat_llm(3)
+@repeat_llm()
 async def test_live_llm_extract_five_pages_evidence() -> None:
     test_cases = [
         (

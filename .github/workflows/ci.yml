@@ -73,7 +73,11 @@ jobs:
 
   live-tests:
     name: Live LLM tests
-    if: (github.event_name == 'pull_request' && github.event.action != 'labeled') || github.event_name == 'push'
+    # Paid live run on every PR push. Skipped after merge (main only receives tested PRs) and on
+    # release-please PRs, which only bump the version and changelog of already tested commits.
+    if: >-
+      github.event_name == 'pull_request' && github.event.action != 'labeled' &&
+      !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -104,7 +108,8 @@ jobs:
 
       - name: Run live tests
         if: steps.key.outputs.present == 'true'
-        run: pytest -q -m live
+        # live_llm tests in live-marked modules carry both markers; run them once, in the next step.
+        run: pytest -q -m "live and not live_llm"
 
       - name: Run live LLM judge tests
         if: steps.key.outputs.present == 'true'

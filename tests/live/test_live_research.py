@@ -1,9 +1,10 @@
 """Live evaluation tests for Research engine 3.0 (Phase 6).
 
 Covers:
-- live_llm: 500k-char synthesis on max tier with finish_reason=stop, citation validity,
-  injection defense, and server-built references.
-- live_e2e: all depth tiers (low, medium, high, max) on 2 topics each, measuring elapsed_ms,
+- live_llm: injection defense of the synthesis prompt and output filter.
+- live_e2e: 500k-char synthesis on max tier with finish_reason=stop, citation validity and no
+  inline references.
+- live_e2e: all depth tiers (low, medium, high, max) on one topic each, measuring elapsed_ms,
   cost_usd, report words vs target, delivery inline/polled, and source counts.
 - live_e2e stdio 60s client timeout simulation with deepseek_check_research long-polling.
 """
@@ -35,9 +36,8 @@ from deepseek_search_everywhere_mcp.settings import Settings
 LIVE_RESEARCH_METRICS: list[dict[str, Any]] = []
 
 
-@pytest.mark.live_llm
-@repeat_llm(3)
-async def test_live_llm_research_synthesis_max_tier() -> None:
+@pytest.mark.live_e2e
+async def test_live_e2e_research_synthesis_max_tier() -> None:
     """Verify that a 500k-char synthesis on max tier completes cleanly.
 
     Checks:
@@ -97,7 +97,7 @@ async def test_live_llm_research_synthesis_max_tier() -> None:
 
 
 @pytest.mark.live_llm
-@repeat_llm(3)
+@repeat_llm()
 async def test_live_llm_research_prompt_injection_defense() -> None:
     """Verify that malicious instructions and attacker links in sources are neutralized."""
     sources = [
@@ -156,13 +156,9 @@ async def test_live_llm_research_prompt_injection_defense() -> None:
     ("depth", "topic"),
     [
         ("low", "Quantum computing surface code error correction benchmarks"),
-        ("low", "Solid state battery lithium sulfide electrolyte conductivity"),
         ("medium", "CRISPR prime editing off-target mitigation approaches"),
-        ("medium", "Photonic quantum computing fault tolerance architectures"),
         ("high", "Perovskite silicon tandem solar cell moisture degradation"),
-        ("high", "High temperature superconducting tape fusion magnets"),
         ("max", "Direct air capture metal-organic framework energy regeneration"),
-        ("max", "Post-quantum lattice-based signature scheme performance"),
     ],
 )
 async def test_live_e2e_research_tier(depth: str, topic: str) -> None:

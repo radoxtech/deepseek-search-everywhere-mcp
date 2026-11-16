@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-import pytest
-
 from deepseek_search_everywhere_mcp import server
 
 
@@ -40,42 +38,29 @@ def test_search_content_snippets(fake_upstream: Any) -> None:
     assert "content" not in first
 
 
-def test_search_content_full_gap_fills_stub(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Upstream returns a result with stub content (< 200 chars)
-    fake_upstream(
-        default={
-            "ok": True,
-            "data": {
-                "results": [
-                    {
-                        "title": "Stub Result",
-                        "url": "https://example.com/stub",
-                        "snippet": "Short snippet",
-                        "content": "Short stub.",  # < 200 chars triggers gap-fill
-                    }
-                ]
-            },
-        }
-    )
-
-    async def fake_fetch_many(urls: list[str], **kwargs: Any) -> dict[str, Any]:
-        return {
-            "ok": True,
-            "requests_used": 1,
-            "cached_count": 0,
-            "notes": [],
+def test_search_content_full_gap_fills_stub(fake_upstream: Any) -> None:
+    # Upstream search returns a result with stub content (< 200 chars), which triggers a gap fetch.
+    search = {
+        "ok": True,
+        "data": {
             "results": [
                 {
-                    "ok": True,
-                    "url": urls[0],
-                    "title": "Fetched Full Title",
-                    "content": "Full fetched page content from isolated fetch " * 20,
-                    "cached": False,
+                    "title": "Stub Result",
+                    "url": "https://example.com/stub",
+                    "snippet": "Short snippet",
+                    "content": "Short stub.",
                 }
-            ],
-        }
-
-    monkeypatch.setattr(server, "deepseek_fetch_many", fake_fetch_many)
+            ]
+        },
+    }
+    page = {
+        "ok": True,
+        "data": {
+            "title": "Fetched Full Title",
+            "content": "Full fetched page content from isolated fetch " * 20,
+        },
+    }
+    fake_upstream(responses={server.SEARCH_PATH: search, server.FETCH_PATH: page})
 
     res = asyncio.run(server.deepseek_search("python", content="full", refresh=True))
     assert res["ok"] is True
@@ -177,3 +162,19 @@ def test_search_many_snippets_are_lean(fake_upstream: Any) -> None:
             assert item["snippet"] == "Snippet for many"
             assert "summary" not in item
             assert "need_content" not in item
+
+
+def test_search_gap_fill_never_fetches_a_blocked_url(fake_upstream: Any) -> None:
+    results = [
+        {"title": "Internal", "url": "http://127.0.0.1/admin", "content": "stub"},
+        {"title": "Public", "url": "https://example.com/a", "content": "stub"},
+        {"title": "Public again", "url": "https://example.com/a#section", "content": "stub"},
+    ]
+    page = {"ok": True, "data": {"title": "Page", "content": "Full page text " * 30}}
+    upstream = fake_upstream(
+        responses={server.SEARCH_PATH: {"ok": True, "data": {"results": results}}, server.FETCH_PATH: page}
+    )
+    res = asyncio.run(server.deepseek_search("q", count=3, content="full", refresh=True))
+    fetched = [c["payload"]["url"] for c in upstream.calls if c["path"] == server.FETCH_PATH]
+    assert fetched == ["https://example.com/a"]
+    assert res["ok"] is True
