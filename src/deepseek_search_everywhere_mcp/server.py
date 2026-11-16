@@ -981,30 +981,28 @@ def _date_in(text: str, today: date | None = None) -> str | None:
     return None
 
 
-# Full month names, English and Polish (nominative "wrzesień" and genitive "września", the form used
-# after a day number), mapped to the month number. Abbreviations are not accepted.
+# Full English month names mapped to the month number. Abbreviations are not accepted.
 _MONTH_NAMES: dict[str, int] = {
     name: number
-    for number, names in enumerate(
+    for number, name in enumerate(
         (
-            ("january", "styczeń", "stycznia"),
-            ("february", "luty", "lutego"),
-            ("march", "marzec", "marca"),
-            ("april", "kwiecień", "kwietnia"),
-            ("may", "maj", "maja"),
-            ("june", "czerwiec", "czerwca"),
-            ("july", "lipiec", "lipca"),
-            ("august", "sierpień", "sierpnia"),
-            ("september", "wrzesień", "września"),
-            ("october", "październik", "października"),
-            ("november", "listopad", "listopada"),
-            ("december", "grudzień", "grudnia"),
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
         ),
         start=1,
     )
-    for name in names
 }
-# "September 2025", "wrzesień 2025", with an optional day: "15 września 2025", "September 15, 2025".
+# "September 2025", with an optional day: "15 September 2025", "September 15, 2025".
 _MONTH_DATE = re.compile(
     r"(?<![\w.,/-])(?:(?P<day>\d{1,2})\s+)?"
     r"(?P<month>" + "|".join(sorted(_MONTH_NAMES, key=len, reverse=True)) + r")"
@@ -1022,9 +1020,9 @@ _YEAR_MONTH_DATE = re.compile(
 def _month_date_in(text: str, today: date | None = None) -> str | None:
     """Return the first valid month-name date in ``text`` as ``YYYY-MM-DD``, or None.
 
-    A full English or Polish month name next to a year (1990 to next year), as "September 2025" or
-    "2025 September", gives the first of that month; a day written with a month-first date
-    ("15 września 2025", "September 15, 2025") gives that day. The earliest match wins.
+    A full English month name next to a year (1990 to next year), as "September 2025" or
+    "2025 September", gives the first of that month; a day written with the month ("15 September
+    2025", "September 15, 2025") gives that day. The earliest match wins.
     """
     max_year = (today or datetime.now(UTC).date()).year + 1
     matches = [*_MONTH_DATE.finditer(text), *_YEAR_MONTH_DATE.finditer(text)]

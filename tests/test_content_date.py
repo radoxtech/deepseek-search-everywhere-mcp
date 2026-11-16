@@ -105,13 +105,13 @@ JOURNAL_TOC = (
     [
         ("September 2025: 151(9):1125-1146", "2025-09-01"),
         ("published in SEPTEMBER 2025", "2025-09-01"),
-        ("wrzesień 2025", "2025-09-01"),
-        ("Raport, Wrzesień 2025 r.", "2025-09-01"),
-        ("15 września 2025", "2025-09-15"),
-        ("Warszawa, 3 stycznia 2024.", "2024-01-03"),
+        ("Report, September 2025.", "2025-09-01"),
+        ("15 September 2025", "2025-09-15"),
+        ("London, 3 January 2024.", "2024-01-03"),
+        ("wrzesień 2025, 15 września 2025", None),
         ("September 15, 2025", "2025-09-15"),
         ("12 May 2025 and June 2024", "2025-05-12"),
-        ("31 lutego 2025, potem marzec 2025", "2025-03-01"),
+        ("31 February 2025, then March 2025", "2025-03-01"),
         ("98 299 uczestników w 2025 roku", None),
         ("lato 2025", None),
         ("Sept 2025, Sep 2025, wrz. 2025", None),
@@ -120,7 +120,7 @@ JOURNAL_TOC = (
         ("June 2025-2026 season", None),
         ("June 20251", None),
         ("Psychological Bulletin 2025 September\n\nThe resurgence", "2025-09-01"),
-        ("Pediatrics. 2024 październik; 12(3)", "2024-10-01"),
+        ("Pediatrics. 2024 October; 12(3)", "2024-10-01"),
         ("2025 Sep; 151(9) and 2025 Septembers", None),
         ("in 1850 June and in 2025-06 June", None),
         ("First June 2024, then 2025 May", "2024-06-01"),
@@ -134,7 +134,7 @@ def test_month_date_in(text: str, expected: str | None) -> None:
 
 def test_content_date_reads_a_month_and_year() -> None:
     assert server._content_date(None, JOURNAL_TOC, TODAY) == "2025-09-01"
-    assert server._content_date("Wyniki badania, wrzesień 2025", "Bez daty.", TODAY) == "2025-09-01"
+    assert server._content_date("Survey results, September 2025", "No date.", TODAY) == "2025-09-01"
 
 
 def test_content_date_prefers_an_iso_date() -> None:
