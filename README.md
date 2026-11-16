@@ -531,66 +531,6 @@ Tool-specific results:
 | Security | `ssrf_blocked`, `egress_blocked`, `disallowed_url`, `private_url`, `disallowed_protocol` |
 | Tool specific | `empty_page`, `extraction_failed`, `extraction_truncated`, `job_not_found` |
 
-## Migration from 2.x
-
-Version 3.0 is a breaking release: tool names, parameters, envelope fields and error codes changed. Tool surface and parameters are summarized below; update your prompts, allow-lists and any code that parses envelopes.
-
-### Tools
-
-| 2.x | 3.0 | Notes |
-|---|---|---|
-| `deepseek_deep_research` | `deepseek_research` | Parameters `max_queries` and `max_pages_per_query` are replaced by `depth` (`low`, `medium`, `high`, `max`) |
-| `deepseek_research` (single-pass source gathering) | `deepseek_search` with `content="full"`, or `deepseek_search_many` | The old tool returned raw sources without a model call; research now means the cited report |
-| `deepseek_web_search` (alias) | `deepseek_search` | Alias removed |
-| `deepseek_search_and_read` (alias) | `deepseek_search` with `content="full"` | Alias removed |
-| `deepseek_balance` (alias) | `deepseek_check_balance` | Alias removed |
-| none | `deepseek_check_research` | New: collects long-running research jobs |
-
-### Parameters
-
-| 2.x | 3.0 |
-|---|---|
-| `need_content=True` / `False` (search tools) | `content="full"` / `"snippets"` |
-| `ori_question` | removed |
-| `localization` | removed |
-| `max_chars_per_result`, `summary_chars` | removed; the per-result budget is derived from `max_total_chars` and `count`, snippets are capped at 400 characters |
-| `dedupe`, `strip_boilerplate` (search tools) | removed; always on |
-| `clear_cache` (`deepseek_check_balance`) | removed; the tool is read-only |
-| `question`, `max_pages`, `per_page_chars`, `total_chars` (old `deepseek_research`) | `topic` and `depth` of the new `deepseek_research` |
-| `max_queries`, `max_pages_per_query` (`deepseek_deep_research`) | `depth` |
-| Positional optional arguments | all parameters after the first are keyword-only |
-| Combining fetch selectors | `section`, `query`, `offset`/`limit` and `find_text` are mutually exclusive; combining them returns `bad_request` |
-| none | `fallback_to_search` on the fetch tools (default `true`) |
-
-### Envelope fields
-
-| 2.x | 3.0 |
-|---|---|
-| `need_content` field in search envelopes | `content` |
-| `summary` next to a non-empty `snippet` in snippet mode | omitted; `summary` appears only for results without a snippet |
-| `raw_sources` and page content inside research `sources` | removed; `sources` holds `id`, `title`, `url`, `date` (plus a short snippet if synthesis fell back) |
-| `## References` section appended to the research report | removed; use the `sources` array (ids match the `[n]` citations) |
-| `cache_cleared`, `cache_evicted` (balance) | removed |
-| none | `status`, `delivery`, `job_id`, `progress`, `next_action` (research), `cost_breakdown`, `derived_from_untrusted`, `injection_suspected`, `evidence` and `extraction_truncated` (extract), `depth` |
-
-### Error code changes
-
-| 2.x | 3.0 |
-|---|---|
-| `http_404` | `not_found` |
-| `http_429` | `upstream_rate_limited` |
-| `http_error` and other raw upstream codes | `upstream_error` (5xx) or `bad_request` (other 4xx); the original is in `error.upstream_code` |
-| HTTP 401 from any endpoint | `auth_failed` |
-| HTTP 403 from the fetch endpoint | `blocked_by_site` |
-| HTTP 403 from other endpoints | `auth_failed` |
-| HTTP 402 | `insufficient_balance` |
-| HTTP 504 | `upstream_timeout` |
-| `invalid_url` | `bad_url` |
-| `budget_exceeded` with status 429 | `budget_exceeded` with status 402 |
-| none | `egress_blocked`, `extraction_truncated`, `job_not_found` |
-
-Behavior changes: extracted values without a verifiable evidence quote are returned as `null`; fetch no longer substitutes a different page when a URL returns 404 (only a result for the same page is accepted); research and extraction output is sanitized and flagged as derived from untrusted content.
-
 ## FAQ
 
 ### How do I add web search to Claude Code?
