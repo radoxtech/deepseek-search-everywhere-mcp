@@ -2175,3 +2175,62 @@ def test_academic_mode_strict_exclusion_and_fallback_notes() -> None:
     assert all(s["source_type"] == "blog" for s in selected_2[2:])
     assert len(notes_2) > 0
     assert any("Retained non-scholarly" in n for n in notes_2)
+
+
+def _chat_reply(content: str) -> dict[str, Any]:
+    return {"ok": True, "data": {"choices": [{"message": {"role": "assistant", "content": content}}]}}
+
+
+async def test_research_without_readable_content_returns_sources_only(fake_upstream: Any) -> None:
+    class EmptyPages(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if path == server.FETCH_PATH:
+                return {"ok": False, "error": {"code": "not_found", "message": "gone", "status": 404}}
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(EmptyPages(search_results=[{"title": "Empty", "url": "https://a.test/1", "content": ""}]))
+    res = await server.deepseek_research("empty pages topic", depth="low")
+    assert res["ok"] is True and res["synthesized"] is False and res["report"] is None
+    assert res["partial"] is True
+    assert res["notes"][-1] == "No readable source content available for synthesis."
+
+
+async def test_research_stops_before_synthesis_when_the_deadline_is_near(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server._ResearchRun, "remaining", lambda self: 1.0)
+    upstream = DeepResearchUpstream()
+    fake_upstream(upstream)
+    res = await server.deepseek_research("deadline topic", depth="low")
+    assert res["synthesized"] is False
+    assert res["notes"][-1] == "Synthesis deadline reached; returning gathered sources."
+    assert len(upstream.chats) == 1  # decomposition only, no synthesis call
+
+
+async def test_round_two_is_skipped_without_deadline_budget(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server._ResearchRun, "remaining", lambda self: 30.0)
+    fake_upstream(DeepResearchUpstream())
+    res = await server.deepseek_research("skip round two topic", depth="max")
+    assert res["synthesized"] is True
+    assert "Round 2 skipped due to deadline budget." in res["notes"]
+
+
+async def test_round_two_without_search_results_keeps_round_one(fake_upstream: Any) -> None:
+    class FailingR2Search(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            payload = kwargs.get("payload") or {}
+            if path == server.SEARCH_PATH and "gap angle" in payload.get("query", ""):
+                return {"ok": False, "error": {"code": "upstream_error", "message": "down", "status": 502}}
+            if path == "/v1/chat/completions" and len(self.chats) == 1:
+                self.chats.append(payload)
+                return _chat_reply(json.dumps({"queries": ["gap angle one", "gap angle two"]}))
+            return await super().__call__(method, path, **kwargs)
+
+    upstream = FailingR2Search()
+    fake_upstream(upstream)
+    res = await server.deepseek_research("round two search topic", depth="max")
+    assert res["synthesized"] is True
+    assert "Round 2 search produced no results; proceeding with Round 1 sources." in res["notes"]
+    assert not any("gap angle" in q for q in res["subqueries"])

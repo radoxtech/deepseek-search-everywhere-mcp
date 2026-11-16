@@ -24,7 +24,7 @@ import time
 import urllib.parse
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from datetime import time as dt_time
 from pathlib import Path
@@ -3073,6 +3073,399 @@ def _maybe_dump_research_job(
         logger.warning("Failed to write research debug dump for job %s to %s: %s", job_id, dump_dir, exc)
 
 
+# Seconds of the depth deadline kept free for the synthesis call while the earlier phases run.
+_SYNTHESIS_RESERVE_S: Final[dict[str, float]] = {"low": 20.0, "medium": 30.0, "high": 45.0, "max": 60.0}
+
+
+@dataclass
+class _ResearchRun:
+    """State shared by the phases of one research job: inputs, deadline, costs, counters and notes."""
+
+    job: ResearchJob
+    topic: str
+    depth: str
+    sources_pref: str
+    lang: str | None
+    refresh: bool
+    strip_boilerplate: bool
+    cfg: Any
+    deadline_at: float
+    synthesis_reserve: float
+    total_steps: int
+    subqueries: list[str] = field(default_factory=list)
+    result_lists: list[list[dict[str, Any]]] = field(default_factory=list)
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    search_cost: float = 0.0
+    fetch_cost: float = 0.0
+    llm_cost: float = 0.0
+    requests_used: int = 0
+    cached_count: int = 0
+    fetch_failed: int = 0
+
+    def remaining(self) -> float:
+        """Seconds left before the job deadline."""
+        return self.deadline_at - _clock()
+
+    def phase_timeout(self, cap: float) -> float:
+        """Timeout for a phase: the time left after the synthesis reserve, between 5 s and ``cap``."""
+        return min(cap, max(5.0, self.remaining() - self.synthesis_reserve))
+
+    def add_searches(self, results: list[dict[str, Any]]) -> None:
+        """Count the requests, cache hits and cost of successful search envelopes."""
+        self.cached_count += sum(r.get("cached_count", 0) for r in results)
+        self.requests_used += sum(r.get("requests_used", 0) for r in results)
+        self.search_cost += sum(r.get("cost_usd", 0.0) for r in results)
+
+    def envelope(
+        self,
+        *,
+        report: str | None,
+        sources: list[dict[str, Any]],
+        unverified_numbers: list[dict[str, str]],
+        unverified_count: int,
+        partial: bool,
+        requests_used: int,
+        llm_cost: float,
+        injection_suspected: int,
+        notes: list[str],
+    ) -> dict[str, Any]:
+        """Build a finished research envelope with the run's cost and cache accounting."""
+        total_llm = round(llm_cost, 6)
+        total_cost = round(self.search_cost + self.fetch_cost + total_llm, 6)
+        return {
+            "ok": True,
+            "status": "done",
+            "topic": self.topic,
+            "depth": self.depth,
+            "subqueries": self.subqueries,
+            "report": report,
+            "synthesized": report is not None,
+            "sources": sources,
+            "unverified_numbers": unverified_numbers,
+            "unverified_number_count": unverified_count,
+            "partial": partial,
+            "requests_used": requests_used,
+            "cached": _all_cached(requests_used, self.cached_count),
+            "cached_count": self.cached_count,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(self.search_cost, 6),
+                "fetch": round(self.fetch_cost, 6),
+                "llm": total_llm,
+            },
+            "untrusted_content": True,
+            "derived_from_untrusted": True,
+            "injection_suspected": injection_suspected,
+            "notes": notes,
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
+        }
+
+    def unsynthesized(
+        self, note: str, *, requests_used: int | None = None, llm_cost: float | None = None
+    ) -> dict[str, Any]:
+        """Envelope returned when no report is written: the gathered sources with a snippet each."""
+        return self.envelope(
+            report=None,
+            sources=_format_public_sources(self.sources, include_snippet=True),
+            unverified_numbers=[],
+            unverified_count=0,
+            partial=True,
+            requests_used=self.requests_used if requests_used is None else requests_used,
+            llm_cost=self.llm_cost if llm_cost is None else llm_cost,
+            injection_suspected=0,
+            notes=self.notes + [note],
+        )
+
+
+def _research_search_calls(run: _ResearchRun, queries: list[str], timeout: float) -> list[Awaitable[Any]]:
+    """Build one full-content search per query, each bounded by ``timeout``."""
+    cfg = run.cfg
+    return [
+        asyncio.wait_for(
+            _search(
+                query,
+                cfg.count,
+                None,
+                "full",
+                run.lang,
+                cfg.per_page_char_cap,
+                cfg.per_page_char_cap * cfg.count,
+                True,
+                False,
+                refresh=run.refresh,
+                strip_boilerplate=run.strip_boilerplate,
+            ),
+            timeout=timeout,
+        )
+        for query in queries
+    ]
+
+
+async def _research_decompose(run: _ResearchRun) -> None:
+    """Phase 1: split the topic into subqueries with deepseek-flash (the topic itself on failure)."""
+    await _report_job_progress(
+        run.job, "decomposition", 1, run.total_steps, "Decomposing topic into subqueries"
+    )
+    timeout = run.phase_timeout(20.0)
+    res = await _chat_request(
+        messages=build_decomposition_messages(
+            run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref
+        ),
+        thinking={"type": "disabled"},
+        model=REWRITE_MODEL,
+        temperature=0.0,
+        max_tokens=1024,
+        timeout=timeout,
+        deadline=timeout,
+        attempts=2,
+    )
+    if res.get("ok"):
+        run.llm_cost += res.get("cost_usd", 0.0)
+    if res.get("ok") and res.get("content"):
+        run.subqueries = parse_subqueries(res["content"], run.topic, max_queries=run.cfg.subqueries)
+    else:
+        fallback, _ = fit_query(run.topic)
+        run.subqueries = [fallback]
+
+
+async def _research_retrieve(run: _ResearchRun) -> dict[str, Any] | None:
+    """Phase 2: search every subquery; return the first error envelope when all of them fail."""
+    await _report_job_progress(run.job, "retrieval", 2, run.total_steps, "Searching across subqueries")
+    results = await asyncio.gather(*_research_search_calls(run, run.subqueries, run.phase_timeout(30.0)))
+    successful = [r for r in results if r.get("ok")]
+    if not successful:
+        return results[0]
+    run.result_lists = [r.get("results", []) for r in successful]
+    run.add_searches(successful)
+    return None
+
+
+async def _research_round_two(run: _ResearchRun) -> None:
+    """Round 2 (depth max): ask for gap queries over the round-1 results and search them too."""
+    await _report_job_progress(
+        run.job, "round_2_retrieval", 3, run.total_steps, "Analyzing gaps and searching additional angles"
+    )
+    budget = run.remaining() - run.synthesis_reserve
+    if budget < 10.0:
+        run.notes.append("Round 2 skipped due to deadline budget.")
+        return
+    r1_items = [item for results in run.result_lists for item in results]
+    r1_domains = {d for item in r1_items if (d := _url_etld1(item.get("url") or ""))}
+    timeout = min(25.0, max(5.0, budget / 2))
+    try:
+        res = await _chat_request(
+            messages=build_r2_gap_messages(run.topic, r1_items, run.subqueries),
+            thinking={"type": "disabled"},
+            model=REWRITE_MODEL,
+            temperature=0.0,
+            max_tokens=1024,
+            response_format={"type": "json_object"},
+            timeout=timeout,
+            deadline=timeout,
+            attempts=1,
+        )
+        if not (res.get("ok") and res.get("content")):
+            run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
+            return
+        run.llm_cost += res.get("cost_usd", 0.0)
+        parsed = parse_subqueries(res["content"], run.topic, max_queries=3)
+        queries = validate_r2_queries(parsed, run.topic, run.subqueries, r1_domains, lang=run.lang)
+        if not queries:
+            run.notes.append("Round 2 gap query validation failed; proceeding with Round 1 sources.")
+            return
+        search_timeout = min(20.0, max(5.0, run.remaining() - run.synthesis_reserve))
+        results = await asyncio.gather(
+            *_research_search_calls(run, queries, search_timeout), return_exceptions=True
+        )
+        successful = [r for r in results if isinstance(r, dict) and r.get("ok")]
+        if not successful:
+            run.notes.append("Round 2 search produced no results; proceeding with Round 1 sources.")
+            return
+        for query, res_dict in zip(queries, results, strict=True):
+            if isinstance(res_dict, dict) and res_dict.get("ok"):
+                run.subqueries.append(query)
+                run.result_lists.append(res_dict.get("results", []))
+        run.add_searches(successful)
+    except Exception as exc:
+        logger.debug("Round 2 gap analysis exception: %s", exc)
+        run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
+
+
+async def _research_rank_and_fill(run: _ResearchRun) -> None:
+    """Phases 3-4: rank and diversify the results into sources, then fetch pages with short content."""
+    selected, rank_notes = rank_and_diversify_sources(
+        run.result_lists,
+        k_sources=run.cfg.k_sources,
+        denylist=get_settings().source_denylist,
+        sources=run.sources_pref,
+    )
+    run.notes.extend(rank_notes)
+    run.sources = [
+        _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected, 1)
+    ]
+
+    gap_step = 4 if run.depth == "max" else 3
+    await _report_job_progress(
+        run.job, "gap_fill", gap_step, run.total_steps, "Fetching gap pages for top sources"
+    )
+    fill = await _fill_gaps(
+        run.sources,
+        run.cfg.per_page_char_cap,
+        run.cfg.total_source_chars,
+        run.refresh,
+        run.strip_boilerplate,
+        deadline=run.phase_timeout(30.0),
+        max_pages=run.cfg.k_sources,
+        internal_batch=True,
+    )
+    run.requests_used += fill.requests_used
+    run.cached_count += fill.cached_count
+    run.fetch_cost = fill.requests_used * COST_PER_REQUEST
+    run.fetch_failed = fill.failed
+    if fill.fetched:
+        run.notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
+    if fill.failed:
+        run.notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
+
+
+def _research_cost_guard(run: _ResearchRun, context: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the sources-only envelope when synthesis would break the cost ceiling or the deadline."""
+    total_source_chars = sum(len(s.get("content") or "") for s in context)
+    pricing = get_settings().llm_pricing.peak
+    est_synth_cost = ((total_source_chars // 2) / 1_000_000) * pricing.cache_miss_per_1m + (
+        run.cfg.max_tokens / 1_000_000
+    ) * pricing.output_per_1m
+    est_total = run.search_cost + run.fetch_cost + run.llm_cost + est_synth_cost
+    ceiling = get_settings().research_cost_ceiling_usd
+    if est_total > ceiling:
+        return run.unsynthesized(
+            f"Estimated research cost (${est_total:.4f}) exceeds ceiling "
+            f"of ${ceiling:.2f}; returning gathered sources without synthesis."
+        )
+    if run.remaining() < 5.0:
+        return run.unsynthesized("Synthesis deadline reached; returning gathered sources.")
+    return None
+
+
+async def _research_synthesize(
+    run: _ResearchRun, context: list[dict[str, Any]], synth_step: int
+) -> tuple[dict[str, Any], float]:
+    """Write the report with deepseek-flash, retrying once without thinking when the first answer is
+    cut off or empty. Return the answer used and the cost of an attempt that was billed but not used."""
+    cfg = run.cfg
+    messages = build_synthesis_messages(run.topic, context, depth=run.depth, nonce=uuid.uuid4().hex[:12])
+    timeout = max(10.0, run.remaining() - 2.0)
+    kwargs: dict[str, Any] = {
+        "messages": messages,
+        "model": REWRITE_MODEL,
+        "max_tokens": cfg.max_tokens,
+        "timeout": timeout,
+        "deadline": timeout,
+        "attempts": 1,
+    }
+    if cfg.thinking:
+        kwargs["thinking"] = {"type": "enabled"}
+        if cfg.reasoning_effort:
+            kwargs["reasoning_effort"] = cfg.reasoning_effort
+    else:
+        kwargs["thinking"] = {"type": "disabled"}
+        kwargs["temperature"] = 0.0
+    res = await _chat_request(**kwargs)
+
+    needs_retry = (
+        not res.get("ok") or res.get("finish_reason") == "length" or not (res.get("content") or "").strip()
+    )
+    rem_retry = run.remaining()
+    if not needs_retry or rem_retry < 8.0:
+        return res, 0.0
+    run.notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
+    await _report_job_progress(
+        run.job,
+        "synthesis",
+        synth_step,
+        run.total_steps,
+        "Retrying synthesis with thinking disabled",
+        detail="retry",
+    )
+    retry = await _chat_request(
+        messages=messages,
+        thinking={"type": "disabled"},
+        temperature=0.0,
+        model=REWRITE_MODEL,
+        max_tokens=min(cfg.max_tokens, 16_384),
+        timeout=max(5.0, rem_retry - 2.0),
+        deadline=max(5.0, rem_retry - 2.0),
+        attempts=1,
+    )
+    # Every attempt is billed, so the attempt that is not used still counts toward the cost.
+    if retry.get("ok") and (retry.get("content") or "").strip() and retry.get("finish_reason") != "length":
+        return retry, float(res.get("cost_usd", 0.0) or 0.0)
+    return res, float(retry.get("cost_usd", 0.0) or 0.0)
+
+
+async def _finalize_report(
+    run: _ResearchRun,
+    context: list[dict[str, Any]],
+    report_text: str,
+    *,
+    requests_used: int,
+    llm_cost: float,
+    synth_step: int,
+) -> dict[str, Any]:
+    """Filter, normalize, condense, sanitize and ground a written report, then build the envelope."""
+    allowed_urls = {s["url"].strip() for s in context if isinstance(s.get("url"), str) and s["url"].strip()}
+    filtered, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
+    report = normalize_citations(filtered, max_id=len(context))
+    if report_body_words(report) > run.cfg.max_words:
+        await _report_job_progress(
+            run.job,
+            "synthesis",
+            synth_step,
+            run.total_steps,
+            "Condensing an over-length report",
+            detail="condense",
+        )
+    report, condense_cost, condense_called, condense_notes = await _condense_report(
+        report,
+        depth=run.depth,
+        allowed_urls=allowed_urls,
+        max_id=len(context),
+        deadline_at=run.deadline_at,
+    )
+    report, sanitize_notes = sanitize_untrusted_text(report)
+    report, unverified_numbers, unverified_count, unverified_notes = ground_report_numbers(
+        report, context, drop=run.job.unverified == "drop"
+    )
+    run.notes.extend(filter_notes)
+    run.notes.extend(condense_notes)
+    run.notes.extend(sanitize_notes)
+    run.notes.extend(unverified_notes)
+    if condense_called:
+        requests_used += 1
+
+    _maybe_dump_research_job(
+        job_id=run.job.job_id,
+        topic=run.topic,
+        depth=run.depth,
+        synthesis_context=context,
+        raw_model_report=report_text,
+        final_report=report,
+        unverified_numbers=unverified_numbers,
+    )
+    return run.envelope(
+        report=report,
+        sources=_format_public_sources(context, include_snippet=False),
+        unverified_numbers=unverified_numbers,
+        unverified_count=unverified_count,
+        partial=run.fetch_failed > 0,
+        requests_used=requests_used,
+        llm_cost=round(llm_cost, 6) + condense_cost,
+        injection_suspected=injection_suspected,
+        notes=run.notes,
+    )
+
+
 async def _execute_research_pipeline(
     *,
     job: ResearchJob,
@@ -3083,486 +3476,61 @@ async def _execute_research_pipeline(
     refresh: bool,
     strip_boilerplate: bool,
 ) -> dict[str, Any]:
+    """Run one research job: decompose, search (plus round 2 at depth max), rank, fill gaps, select the
+    synthesis context, write the report and verify it."""
     cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
-    max_queries = cfg.subqueries
-    max_pages_per_query = cfg.count
-    deadline_total = cfg.deadline_s
-    t0 = _clock()
-    deadline_at = t0 + deadline_total
-
-    synthesis_reserve = {
-        "low": 20.0,
-        "medium": 30.0,
-        "high": 45.0,
-        "max": 60.0,
-    }.get(depth, 30.0)
-
-    dedupe = True
-    total_steps = 5 if depth == "max" else 4
-
-    # Step 1: Decompose topic into subqueries
-    await _report_job_progress(job, "decomposition", 1, total_steps, "Decomposing topic into subqueries")
-    rem1 = deadline_at - _clock()
-    dec_timeout = min(20.0, max(5.0, rem1 - synthesis_reserve))
-    dec_messages = build_decomposition_messages(clean_topic, max_queries=max_queries, sources=sources_pref)
-    dec_res = await _chat_request(
-        messages=dec_messages,
-        thinking={"type": "disabled"},
-        model=REWRITE_MODEL,
-        temperature=0.0,
-        max_tokens=1024,
-        timeout=dec_timeout,
-        deadline=dec_timeout,
-        attempts=2,
-    )
-    dec_cost = dec_res.get("cost_usd", 0.0) if dec_res.get("ok") else 0.0
-    if dec_res.get("ok") and dec_res.get("content"):
-        raw_dec = dec_res["content"]
-        subqueries = parse_subqueries(raw_dec, clean_topic, max_queries=max_queries)
-    else:
-        fallback_subq, _ = fit_query(clean_topic)
-        subqueries = [fallback_subq]
-
-    # Step 2: Concurrently execute search across subqueries
-    await _report_job_progress(job, "retrieval", 2, total_steps, "Searching across subqueries")
-    rem2 = deadline_at - _clock()
-    search_timeout = min(30.0, max(5.0, rem2 - synthesis_reserve))
-    search_coros = [
-        asyncio.wait_for(
-            _search(
-                subq,
-                max_pages_per_query,
-                None,
-                "full",
-                lang,
-                cfg.per_page_char_cap,
-                cfg.per_page_char_cap * max_pages_per_query,
-                dedupe,
-                False,
-                refresh=refresh,
-                strip_boilerplate=strip_boilerplate,
-            ),
-            timeout=search_timeout,
-        )
-        for subq in subqueries
-    ]
-    search_results = await asyncio.gather(*search_coros)
-
-    successful_searches = [r for r in search_results if r.get("ok")]
-    if not successful_searches:
-        return search_results[0]
-
-    subquery_result_lists = [s.get("results", []) for s in successful_searches]
-    cached_count = sum(s.get("cached_count", 0) for s in successful_searches)
-    requests_used = sum(s.get("requests_used", 0) for s in successful_searches)
-    search_cost = sum(s.get("cost_usd", 0.0) for s in successful_searches)
-    r2_notes: list[str] = []
-
-    # Round 2: Gap analysis for 'max' depth
-    if depth == "max":
-        await _report_job_progress(
-            job, "round_2_retrieval", 3, total_steps, "Analyzing gaps and searching additional angles"
-        )
-        rem_r2 = deadline_at - _clock()
-        if rem_r2 - synthesis_reserve < 10.0:
-            r2_notes.append("Round 2 skipped due to deadline budget.")
-        else:
-            r1_items: list[dict[str, Any]] = []
-            r1_domains: set[str] = set()
-            for r in successful_searches:
-                for it in r.get("results", []):
-                    r1_items.append(it)
-                    u = it.get("url") or ""
-                    d = _url_etld1(u)
-                    if d:
-                        r1_domains.add(d)
-
-            r2_timeout = min(25.0, max(5.0, (rem_r2 - synthesis_reserve) / 2))
-            try:
-                r2_messages = build_r2_gap_messages(clean_topic, r1_items, subqueries)
-                r2_res = await _chat_request(
-                    messages=r2_messages,
-                    thinking={"type": "disabled"},
-                    model=REWRITE_MODEL,
-                    temperature=0.0,
-                    max_tokens=1024,
-                    response_format={"type": "json_object"},
-                    timeout=r2_timeout,
-                    deadline=r2_timeout,
-                    attempts=1,
-                )
-                if r2_res.get("ok") and r2_res.get("content"):
-                    dec_cost += r2_res.get("cost_usd", 0.0)
-                    r2_parsed = parse_subqueries(r2_res["content"], clean_topic, max_queries=3)
-                    valid_r2 = validate_r2_queries(r2_parsed, clean_topic, subqueries, r1_domains, lang=lang)
-                    if valid_r2:
-                        rem_r2_search = deadline_at - _clock() - synthesis_reserve
-                        r2_search_timeout = min(20.0, max(5.0, rem_r2_search))
-                        r2_search_coros = [
-                            asyncio.wait_for(
-                                _search(
-                                    r2q,
-                                    max_pages_per_query,
-                                    None,
-                                    "full",
-                                    lang,
-                                    cfg.per_page_char_cap,
-                                    cfg.per_page_char_cap * max_pages_per_query,
-                                    dedupe,
-                                    False,
-                                    refresh=refresh,
-                                    strip_boilerplate=strip_boilerplate,
-                                ),
-                                timeout=r2_search_timeout,
-                            )
-                            for r2q in valid_r2
-                        ]
-                        r2_search_results = await asyncio.gather(*r2_search_coros, return_exceptions=True)
-                        successful_r2 = [r for r in r2_search_results if isinstance(r, dict) and r.get("ok")]
-                        if successful_r2:
-                            for r2q, res_dict in zip(valid_r2, r2_search_results, strict=True):
-                                if isinstance(res_dict, dict) and res_dict.get("ok"):
-                                    subqueries.append(r2q)
-                                    subquery_result_lists.append(res_dict.get("results", []))
-                            cached_count += sum(s.get("cached_count", 0) for s in successful_r2)
-                            requests_used += sum(s.get("requests_used", 0) for s in successful_r2)
-                            search_cost += sum(s.get("cost_usd", 0.0) for s in successful_r2)
-                        else:
-                            r2_notes.append(
-                                "Round 2 search produced no results; proceeding with Round 1 sources."
-                            )
-                    else:
-                        r2_notes.append(
-                            "Round 2 gap query validation failed; proceeding with Round 1 sources."
-                        )
-                else:
-                    r2_notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
-            except Exception as exc:
-                logger.debug("Round 2 gap analysis exception: %s", exc)
-                r2_notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
-
-    # Step 3: Round-robin interleave across subqueries, dedupe, domain cap, top K
-    selected_items, rank_notes = rank_and_diversify_sources(
-        subquery_result_lists,
-        k_sources=cfg.k_sources,
-        denylist=get_settings().source_denylist,
-        sources=sources_pref,
-    )
-    sources = [
-        _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected_items, 1)
-    ]
-
-    # Step 4: Gap-fill stub pages
-    gap_step = 4 if depth == "max" else 3
-    await _report_job_progress(job, "gap_fill", gap_step, total_steps, "Fetching gap pages for top sources")
-    rem4 = deadline_at - _clock()
-    gap_timeout = min(30.0, max(5.0, rem4 - synthesis_reserve))
-    fill = await _fill_gaps(
-        sources,
-        cfg.per_page_char_cap,
-        cfg.total_source_chars,
-        refresh,
-        strip_boilerplate,
-        deadline=gap_timeout,
-        max_pages=cfg.k_sources,
-        internal_batch=True,
-    )
-    requests_used += fill.requests_used
-    cached_count += fill.cached_count
-
-    notes: list[str] = r2_notes + list(rank_notes)
-    if fill.fetched:
-        notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
-    if fill.failed:
-        notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
-
-    # Step 5: Select synthesis context and guard token limits
-    synth_step = 5 if depth == "max" else 4
-    await _report_job_progress(
-        job, "synthesis", synth_step, total_steps, "Synthesizing cited research report"
-    )
-    synthesis_context = select_synthesis_context(sources, depth=depth, sources_pref=sources_pref, notes=notes)
-    synthesis_context, guard_notes = apply_token_guard(synthesis_context)
-    notes.extend(guard_notes)
-    fetch_cost = fill.requests_used * COST_PER_REQUEST
-    if not synthesis_context:
-        total_llm_cost = round(dec_cost, 6)
-        total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
-        return {
-            "ok": True,
-            "status": "done",
-            "topic": clean_topic,
-            "depth": depth,
-            "subqueries": subqueries,
-            "report": None,
-            "synthesized": False,
-            "sources": _format_public_sources(sources, include_snippet=True),
-            "unverified_numbers": [],
-            "unverified_number_count": 0,
-            "partial": True,
-            "requests_used": requests_used,
-            "cached": _all_cached(requests_used, cached_count),
-            "cached_count": cached_count,
-            "cost_usd": total_cost,
-            "cost_breakdown": {
-                "search": round(search_cost, 6),
-                "fetch": round(fetch_cost, 6),
-                "llm": total_llm_cost,
-            },
-            "untrusted_content": True,
-            "derived_from_untrusted": True,
-            "injection_suspected": 0,
-            "notes": notes + ["No readable source content available for synthesis."],
-            "_meta": _envelope_meta(total_cost, untrusted_content=True),
-        }
-
-    # S7: Cost ceiling guard
-    total_source_chars = sum(len(s.get("content") or "") for s in synthesis_context)
-    est_input_tokens = total_source_chars // 2
-    pricing = get_settings().llm_pricing.peak
-    est_synth_cost = (est_input_tokens / 1_000_000) * pricing.cache_miss_per_1m + (
-        cfg.max_tokens / 1_000_000
-    ) * pricing.output_per_1m
-    already_spent = search_cost + fetch_cost + dec_cost
-    est_total_call_cost = already_spent + est_synth_cost
-    ceiling = get_settings().research_cost_ceiling_usd
-    if est_total_call_cost > ceiling:
-        total_llm_cost = round(dec_cost, 6)
-        total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
-        return {
-            "ok": True,
-            "status": "done",
-            "topic": clean_topic,
-            "depth": depth,
-            "subqueries": subqueries,
-            "report": None,
-            "synthesized": False,
-            "sources": _format_public_sources(sources, include_snippet=True),
-            "unverified_numbers": [],
-            "unverified_number_count": 0,
-            "partial": True,
-            "requests_used": requests_used,
-            "cached": _all_cached(requests_used, cached_count),
-            "cached_count": cached_count,
-            "cost_usd": total_cost,
-            "cost_breakdown": {
-                "search": round(search_cost, 6),
-                "fetch": round(fetch_cost, 6),
-                "llm": total_llm_cost,
-            },
-            "untrusted_content": True,
-            "derived_from_untrusted": True,
-            "injection_suspected": 0,
-            "notes": notes
-            + [
-                f"Estimated research cost (${est_total_call_cost:.4f}) exceeds ceiling "
-                f"of ${ceiling:.2f}; returning gathered sources without synthesis."
-            ],
-            "_meta": _envelope_meta(total_cost, untrusted_content=True),
-        }
-
-    # Deadline check before synthesis
-    rem_synth = deadline_at - _clock()
-    if rem_synth < 5.0:
-        total_llm_cost = round(dec_cost, 6)
-        total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
-        return {
-            "ok": True,
-            "status": "done",
-            "topic": clean_topic,
-            "depth": depth,
-            "subqueries": subqueries,
-            "report": None,
-            "synthesized": False,
-            "sources": _format_public_sources(sources, include_snippet=True),
-            "unverified_numbers": [],
-            "unverified_number_count": 0,
-            "partial": True,
-            "requests_used": requests_used,
-            "cached": _all_cached(requests_used, cached_count),
-            "cached_count": cached_count,
-            "cost_usd": total_cost,
-            "cost_breakdown": {
-                "search": round(search_cost, 6),
-                "fetch": round(fetch_cost, 6),
-                "llm": total_llm_cost,
-            },
-            "untrusted_content": True,
-            "derived_from_untrusted": True,
-            "injection_suspected": 0,
-            "notes": notes + ["Synthesis deadline reached; returning gathered sources."],
-            "_meta": _envelope_meta(total_cost, untrusted_content=True),
-        }
-
-    # Step 6: Synthesize cited briefing report with nonce delimiter
-    synth_nonce = uuid.uuid4().hex[:12]
-    synthesis_messages = build_synthesis_messages(
-        clean_topic, synthesis_context, depth=depth, nonce=synth_nonce
-    )
-    synth_timeout = max(10.0, rem_synth - 2.0)
-    synth_kwargs: dict[str, Any] = {
-        "messages": synthesis_messages,
-        "model": REWRITE_MODEL,
-        "max_tokens": cfg.max_tokens,
-        "timeout": synth_timeout,
-        "deadline": synth_timeout,
-        "attempts": 1,
-    }
-    if cfg.thinking:
-        synth_kwargs["thinking"] = {"type": "enabled"}
-        if cfg.reasoning_effort:
-            synth_kwargs["reasoning_effort"] = cfg.reasoning_effort
-    else:
-        synth_kwargs["thinking"] = {"type": "disabled"}
-        synth_kwargs["temperature"] = 0.0
-
-    synth_res = await _chat_request(**synth_kwargs)
-
-    # Retry policy: If finish_reason == "length" or empty content, retry once with thinking OFF
-    needs_retry = (
-        not synth_res.get("ok")
-        or synth_res.get("finish_reason") == "length"
-        or not (synth_res.get("content") or "").strip()
-    )
-    rem_retry = deadline_at - _clock()
-    discarded_attempt_cost = 0.0
-    if needs_retry and rem_retry >= 8.0:
-        notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
-        await _report_job_progress(
-            job,
-            "synthesis",
-            synth_step,
-            total_steps,
-            "Retrying synthesis with thinking disabled",
-            detail="retry",
-        )
-        retry_kwargs = {
-            "messages": synthesis_messages,
-            "thinking": {"type": "disabled"},
-            "temperature": 0.0,
-            "model": REWRITE_MODEL,
-            "max_tokens": min(cfg.max_tokens, 16_384),
-            "timeout": max(5.0, rem_retry - 2.0),
-            "deadline": max(5.0, rem_retry - 2.0),
-            "attempts": 1,
-        }
-        retry_res = await _chat_request(**retry_kwargs)
-        # Every attempt is billed, so the attempt that is not used still counts toward the cost.
-        retry_used = (
-            retry_res.get("ok")
-            and (retry_res.get("content") or "").strip()
-            and retry_res.get("finish_reason") != "length"
-        )
-        if retry_used:
-            discarded_attempt_cost = float(synth_res.get("cost_usd", 0.0) or 0.0)
-            synth_res = retry_res
-        else:
-            discarded_attempt_cost = float(retry_res.get("cost_usd", 0.0) or 0.0)
-
-    synth_cost = synth_res.get("cost_usd", 0.0) if synth_res.get("ok") else 0.0
-    total_llm_cost = round(dec_cost + synth_cost + discarded_attempt_cost, 6)
-    total_cost = round(search_cost + fetch_cost + total_llm_cost, 6)
-
-    if not synth_res.get("ok") or not (synth_res.get("content") or "").strip():
-        return {
-            "ok": True,
-            "status": "done",
-            "topic": clean_topic,
-            "depth": depth,
-            "subqueries": subqueries,
-            "report": None,
-            "synthesized": False,
-            "sources": _format_public_sources(sources, include_snippet=True),
-            "unverified_numbers": [],
-            "unverified_number_count": 0,
-            "partial": True,
-            "requests_used": requests_used + 1,
-            "cached": _all_cached(requests_used + 1, cached_count),
-            "cached_count": cached_count,
-            "cost_usd": total_cost,
-            "cost_breakdown": {
-                "search": round(search_cost, 6),
-                "fetch": round(fetch_cost, 6),
-                "llm": total_llm_cost,
-            },
-            "untrusted_content": True,
-            "derived_from_untrusted": True,
-            "injection_suspected": 0,
-            "notes": notes
-            + [
-                f"Synthesis model call failed: {synth_res.get('error', {}).get('message', 'unknown')}; "
-                "returning gathered sources."
-            ],
-            "_meta": _envelope_meta(total_cost, untrusted_content=True),
-        }
-
-    report_text = synth_res.get("content", "")
-    allowed_urls = {
-        s["url"].strip() for s in synthesis_context if isinstance(s.get("url"), str) and s["url"].strip()
-    }
-    filtered_report, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
-    clean_report = normalize_citations(filtered_report, max_id=len(synthesis_context))
-    if report_body_words(clean_report) > cfg.max_words:
-        await _report_job_progress(
-            job, "synthesis", synth_step, total_steps, "Condensing an over-length report", detail="condense"
-        )
-    clean_report, condense_cost, condense_called, condense_notes = await _condense_report(
-        clean_report,
-        depth=depth,
-        allowed_urls=allowed_urls,
-        max_id=len(synthesis_context),
-        deadline_at=deadline_at,
-    )
-    clean_report, s_notes = sanitize_untrusted_text(clean_report)
-    clean_report, unverified_numbers, unverified_count, unverified_notes = ground_report_numbers(
-        clean_report, synthesis_context, drop=job.unverified == "drop"
-    )
-    notes.extend(filter_notes)
-    notes.extend(condense_notes)
-    notes.extend(s_notes)
-    notes.extend(unverified_notes)
-    if condense_called:
-        requests_used += 1
-    total_llm_cost = round(total_llm_cost + condense_cost, 6)
-    total_cost = round(total_cost + condense_cost, 6)
-
-    _maybe_dump_research_job(
-        job_id=job.job_id,
+    run = _ResearchRun(
+        job=job,
         topic=clean_topic,
         depth=depth,
-        synthesis_context=synthesis_context,
-        raw_model_report=report_text,
-        final_report=clean_report,
-        unverified_numbers=unverified_numbers,
+        sources_pref=sources_pref,
+        lang=lang,
+        refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
+        cfg=cfg,
+        deadline_at=_clock() + cfg.deadline_s,
+        synthesis_reserve=_SYNTHESIS_RESERVE_S.get(depth, 30.0),
+        total_steps=5 if depth == "max" else 4,
     )
 
-    return {
-        "ok": True,
-        "status": "done",
-        "topic": clean_topic,
-        "depth": depth,
-        "subqueries": subqueries,
-        "report": clean_report,
-        "synthesized": True,
-        "sources": _format_public_sources(synthesis_context, include_snippet=False),
-        "unverified_numbers": unverified_numbers,
-        "unverified_number_count": unverified_count,
-        "partial": bool(fill.failed > 0),
-        "requests_used": requests_used + 1,
-        "cached": _all_cached(requests_used + 1, cached_count),
-        "cached_count": cached_count,
-        "cost_usd": total_cost,
-        "cost_breakdown": {
-            "search": round(search_cost, 6),
-            "fetch": round(fetch_cost, 6),
-            "llm": total_llm_cost,
-        },
-        "untrusted_content": True,
-        "derived_from_untrusted": True,
-        "injection_suspected": injection_suspected,
-        "notes": notes,
-        "_meta": _envelope_meta(total_cost, untrusted_content=True),
-    }
+    await _research_decompose(run)
+    failure = await _research_retrieve(run)
+    if failure is not None:
+        return failure
+    if depth == "max":
+        await _research_round_two(run)
+    await _research_rank_and_fill(run)
+
+    synth_step = 5 if depth == "max" else 4
+    await _report_job_progress(
+        job, "synthesis", synth_step, run.total_steps, "Synthesizing cited research report"
+    )
+    context = select_synthesis_context(run.sources, depth=depth, sources_pref=sources_pref, notes=run.notes)
+    context, guard_notes = apply_token_guard(context)
+    run.notes.extend(guard_notes)
+    if not context:
+        return run.unsynthesized("No readable source content available for synthesis.")
+    if (stopped := _research_cost_guard(run, context)) is not None:
+        return stopped
+
+    synth_res, discarded_cost = await _research_synthesize(run, context, synth_step)
+    synth_cost = synth_res.get("cost_usd", 0.0) if synth_res.get("ok") else 0.0
+    llm_cost = run.llm_cost + synth_cost + discarded_cost
+    if not synth_res.get("ok") or not (synth_res.get("content") or "").strip():
+        message = synth_res.get("error", {}).get("message", "unknown")
+        return run.unsynthesized(
+            f"Synthesis model call failed: {message}; returning gathered sources.",
+            requests_used=run.requests_used + 1,
+            llm_cost=llm_cost,
+        )
+    return await _finalize_report(
+        run,
+        context,
+        synth_res.get("content", ""),
+        requests_used=run.requests_used + 1,
+        llm_cost=llm_cost,
+        synth_step=synth_step,
+    )
 
 
 def _validate_extract_spec(fields: list[str] | None, schema: dict[str, Any] | None) -> dict[str, Any] | None:
