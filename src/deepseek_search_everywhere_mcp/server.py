@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import functools
 import hashlib
 import inspect
@@ -47,6 +48,7 @@ from .deep_research import (
     build_decomposition_messages,
     build_r2_gap_messages,
     build_synthesis_messages,
+    build_synthesis_system_prompt,
     citation_ids,
     classify_source_type,
     clean_source_url,
@@ -55,6 +57,7 @@ from .deep_research import (
     ground_report_numbers,
     is_fragment_title,
     normalize_citations,
+    paginate_context,
     parse_subqueries,
     rank_and_diversify_sources,
     report_body_words,
@@ -2705,6 +2708,15 @@ async def deepseek_research(
             )
         ),
     ] = "flag",
+    synthesis: Annotated[
+        Literal["server", "client"],
+        Field(
+            description=(
+                "Who writes the report: 'server' (default) or 'client' (you get ranked sources, "
+                "write it, server verifies it)"
+            )
+        ),
+    ] = "server",
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Execute multi-angle research on a topic and generate a cited briefing report.
@@ -2716,8 +2728,9 @@ async def deepseek_research(
     on depth. Supports source preference (sources="any"|"academic"|"technical"). Depth tiers
     ("low", "medium", "high", "max") scale subquery breadth and source depth. At most 3 research
     jobs run at once; a fourth returns rate_limited_local. Sentences whose numbers are missing from
-    their cited sources are marked [unverified], or removed with unverified="drop". Untrusted source
-    content is sanitized.
+    their cited sources are marked [unverified], or removed with unverified="drop". With
+    synthesis="client" you get the ranked sources in pages and write the report yourself; the
+    server verifies it (see deepseek_check_research). Untrusted source content is sanitized.
 
     When NOT to use: Do not use for simple factual lookups or single queries (use deepseek_search),
     for multiple independent queries (use deepseek_search_many), for reading known URLs (use
@@ -2741,17 +2754,20 @@ async def deepseek_research(
         )
     if unverified not in {"flag", "drop"}:
         return _fail("bad_request", f"unverified must be 'flag' or 'drop', got {unverified!r}.")
+    if synthesis not in {"server", "client"}:
+        return _fail("bad_request", f"synthesis must be 'server' or 'client', got {synthesis!r}.")
 
     settings = get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
     store.prune_expired(_clock())
 
-    existing = store.find_active_match(clean_topic, depth, lang, sources=sources, unverified=unverified)
+    key = {"sources": sources, "unverified": unverified, "synthesis": synthesis}
+    existing = store.find_active_match(clean_topic, depth, lang, **key)
     if existing is None and not refresh:
-        finished = store.find_finished_match(
-            clean_topic, depth, lang, _clock(), sources=sources, unverified=unverified
-        )
+        finished = store.find_finished_match(clean_topic, depth, lang, _clock(), **key)
         if finished is not None and finished.result is not None:
+            if finished.awaiting_report:
+                finished.completed_at = _clock()  # a client still writing its report keeps the job
             return _reuse_finished_result(finished.result)
     if existing is not None and existing.task is not None and not existing.task.done():
         job = existing
@@ -2773,6 +2789,7 @@ async def deepseek_research(
             lang=lang,
             sources=sources,
             unverified=unverified,
+            synthesis=synthesis,
             created_at=_clock(),
             ctx=ctx,
         )
@@ -2819,7 +2836,8 @@ def _finished_job_envelope(job: ResearchJob, delivery: Literal["inline", "polled
         return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
     res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
     if res.get("ok"):
-        res["status"] = "done"
+        if res.get("status") != "awaiting_report":
+            res["status"] = "done"
         res["delivery"] = delivery
         if delivery == "polled":
             res["elapsed_ms"] = _job_elapsed_ms(job)
@@ -2842,7 +2860,8 @@ def _running_job_envelope(job: ResearchJob) -> dict[str, Any]:
 def _reuse_finished_result(stored: dict[str, Any]) -> dict[str, Any]:
     """Copy a stored finished research result, marked as served from the job store at zero cost."""
     res = copy.deepcopy(stored)
-    res["status"] = "done"
+    if res.get("status") != "awaiting_report":
+        res["status"] = "done"
     res["delivery"] = "inline"
     res["cached"] = True
     res["cost_usd"] = 0
@@ -2862,6 +2881,16 @@ async def deepseek_check_research(
         Field(description="Unique UUID identifier of the research job to poll (from deepseek_research)"),
     ],
     *,
+    page: Annotated[
+        int,
+        Field(description="Page of sources to read for a synthesis='client' job (default 1)"),
+    ] = 1,
+    report: Annotated[
+        str | None,
+        Field(
+            description="Report with [id] citations to verify (synthesis='client' jobs only, default None)"
+        ),
+    ] = None,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Poll a long-running research job until completion or timeout.
@@ -2869,12 +2898,13 @@ async def deepseek_check_research(
     Long-polls an active background research task up to the inline wait limit (45s). Free ($0.00)
     read-only polling; completed results are cached for 30 minutes at no cost. Returns the
     completed synthesis report when done, updated progress while running, or a job_not_found
-    error if expired or missing.
+    error if expired or missing. For synthesis="client" jobs, page= reads more sources and
+    report= submits your report for verification.
 
     When NOT to use: Do not use to start a new research investigation (use deepseek_research).
     Do not restart research when status is running; continue polling with this tool.
 
-    Returns: {"ok": True, "status": "done"|"running", "job_id": str, ...}.
+    Returns: {"ok": True, "status": "done"|"running"|"awaiting_report", "job_id": str, ...}.
     """
     clean_id = job_id.strip() if isinstance(job_id, str) else ""
     if not clean_id:
@@ -2890,12 +2920,17 @@ async def deepseek_check_research(
             "job_not_found",
             "Research job not found or expired. Restart the research with deepseek_research.",
         )
+    if report is not None:
+        return await _verify_client_report(job, report)
+    if job.awaiting_report:
+        job.completed_at = _clock()  # a client still writing its report keeps the job
+        return _client_page(job, page)
     if ctx is not None:
         job.ctx = ctx
 
     try:
         if job.task is not None and job.task.done():
-            return _finished_job_envelope(job, "polled")
+            return _with_page_note(_finished_job_envelope(job, "polled"), page)
 
         inline_wait = settings.research_inline_wait
         assert job.task is not None
@@ -2905,11 +2940,23 @@ async def deepseek_check_research(
             raise
 
         if job.task in done:
-            return _finished_job_envelope(job, "polled")
+            if job.awaiting_report:
+                return _client_page(job, page)
+            return _with_page_note(_finished_job_envelope(job, "polled"), page)
 
         return _running_job_envelope(job)
     finally:
         job.ctx = None
+
+
+def _with_page_note(envelope: dict[str, Any], page: int) -> dict[str, Any]:
+    """Note that ``page`` was ignored on a job that has no client-synthesis pages."""
+    if page != 1 and envelope.get("ok"):
+        envelope["notes"] = [
+            *envelope.get("notes", []),
+            "page applies only to synthesis='client' jobs; ignored.",
+        ]
+    return envelope
 
 
 def _progress_view(job: ResearchJob) -> dict[str, Any]:
@@ -3410,27 +3457,40 @@ async def _finalize_report(
     requests_used: int,
     llm_cost: float,
     synth_step: int,
+    condense: bool = True,
 ) -> dict[str, Any]:
-    """Filter, normalize, condense, sanitize and ground a written report, then build the envelope."""
+    """Filter, normalize, condense, sanitize and ground a written report, then build the envelope.
+
+    Without ``condense`` (a report the client wrote) an over-length report is only noted, never
+    rewritten.
+    """
     allowed_urls = {s["url"].strip() for s in context if isinstance(s.get("url"), str) and s["url"].strip()}
     filtered, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
     report = normalize_citations(filtered, max_id=len(context))
-    if report_body_words(report) > run.cfg.max_words:
-        await _report_job_progress(
-            run.job,
-            "synthesis",
-            synth_step,
-            run.total_steps,
-            "Condensing an over-length report",
-            detail="condense",
+    words = report_body_words(report)
+    condense_cost, condense_called, condense_notes = 0.0, False, []
+    if condense:
+        if words > run.cfg.max_words:
+            await _report_job_progress(
+                run.job,
+                "synthesis",
+                synth_step,
+                run.total_steps,
+                "Condensing an over-length report",
+                detail="condense",
+            )
+        report, condense_cost, condense_called, condense_notes = await _condense_report(
+            report,
+            depth=run.depth,
+            allowed_urls=allowed_urls,
+            max_id=len(context),
+            deadline_at=run.deadline_at,
         )
-    report, condense_cost, condense_called, condense_notes = await _condense_report(
-        report,
-        depth=run.depth,
-        allowed_urls=allowed_urls,
-        max_id=len(context),
-        deadline_at=run.deadline_at,
-    )
+    elif words > run.cfg.max_words:
+        condense_notes = [
+            f"Report has {words} words, over the {run.cfg.max_words}-word ceiling for depth "
+            f"{run.depth!r}; it was kept as written."
+        ]
     report, sanitize_notes = sanitize_untrusted_text(report)
     report, unverified_numbers, unverified_count, unverified_notes = ground_report_numbers(
         report, context, drop=run.job.unverified == "drop"
@@ -3464,6 +3524,120 @@ async def _finalize_report(
     )
 
 
+# Longest report a client may submit for verification.
+MAX_CLIENT_REPORT_CHARS = 60_000
+
+
+def _awaiting_report_envelope(job: ResearchJob, page: int) -> dict[str, Any]:
+    """Return one page of a client-synthesis job's sources (``status: "awaiting_report"``).
+
+    Page 1 carries the synthesis instructions and the cost of gathering the sources; later pages
+    cost nothing. ``next_action`` points to the next page, then to submitting the report.
+    """
+    run: _ResearchRun = job.client_run
+    entries, pages = paginate_context(job.synthesis_context or [], page)
+    if page < pages:
+        next_action = (
+            f"Read page {page + 1} of {pages} with deepseek_check_research(job_id, page={page + 1}), then "
+            "write the report following synthesis_instructions and send it with "
+            "deepseek_check_research(job_id, report=...)."
+        )
+    else:
+        next_action = (
+            "Write the report following synthesis_instructions (cite sources as [id]) and send it with "
+            "deepseek_check_research(job_id, report=...); the server verifies citations and numbers."
+        )
+    first = page == 1
+    requests_used = run.requests_used if first else 0
+    llm_cost = round(run.llm_cost, 6) if first else 0.0
+    search_cost = run.search_cost if first else 0.0
+    fetch_cost = run.fetch_cost if first else 0.0
+    total_cost = round(search_cost + fetch_cost + llm_cost, 6)
+    envelope: dict[str, Any] = {
+        "ok": True,
+        "status": "awaiting_report",
+        "job_id": job.job_id,
+        "topic": run.topic,
+        "depth": run.depth,
+        "subqueries": run.subqueries,
+    }
+    if first:
+        envelope["synthesis_instructions"] = build_synthesis_system_prompt(run.depth, client=True)
+    envelope.update(
+        {
+            "context_page": page,
+            "context_pages": pages,
+            "context": entries,
+            "next_action": next_action,
+            "requests_used": requests_used,
+            "cached": _all_cached(requests_used, run.cached_count) if first else True,
+            "cached_count": run.cached_count if first else 0,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(search_cost, 6),
+                "fetch": round(fetch_cost, 6),
+                "llm": llm_cost,
+            },
+            "untrusted_content": True,
+            "notes": list(run.notes),
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
+        }
+    )
+    return envelope
+
+
+def _client_page(job: ResearchJob, page: int) -> dict[str, Any]:
+    """Return ``page`` of an awaiting client-synthesis job, or ``bad_request`` when it does not exist."""
+    _, pages = paginate_context(job.synthesis_context or [], page)
+    if not 1 <= page <= pages:
+        return _fail("bad_request", f"page must be between 1 and {pages} for this job.")
+    if page == 1:
+        return _finished_job_envelope(job, "polled")
+    return _awaiting_report_envelope(job, page)
+
+
+async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]:
+    """Verify a report written by the client for an awaiting job and store it as the job's result.
+
+    The report goes through the same output filter, citation normalization, sanitizer and number
+    grounding as a server report, but is never condensed. It may be sent again; the latest one wins.
+    """
+    if job.synthesis != "client":
+        return _fail(
+            "bad_request",
+            "This job was synthesized by the server; report= applies only to synthesis='client' jobs.",
+        )
+    if job.task is None or not job.task.done():
+        return _fail(
+            "bad_request",
+            "The sources are not ready yet. Poll with deepseek_check_research(job_id) until status is "
+            "awaiting_report, then send the report.",
+        )
+    if job.synthesis_context is None or job.client_run is None:
+        return _fail("bad_request", "This job has no sources to verify a report against.")
+    text = report.strip() if isinstance(report, str) else ""
+    if not text:
+        return _fail("bad_request", "report must not be empty.")
+    if len(text) > MAX_CLIENT_REPORT_CHARS:
+        return _fail("bad_request", f"report must be at most {MAX_CLIENT_REPORT_CHARS} characters.")
+
+    base: _ResearchRun = job.client_run
+    run = dataclasses.replace(base, notes=list(base.notes))  # each submission starts from the same notes
+    result = await _finalize_report(
+        run,
+        job.synthesis_context,
+        text,
+        requests_used=run.requests_used,
+        llm_cost=run.llm_cost,
+        synth_step=run.total_steps,
+        condense=False,
+    )
+    result["delivery"] = "client"
+    job.result = result
+    job.completed_at = _clock()
+    return dict(result)
+
+
 async def _execute_research_pipeline(
     *,
     job: ResearchJob,
@@ -3477,6 +3651,7 @@ async def _execute_research_pipeline(
     """Run one research job: decompose, search (plus round 2 at depth max), rank, fill gaps, select the
     synthesis context, write the report and verify it."""
     cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
+    client = job.synthesis == "client"
     run = _ResearchRun(
         job=job,
         topic=clean_topic,
@@ -3487,7 +3662,7 @@ async def _execute_research_pipeline(
         strip_boilerplate=strip_boilerplate,
         cfg=cfg,
         deadline_at=_clock() + cfg.deadline_s,
-        synthesis_reserve=_SYNTHESIS_RESERVE_S.get(depth, 30.0),
+        synthesis_reserve=0.0 if client else _SYNTHESIS_RESERVE_S.get(depth, 30.0),
         total_steps=5 if depth == "max" else 4,
     )
 
@@ -3500,14 +3675,23 @@ async def _execute_research_pipeline(
     await _research_rank_and_fill(run)
 
     synth_step = 5 if depth == "max" else 4
-    await _report_job_progress(
-        job, "synthesis", synth_step, run.total_steps, "Synthesizing cited research report"
-    )
+    if client:
+        await _report_job_progress(
+            job, "context", synth_step, run.total_steps, "Preparing sources for client synthesis"
+        )
+    else:
+        await _report_job_progress(
+            job, "synthesis", synth_step, run.total_steps, "Synthesizing cited research report"
+        )
     context = select_synthesis_context(run.sources, depth=depth, sources_pref=sources_pref, notes=run.notes)
     context, guard_notes = apply_token_guard(context)
     run.notes.extend(guard_notes)
     if not context:
         return run.unsynthesized("No readable source content available for synthesis.")
+    if client:
+        job.synthesis_context = context
+        job.client_run = run
+        return _awaiting_report_envelope(job, 1)
     if (stopped := _research_cost_guard(run, context)) is not None:
         return stopped
 
