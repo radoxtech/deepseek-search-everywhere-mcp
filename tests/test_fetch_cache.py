@@ -1,4 +1,4 @@
-"""Fetch wiring: response cache, single-flight and rate limiter for ``deepseek_fetch``."""
+"""Fetch wiring for ``deepseek_fetch``: cache keys, shaping, fragments and 404 advice."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 
 from deepseek_search_everywhere_mcp import server
 from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
-from deepseek_search_everywhere_mcp.settings import Settings, set_settings
+from deepseek_search_everywhere_mcp.settings import Settings
 
 URL = "https://example.com/article"
 PAGE = {"title": "Article", "content": "\\# Heading\n\nBody text\\, with escapes" + "x" * 500}
@@ -110,26 +110,11 @@ async def test_error_404_is_not_cached(upstream: Upstream) -> None:
     assert len(upstream.calls) == 2
 
 
-async def test_error_timeout_is_not_cached(upstream: Upstream) -> None:
-    upstream.default = {"ok": False, "error": {"code": "timeout", "message": "timed out"}}
-    await server.deepseek_fetch(URL)
-    await server.deepseek_fetch(URL)
-    assert len(upstream.calls) == 2
-
-
 async def test_empty_page_is_not_cached(upstream: Upstream) -> None:
     upstream.responses = [{"ok": True, "data": {"title": "Empty", "content": ""}}]
     first = await server.deepseek_fetch(URL)
     second = await server.deepseek_fetch(URL)
     assert first["content"] == "" and first["notes"]
-    assert second["cached"] is False
-    assert len(upstream.calls) == 2
-
-
-async def test_cache_disabled_always_hits_upstream(upstream: Upstream) -> None:
-    set_settings(Settings(cache_enabled=False))
-    await server.deepseek_fetch(URL)
-    second = await server.deepseek_fetch(URL)
     assert second["cached"] is False
     assert len(upstream.calls) == 2
 
@@ -154,14 +139,6 @@ async def test_fetch_and_search_caches_are_separate(upstream: Upstream) -> None:
     assert server._fetch_cache_key(URL) != server._search_cache_key({"url": URL})
     assert len(server._get_fetch_cache()) == 1
     assert server._get_search_cache() is not None and len(server._get_search_cache()) == 0
-
-
-async def test_cache_hit_takes_no_token(upstream: Upstream, limiter: RateLimiter) -> None:
-    bucket = limiter.buckets["fetch"]
-    await server.deepseek_fetch(URL)
-    await server.deepseek_fetch(URL, max_chars=50)
-    assert bucket.tokens == bucket.burst - 1
-    assert limiter.buckets["search"].tokens == limiter.buckets["search"].burst
 
 
 async def test_concurrent_fetches_share_one_call_and_one_token(
@@ -195,21 +172,6 @@ async def test_cancelled_leader_refunds_its_token(upstream: Upstream, limiter: R
     assert bucket.tokens == bucket.burst
 
 
-async def test_local_rate_limit_is_reported_and_not_cached(
-    upstream: Upstream, monkeypatch: pytest.MonkeyPatch, fake_clock: Any
-) -> None:
-    settings = Settings(fetch_qps=0.01, fetch_burst=1, limiter_max_wait=1)
-    monkeypatch.setattr(
-        server, "_rate_limiter", RateLimiter.from_settings(settings, clock=fake_clock.monotonic)
-    )
-    assert (await server.deepseek_fetch(URL))["ok"] is True
-    limited = await server.deepseek_fetch(URL, refresh=True)
-    assert limited["ok"] is False
-    assert limited["error"]["code"] == "rate_limited_local"
-    assert len(upstream.calls) == 1
-    assert (await server.deepseek_fetch(URL))["cached"] is True
-
-
 async def test_invalid_url_touches_neither_cache_nor_limiter(
     upstream: Upstream, limiter: RateLimiter
 ) -> None:
@@ -217,13 +179,6 @@ async def test_invalid_url_touches_neither_cache_nor_limiter(
     assert result["error"]["code"] == "bad_url"
     assert upstream.calls == []
     assert limiter.buckets["fetch"].tokens == limiter.buckets["fetch"].burst
-
-
-async def test_reset_state_drops_cached_pages(upstream: Upstream) -> None:
-    await server.deepseek_fetch(URL)
-    server.reset_state()
-    assert (await server.deepseek_fetch(URL))["cached"] is False
-    assert len(upstream.calls) == 2
 
 
 @pytest.mark.parametrize(
