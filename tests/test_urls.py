@@ -150,3 +150,15 @@ def test_error_carries_code_and_message(url, code):
     assert exc.value.code == code
     assert exc.value.message
     assert str(exc.value) == exc.value.message
+
+
+def test_url_etld1_extraction() -> None:
+    from deepseek_search_everywhere_mcp.urls import _url_etld1
+
+    assert _url_etld1("https://sub.example.com/page") == "example.com"
+    assert _url_etld1("https://news.bbc.co.uk/articles/123") == "bbc.co.uk"
+    assert _url_etld1("https://sub.portal.gov.pl/test") == "portal.gov.pl"
+    assert _url_etld1("https://deep.sub.python.org.au/docs") == "python.org.au"
+    assert _url_etld1("http://127.0.0.1:8080/foo") == "127.0.0.1"
+    assert _url_etld1("http://localhost:5000") == "localhost"
+    assert _url_etld1("https://example.com") == "example.com"
