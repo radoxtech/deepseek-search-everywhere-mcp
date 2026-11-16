@@ -2318,13 +2318,15 @@ def _batch_deadline_error(deadline: float | None) -> dict[str, Any]:
 
 
 def _batch_envelope(
+    index: int,
     rejection: dict[str, Any] | None,
-    task: asyncio.Task[dict[str, Any]] | None,
+    tasks: dict[int, asyncio.Task[dict[str, Any]]],
     deadline_error: dict[str, Any],
 ) -> dict[str, Any]:
     """Return a batch item's fetch envelope: its rejection, the deadline error or the task result."""
-    if rejection is not None or task is None:
-        return rejection or deadline_error
+    if rejection is not None:
+        return rejection
+    task = tasks[index]  # every accepted item has a task
     return deadline_error if task.cancelled() else task.result()
 
 
@@ -2381,7 +2383,7 @@ def _batch_results(
     trimmed = False
     requests_used = 0
     for index, (url, rejection) in enumerate(items):
-        envelope = _batch_envelope(rejection, tasks.get(index), deadline_error)
+        envelope = _batch_envelope(index, rejection, tasks, deadline_error)
         item = _batch_item(url, envelope)
         if item["ok"]:
             trimmed = trimmed or envelope["truncated"]
@@ -4098,7 +4100,7 @@ async def deepseek_extract_many(
 
     requests_used = 0
     for index, (url, rejection) in enumerate(items):
-        fetch_envelopes[index] = _batch_envelope(rejection, fetch_tasks.get(index), deadline_error)
+        fetch_envelopes[index] = _batch_envelope(index, rejection, fetch_tasks, deadline_error)
 
         env = fetch_envelopes[index]
         if env.get("ok"):

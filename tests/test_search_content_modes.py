@@ -162,3 +162,19 @@ def test_search_many_snippets_are_lean(fake_upstream: Any) -> None:
             assert item["snippet"] == "Snippet for many"
             assert "summary" not in item
             assert "need_content" not in item
+
+
+def test_search_gap_fill_never_fetches_a_blocked_url(fake_upstream: Any) -> None:
+    results = [
+        {"title": "Internal", "url": "http://127.0.0.1/admin", "content": "stub"},
+        {"title": "Public", "url": "https://example.com/a", "content": "stub"},
+        {"title": "Public again", "url": "https://example.com/a#section", "content": "stub"},
+    ]
+    page = {"ok": True, "data": {"title": "Page", "content": "Full page text " * 30}}
+    upstream = fake_upstream(
+        responses={server.SEARCH_PATH: {"ok": True, "data": {"results": results}}, server.FETCH_PATH: page}
+    )
+    res = asyncio.run(server.deepseek_search("q", count=3, content="full", refresh=True))
+    fetched = [c["payload"]["url"] for c in upstream.calls if c["path"] == server.FETCH_PATH]
+    assert fetched == ["https://example.com/a"]
+    assert res["ok"] is True
