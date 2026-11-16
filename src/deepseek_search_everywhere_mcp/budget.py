@@ -264,17 +264,31 @@ class DailyBudgetTracker:
                 )
                 self._disk_warning_logged = True
 
+    def _roll_over_locked(self) -> bool:
+        """Start a new budget day when the UTC date changed; return whether it did."""
+        today = _utc_today()
+        if self._date == today:
+            return False
+        self._date = today
+        self._spent_micros = 0
+        self._reserved_micros = 0
+        self._reservations = {}
+        self._requests = 0
+        return True
+
+    def _drop_reservation_locked(self, res_id: str) -> None:
+        """Forget reservation ``res_id`` and recompute the reserved total from the rest."""
+        self._reservations.pop(res_id, None)
+        self._reserved_micros = sum(
+            int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
+            for r in self._reservations.values()
+        )
+
     def _sync_reserve(self, amount: float) -> tuple[str, int] | None:
         amount_micros = to_micros(amount)
         with _file_lock(self.lock_path):
             self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
+            if self._roll_over_locked():
                 self._save_locked()
 
             if (self._spent_micros + self._reserved_micros + amount_micros) > self.limit_micros:
@@ -306,19 +320,8 @@ class DailyBudgetTracker:
     def _sync_commit_reservation(self, res_id: str, reserved_micros: int, actual_micros: int) -> None:
         with _file_lock(self.lock_path):
             self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
-
-            self._reservations.pop(res_id, None)
-            self._reserved_micros = sum(
-                int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
-                for r in self._reservations.values()
-            )
+            self._roll_over_locked()
+            self._drop_reservation_locked(res_id)
             self._spent_micros += actual_micros
             self._requests += 1
             self._save_locked()
@@ -331,19 +334,8 @@ class DailyBudgetTracker:
     def _sync_release_reservation(self, res_id: str, reserved_micros: int) -> None:
         with _file_lock(self.lock_path):
             self._load_locked()
-            today = _utc_today()
-            if self._date != today:
-                self._date = today
-                self._spent_micros = 0
-                self._reserved_micros = 0
-                self._reservations = {}
-                self._requests = 0
-
-            self._reservations.pop(res_id, None)
-            self._reserved_micros = sum(
-                int(r.get("amount_micros", to_micros(float(r.get("amount", 0.0)))))
-                for r in self._reservations.values()
-            )
+            self._roll_over_locked()
+            self._drop_reservation_locked(res_id)
             self._save_locked()
 
     async def _release_reservation(self, res_id: str, reserved_micros: int) -> None:
