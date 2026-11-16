@@ -5,8 +5,9 @@
 `deepseek-search-everywhere-mcp` is a Python MCP server exposing 9 tools over the DeepSeek Search & Fetch API
 (stdio by default, optional bearer-protected HTTP): `deepseek_search`, `deepseek_search_many`, `deepseek_fetch`,
 `deepseek_fetch_many`, `deepseek_extract`, `deepseek_extract_many`, `deepseek_research` (cited multi-source
-reports in four depth tiers, run as background jobs), `deepseek_check_research` (collects a running research
-job) and `deepseek_check_balance`.
+reports in four depth tiers, run as background jobs; with `synthesis="client"` the agent writes the report),
+`deepseek_check_research` (collects a running research job, pages client-synthesis sources and verifies a
+client's report) and `deepseek_check_balance`.
 
 ## Setup
 
@@ -31,9 +32,11 @@ scripts/smoke_docker.sh                     # build, verify non-root UID and tes
 
 ## Code layout (`src/deepseek_search_everywhere_mcp/`)
 
-- `server.py`: FastMCP server; the 9 tool definitions, result shaping, research job orchestration, chat gateway.
+- `server.py`: FastMCP server; the 9 tool definitions, result shaping, research job orchestration
+  (`_ResearchRun` and one function per pipeline phase, `_finalize_report` shared by server and client
+  synthesis), chat gateway.
 - `deep_research.py`: `DEPTH_CONFIG` tiers, research job store, decomposition and synthesis prompts, citation
-  normalization, source ranking and the synthesis output filter.
+  normalization, source ranking, client-synthesis context paging and the synthesis output filter.
 - `extract.py`: extraction prompts, JSON handling and evidence verification.
 - `snippets.py`: lexical snippet and section extraction for `query` and `section` selectors in fetch tools.
 - `filters.py`: search filter compilation and `fit_query` (128-character query budget).
