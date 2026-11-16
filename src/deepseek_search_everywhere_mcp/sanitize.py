@@ -113,29 +113,6 @@ def strip_hidden_unicode(text: str) -> tuple[str, int]:
     return "".join(out), stripped
 
 
-def strip_hidden_unicode_structure(data: Any) -> tuple[Any, int]:
-    """Recursively strip hidden unicode from strings in nested dicts or lists.
-
-    Returns ``(cleaned_data, stripped_count)``.
-    """
-    stripped_count = 0
-
-    def _walk(item: Any) -> Any:
-        nonlocal stripped_count
-        if isinstance(item, str):
-            c, n = strip_hidden_unicode(item)
-            stripped_count += n
-            return c
-        if isinstance(item, dict):
-            return {_walk(k): _walk(v) for k, v in item.items()}
-        if isinstance(item, list):
-            return [_walk(v) for v in item]
-        return item
-
-    cleaned = _walk(data)
-    return cleaned, stripped_count
-
-
 def neutralize_markdown_images(text: str) -> tuple[str, int]:
     """Replace Markdown images `![alt](url)` with safe text `[image: alt](url)` or `[image](url)`.
 

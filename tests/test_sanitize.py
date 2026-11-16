@@ -9,7 +9,6 @@ from deepseek_search_everywhere_mcp.sanitize import (
     sanitize_markdown_links,
     sanitize_untrusted_text,
     strip_hidden_unicode,
-    strip_hidden_unicode_structure,
 )
 
 FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures" / "injection"
@@ -60,19 +59,6 @@ def test_strip_bidi_override_controls() -> None:
     }
     assert not any(c in bidi_chars for c in cleaned)
     assert "reporttxt.exe" in cleaned
-
-
-def test_strip_hidden_unicode_structure() -> None:
-    data = {
-        "title": "Clean Title\u200b",
-        "nested": [{"comment": "Tag\U000e0001Char"}],
-        "number": 42,
-    }
-    cleaned, count = strip_hidden_unicode_structure(data)
-    assert count == 2
-    assert cleaned["title"] == "Clean Title"
-    assert cleaned["nested"][0]["comment"] == "TagChar"
-    assert cleaned["number"] == 42
 
 
 def test_neutralize_markdown_images() -> None:

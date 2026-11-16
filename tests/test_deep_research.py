@@ -12,7 +12,6 @@ from deepseek_search_everywhere_mcp.deep_research import (
     build_synthesis_system_prompt,
     parse_subqueries,
     report_body_words,
-    sanitize_citations,
     select_synthesis_context,
 )
 
@@ -63,9 +62,9 @@ def test_build_synthesis_messages():
     assert "[1] Paper (https://a.test)" in messages[1]["content"]
 
 
-def test_sanitize_citations_removes_hallucinated():
+def test_normalize_citations_removes_hallucinated():
     text = "According to [1] and [2], quantum computing scales well. However, [99] claimed otherwise."
-    cleaned = sanitize_citations(text, max_id=2)
+    cleaned = deep_research.normalize_citations(text, max_id=2)
     assert "[1]" in cleaned
     assert "[2]" in cleaned
     assert "[99]" not in cleaned

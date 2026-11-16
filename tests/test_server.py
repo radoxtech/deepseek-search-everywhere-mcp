@@ -5,22 +5,23 @@ import logging
 import pytest
 
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.filters import fit_query
 
 
 def test_lang_prefix_added():
-    used, trimmed = server._with_lang("prokrastynacja", "pl")
+    used, trimmed = fit_query("prokrastynacja", lang="pl")
     assert used == "lang:pl prokrastynacja"
     assert trimmed is False
 
 
 def test_lang_not_duplicated():
-    used, _ = server._with_lang("lang:en habit formation", "pl")
+    used, _ = fit_query("lang:en habit formation", lang="pl")
     assert used == "lang:en habit formation"
 
 
 def test_lang_prefix_trims_long_query():
     query = "a" * 128
-    used, trimmed = server._with_lang(query, "pl")
+    used, trimmed = fit_query(query, lang="pl")
     assert trimmed is True
     assert len(used) == server.MAX_QUERY
     assert used.startswith("lang:pl ")

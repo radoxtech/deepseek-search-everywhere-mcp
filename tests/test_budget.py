@@ -21,16 +21,30 @@ def _fetch_response() -> dict[str, Any]:
     return {"ok": True, "data": {"title": "Title", "content": "Content"}}
 
 
+async def _spend(tracker: DailyBudgetTracker, cost: float) -> None:
+    """Reserve and commit ``cost``, the way every billed upstream call is recorded."""
+    reservation = await tracker.reserve(cost)
+    assert reservation is not None
+    await reservation.commit(cost)
+
+
+async def _fits(tracker: DailyBudgetTracker, cost: float) -> bool:
+    """Return whether ``cost`` could be reserved now, leaving the budget unchanged."""
+    reservation = await tracker.reserve(cost)
+    if reservation is None:
+        return False
+    await reservation.release()
+    return True
+
+
 def test_budget_tracker_records_spend(tmp_path):
     state_file = tmp_path / "budget.json"
     tracker = DailyBudgetTracker(limit_usd=0.01, state_path=state_file)
 
-    allowed, spent, limit = asyncio.run(tracker.check_budget(0.00075))
-    assert allowed is True
-    assert spent == 0.0
-    assert limit == 0.01
+    assert asyncio.run(_fits(tracker, 0.00075)) is True
+    assert asyncio.run(tracker.get_status())["spent_usd"] == 0.0
 
-    asyncio.run(tracker.record_spend(0.00075))
+    asyncio.run(_spend(tracker, 0.00075))
 
     status = asyncio.run(tracker.get_status())
     assert status["spent_usd"] == 0.00075
@@ -49,15 +63,14 @@ def test_budget_tracker_enforces_limit(tmp_path):
     # Budget of $0.001 allows only 1 request at $0.00075 (second would be $0.0015 > $0.001)
     tracker = DailyBudgetTracker(limit_usd=0.001, state_path=state_file)
 
-    allowed, _, _ = asyncio.run(tracker.check_budget(0.00075))
-    assert allowed is True
-    asyncio.run(tracker.record_spend(0.00075))
+    assert asyncio.run(_fits(tracker, 0.00075)) is True
+    asyncio.run(_spend(tracker, 0.00075))
 
-    # Second check should be rejected
-    allowed, spent, limit = asyncio.run(tracker.check_budget(0.00075))
-    assert allowed is False
-    assert spent == 0.00075
-    assert limit == 0.001
+    # Second reservation should be rejected
+    assert asyncio.run(_fits(tracker, 0.00075)) is False
+    status = asyncio.run(tracker.get_status())
+    assert status["spent_usd"] == 0.00075
+    assert status["limit_usd"] == 0.001
 
 
 def test_budget_tracker_date_rollover(tmp_path):
@@ -68,9 +81,8 @@ def test_budget_tracker_date_rollover(tmp_path):
     )
 
     tracker = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
-    allowed, spent, _ = asyncio.run(tracker.check_budget(0.00075))
-    assert allowed is True
-    assert spent == 0.0  # Rolled over to today, so spent is 0
+    assert asyncio.run(_fits(tracker, 0.00075)) is True
+    assert asyncio.run(tracker.get_status())["spent_usd"] == 0.0  # Rolled over to today
 
 
 def test_budget_tracker_handles_corrupt_file(tmp_path):
@@ -78,9 +90,8 @@ def test_budget_tracker_handles_corrupt_file(tmp_path):
     state_file.write_text("not json content", encoding="utf-8")
 
     tracker = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
-    allowed, spent, _ = asyncio.run(tracker.check_budget(0.00075))
-    assert allowed is True
-    assert spent == 0.0
+    assert asyncio.run(_fits(tracker, 0.00075)) is True
+    assert asyncio.run(tracker.get_status())["spent_usd"] == 0.0
 
 
 def test_budget_tracker_handles_write_failure(tmp_path, caplog):
@@ -91,7 +102,7 @@ def test_budget_tracker_handles_write_failure(tmp_path, caplog):
     tracker = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
 
     with caplog.at_level(logging.WARNING):
-        asyncio.run(tracker.record_spend(0.00075))
+        asyncio.run(_spend(tracker, 0.00075))
 
     # State still tracked in-memory
     status = asyncio.run(tracker.get_status())
@@ -209,7 +220,7 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
     server.reset_state()
     server._budget_tracker = tracker
 
-    # Mock responses with a small delay to induce concurrency race in check_budget
+    # Mock responses with a small delay to induce a concurrency race in reserve
     async def delayed_handler(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         await asyncio.sleep(0.01)
         if path == server.SEARCH_PATH:

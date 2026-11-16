@@ -108,7 +108,6 @@ SEARCH_TIMEOUT = 45.0
 FETCH_TIMEOUT = 60.0
 BALANCE_TIMEOUT = 20.0
 CHAT_TIMEOUT = 8.0
-EXTRACT_TIMEOUT = 20.0
 
 SEARCH_PATH = "/v1/tools/search"
 FETCH_PATH = "/v1/tools/fetch"
@@ -194,13 +193,11 @@ SERVER_NAME = "deepseek-search-everywhere-mcp"
 
 @dataclass
 class SessionMetrics:
-    """In-memory telemetry for requests, cache hits, and estimated costs in the current session."""
+    """In-memory request and cache-hit counts for the current session."""
 
     start_time: float
     requests_upstream: int = 0
     cache_hits: int = 0
-    searches_upstream: int = 0
-    fetches_upstream: int = 0
 
 
 # Runtime state, built lazily from the active settings on first use so nothing is bound
@@ -318,22 +315,6 @@ def _get_rate_limiter() -> RateLimiter:
     return _rate_limiter
 
 
-def _clear_caches() -> dict[str, int]:
-    """Purge in-memory response caches (search, fetch, rewrite) and return evicted counts."""
-    cleared = {
-        "search_entries": len(_search_cache) if _search_cache is not None else 0,
-        "fetch_entries": len(_fetch_cache) if _fetch_cache is not None else 0,
-        "rewrite_entries": len(_rewrite_cache) if _rewrite_cache is not None else 0,
-    }
-    if _search_cache is not None:
-        _search_cache.clear()
-    if _fetch_cache is not None:
-        _fetch_cache.clear()
-    if _rewrite_cache is not None:
-        _rewrite_cache.clear()
-    return cleared
-
-
 def _get_cache_stats() -> dict[str, Any]:
     """Return current occupancy and capacity stats across active caches."""
     return {
@@ -385,10 +366,6 @@ async def _limited_request(
     try:
         metrics = _get_session_metrics()
         metrics.requests_upstream += 1
-        if endpoint == SEARCH:
-            metrics.searches_upstream += 1
-        elif endpoint == FETCH:
-            metrics.fetches_upstream += 1
         return await _request("POST", path, payload=payload, timeout=timeout, deadline=deadline)
     except asyncio.CancelledError:
         ticket.refund()
@@ -795,10 +772,6 @@ def _clean_index_text(text: str) -> str:
     cleaned = _strip_html_tags(_decode_json_escapes(text))
     cleaned, _ = sanitize_untrusted_text(cleaned)
     return cleaned
-
-
-def _with_lang(query: str, lang: str | None) -> tuple[str, bool]:
-    return fit_query(query, lang=lang)
 
 
 async def _rewrite_query(query: str) -> str | None:
@@ -1371,9 +1344,6 @@ async def _search(
         ),
         "_meta": _envelope_meta(cost, untrusted_content=True),
     }
-    if query_original is not None:
-        envelope["query_original"] = query_original
-    return envelope
     if query_original is not None:
         envelope["query_original"] = query_original
     return envelope
@@ -4058,8 +4028,8 @@ async def deepseek_check_balance() -> dict[str, Any]:
     uptime = round(_clock() - metrics.start_time, 1)
     total_handled = metrics.requests_upstream + metrics.cache_hits
     hit_rate = round(metrics.cache_hits / total_handled, 3) if total_handled > 0 else 0.0
-    cost_usd = round(metrics.requests_upstream * 0.00075, 5)
-    savings_usd = round(metrics.cache_hits * 0.00075, 5)
+    cost_usd = round(metrics.requests_upstream * COST_PER_REQUEST, 5)
+    savings_usd = round(metrics.cache_hits * COST_PER_REQUEST, 5)
 
     session_data: dict[str, Any] = {
         "uptime_seconds": uptime,

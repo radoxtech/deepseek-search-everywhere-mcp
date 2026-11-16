@@ -11,15 +11,12 @@ import fnmatch
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
 
 from .extract import sanitize_json
 from .filters import fit_query
 from .urls import _canonical_url, _url_etld1
-
-DepthLevel = Literal["low", "medium", "high", "max"]
-
 
 _TOPIC_EDGE_PUNCT_RE = re.compile(r"^[\W_]+|[\W_]+$")
 
@@ -441,14 +438,6 @@ def _denylisted(url: str, denylist: Sequence[str]) -> bool:
         elif host == pattern or host.endswith(f".{pattern}"):
             return True
     return False
-
-
-def _url_host(url: str) -> str:
-    """Return the lowercased hostname of a URL, or empty string on error."""
-    try:
-        return (urlsplit(url or "").hostname or "").lower()
-    except ValueError:
-        return ""
 
 
 TECHNICAL_DOCS_DOMAINS = frozenset(
@@ -1678,11 +1667,6 @@ def normalize_citations(text: str, max_id: int) -> str:
         cleaned = cleaned.replace(f"\x00PROTECTED_{idx}\x00", orig)
 
     return cleaned
-
-
-def sanitize_citations(text: str, max_id: int) -> str:
-    """Backward-compatible wrapper for normalize_citations."""
-    return normalize_citations(text, max_id)
 
 
 # A number (optionally signed, decimal, percent) or a range of two. A sign must touch the digits, and a
