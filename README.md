@@ -36,10 +36,9 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 - **Web search** with snippets or full page text, domain and date filters, language selection and optional query rewrite.
 - **Page fetch to Markdown** for one URL or up to 10 in parallel, with section, snippet, offset and find-text selectors for long pages.
 - **Structured extraction**: pull named fields or a JSON schema from a page; each value must be backed by a verbatim quote from the page or it is returned as `null`.
-- **Deep research with citations**: four depth tiers (`low`, `medium`, `high`, `max`) and domain source modes (`any`, `academic`, `technical`) produce a report with `[n]` citations mapped to a structured `sources` array with DOI/PMID identifiers and number verification. Long runs continue in the background and are collected with `deepseek_check_research`.
-- **Server instructions**: the server provides MCP system instructions during initialization guiding LLM agents to pick the most efficient tool and research depth.
+- **Deep research with citations**: four depth tiers and `academic`/`technical` source modes produce a report with `[n]` citations mapped to a `sources` array, with number verification. The server writes the report, or your agent writes it from the ranked sources (`synthesis="client"`) and the server verifies it. See [Deep research](#deep-research).
 - **Cost reporting**: every response carries `cost_usd` and, where an LLM is involved, `cost_breakdown`; an optional daily budget blocks overspending.
-- **Hardened against prompt injection**: hidden Unicode stripped, markdown images and unsafe links neutralized, an egress guard for secret-like data, static SSRF filtering and no telemetry. See [Security](#security).
+- **Hardened against prompt injection**, with an egress guard, static SSRF filtering and no telemetry. See [Security](#security).
 - **Small footprint**: pure Python, no local browser, `uvx` zero-install, 9 tools.
 
 ## Tools
@@ -361,7 +360,7 @@ Figures as of 2026-11-12. Tavily pay-as-you-go is $0.008 per credit; a basic sea
 
 *Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-The comparison covers raw retrieval prices only. It does not compare result quality, and structured extraction and research in this server add `deepseek-flash` token costs shown in [Costs](#costs). Tavily, Perplexity, Firecrawl and Exa each have features this server does not (for example site crawling or hosted answer engines); this server covers search, fetch, extraction and research in a single MCP server.
+The comparison covers raw retrieval prices only, not result quality; extraction and research add `deepseek-flash` token costs ([Costs](#costs)). Tavily, Perplexity, Firecrawl and Exa have features this server does not, such as site crawling or hosted answer engines.
 
 ## Security
 
@@ -468,51 +467,47 @@ Tool-specific results:
 
 ### How do I add web search to Claude Code?
 
-Run `claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- uvx deepseek-search-everywhere-mcp`. Claude Code then has `deepseek_search`, `deepseek_fetch`, `deepseek_extract`, `deepseek_research` and the other tools of this server. You need a DeepSeek API key and `uv` installed; see [Quick start](#quick-start).
+Run the `claude mcp add` command in [Claude Code](#claude-code). You need a DeepSeek API key and `uv`.
 
 ### Is there a cheaper alternative to Tavily for MCP?
 
-For retrieval, yes: this server passes through DeepSeek's Search and Fetch price of $0.75 per 1,000 successful requests, against Tavily's $0.008 per basic search credit, which is about 10.7x cheaper for basic search and about 21x for advanced search as of 2026-11-12. Tavily's free tier of 1,000 credits per month may still be enough for light use. See [Comparison](#comparison-with-tavily) for the sources and caveats.
-
-*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
+For retrieval, yes: see [Comparison with Tavily](#comparison-with-tavily) for the prices, sources and caveats.
 
 ### How does deepseek_research handle long-running research?
 
-It runs the research as a background job and returns the finished report inline if it is ready within 45 seconds. Otherwise it returns `status: "running"` with a `job_id` and a `next_action`, and the agent calls `deepseek_check_research(job_id)` until the status is `done`. The job survives client timeouts and cancelled calls, identical requests join the running job, and finished results are reused for 30 minutes at zero cost. See [Long-running research](#long-running-research).
+It runs as a background job and returns the report inline when it is ready within 45 seconds; otherwise the agent polls `deepseek_check_research`. See [Long-running research](#long-running-research).
 
 ### Does it work with Cursor, Cline and Windsurf?
 
-Yes. It is a standard MCP server using stdio (or authenticated streamable HTTP), so any client that can launch a command or connect to a URL can use it. Ready-made configuration for Cursor, Cline and Roo Code, Windsurf, Zed, OpenCode, Claude Desktop and Claude Code is in [Install in your MCP client](#install-in-your-mcp-client).
+Yes, with any stdio or streamable-HTTP MCP client; see [Install in your MCP client](#install-in-your-mcp-client).
 
 ### How much does a search cost?
 
-A search or a page fetch costs one DeepSeek request, $0.00075, regardless of how many results are returned. A research call costs roughly $0.003 (`low`) to $0.03 (`max`) including model tokens, and a structured extraction about $0.002 per page. Every response reports `cost_usd` so the agent and you can see the actual cost.
-
-*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
+One DeepSeek request per search or fetch, whatever the number of results; see [Costs](#costs). Every response reports `cost_usd`.
 
 ### Can it read PDFs and JavaScript-rendered pages?
 
-Pages are fetched by DeepSeek's service, not by a local browser, and the result is returned as Markdown. Whether a given PDF or script-heavy page yields text depends on that service. When a direct fetch of a PDF or Reddit URL returns 404, the server retrieves the document through the search index instead; when a page comes back empty, the response says so and suggests `deepseek_search`.
+Pages are rendered by DeepSeek's service, not a local browser, so it depends on that service. A 404 on a PDF or Reddit URL falls back to the search index, and an empty page is reported as such.
 
 ### Can I extract structured data from a web page?
 
-Yes. `deepseek_extract` takes a URL and either a list of `fields` or a JSON `schema` and returns `data` plus an `evidence` quote for each value. A value whose quote cannot be found in the page is returned as `null`, so invented values do not pass silently. `deepseek_extract_many` does the same for up to 10 URLs at once.
+Yes, with `deepseek_extract` or `deepseek_extract_many`: every value needs a verbatim evidence quote from the page or it is returned as `null`.
 
 ### Is my data sent anywhere?
 
-Search queries, the URLs you fetch and the page content used for extraction or research go to the DeepSeek API, which performs the work; there is no other outbound destination and no telemetry. Queries and URLs that contain secret-like strings are blocked before they leave the machine. Details are in [Security](#security) and [SECURITY.md](SECURITY.md).
+Only to the DeepSeek API, which does the work; see [Security](#security).
 
 ### How do I limit spending?
 
-Set `DEEPSEEK_DAILY_BUDGET_USD` (for example `5.00`) in the server's environment. Once the day's spend reaches the limit, calls return `budget_exceeded` until the next UTC day. Use `depth="low"` for research when speed and cost matter, and check `deepseek_check_balance` for the account balance.
+Set `DEEPSEEK_DAILY_BUDGET_USD`; see [Configuration](#configuration).
 
 ### Can the server run remotely, for example in Docker or n8n?
 
-Yes. Start it with `--transport streamable-http` and set `MCP_BEARER_TOKEN`; the official image `ghcr.io/radoxtech/deepseek-search-everywhere-mcp` supports this. The HTTP transport is stateless, single-process and plain HTTP, so put TLS in front of it when exposing it beyond loopback.
+Yes, over [streamable HTTP](#streamable-http) with a bearer token, also from the [Docker](#docker) image.
 
 ### Is this an official DeepSeek project?
 
-No. It is an independent, community-maintained MCP server that calls the public DeepSeek Search & Fetch API and the `deepseek-flash` chat model with your own API key.
+No. It is an independent, community-maintained server that uses your own DeepSeek API key.
 
 ## Limitations
 
