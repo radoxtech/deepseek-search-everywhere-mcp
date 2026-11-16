@@ -2457,7 +2457,7 @@ async def deepseek_fetch_many(
     """Fetch up to 10 known URLs concurrently and return each page's title and Markdown content.
 
     Batch page retrieval across 1-10 known URLs in parallel. Costs $0.00075 per URL. Max total
-    text across pages defaults to 50,000 chars (max_chars_per_url defaults to 20,000). Use when
+    text across pages defaults to 20,000 chars (max_chars_per_url defaults to 4,000). Use when
     target URLs are already known and full text or targeted snippets across pages are required.
     Skips blanks, deduplicates URLs, and preserves order. Untrusted content is sanitized.
 
@@ -4151,7 +4151,7 @@ async def deepseek_extract_many(
 
 @_timed
 async def deepseek_check_balance() -> dict[str, Any]:
-    """Check account balance (CNY/USD) and session telemetry.
+    """Check account balance (CNY/USD) and session metrics.
 
     Administrative tool for inspecting DeepSeek upstream account balance, currency breakdown,
     and session usage metrics (requests handled, cache hit rate, estimated spend). Free ($0.00),
