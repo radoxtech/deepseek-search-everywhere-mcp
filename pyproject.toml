@@ -87,7 +87,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "live: hits the real DeepSeek API",
-    "live_llm: live LLM evaluation tests (run 3x)",
+    "live_llm: live LLM evaluation tests (LIVE_REPEATS runs, default 1)",
     "live_e2e: end-to-end live pipeline tests",
 ]
 addopts = "-m 'not (live or live_llm or live_e2e)'"

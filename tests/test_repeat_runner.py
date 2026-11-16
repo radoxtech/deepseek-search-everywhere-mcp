@@ -90,3 +90,20 @@ async def test_repeat_llm_decorator() -> None:
     res = await sample_test()
     assert runs == 3
     assert res == [1, 2, 3]
+
+
+async def test_default_repeats_come_from_live_repeats(monkeypatch: pytest.MonkeyPatch) -> None:
+    runs = 0
+
+    @repeat_llm()
+    async def sample_test() -> None:
+        nonlocal runs
+        runs += 1
+
+    monkeypatch.delenv("LIVE_REPEATS", raising=False)
+    await sample_test()
+    assert runs == 1
+
+    monkeypatch.setenv("LIVE_REPEATS", "3")
+    await sample_test()
+    assert runs == 4
