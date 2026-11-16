@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/deepseek-search-everywhere-mcp/"><img src="https://img.shields.io/pypi/v/deepseek-search-everywhere-mcp.svg" alt="PyPI version"></a>
-  <a href="https://pypistats.org/packages/deepseek-search-everywhere-mcp"><img src="https://img.shields.io/pypi/dw/deepseek-search-everywhere-mcp?color=blue&label=pypi%20downloads" alt="PyPI downloads per week"></a>
+  <a href="https://pypistats.org/packages/deepseek-search-everywhere-mcp"><img src="https://img.shields.io/pypi/dm/deepseek-search-everywhere-mcp?color=blue&label=pypi%20downloads" alt="PyPI downloads per month"></a>
   <a href="https://pypi.org/project/deepseek-search-everywhere-mcp/"><img src="https://img.shields.io/pypi/pyversions/deepseek-search-everywhere-mcp" alt="Supported Python versions"></a>
   <a href="https://registry.modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP%20Registry-listed-brightgreen.svg" alt="Listed in the official MCP Registry"></a>
   <a href="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml"><img src="https://github.com/radoxtech/deepseek-search-everywhere-mcp/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
