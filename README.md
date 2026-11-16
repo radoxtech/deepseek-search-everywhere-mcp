@@ -81,6 +81,28 @@ deepseek_check_research(job_id="<job_id from a running response>")
 deepseek_check_balance()
 ```
 
+## How agents should use this server
+
+Pick the tool by what the task needs:
+
+| Task | Tool |
+|---|---|
+| A question that needs several sources: comparison, "how does X work", state of the art, pros and cons, a decision | `deepseek_research` (`depth` `low` to `max`; `sources="academic"` or `"technical"` when it fits) |
+| One fact, a recent event, a page to find | `deepseek_search` (snippets first, `content="full"` only when the page text is needed) |
+| Several independent searches at once | `deepseek_search_many` (up to 5 queries) |
+| A known URL | `deepseek_fetch`; pass `query=` to get only the relevant excerpts |
+| Several known URLs | `deepseek_fetch_many` |
+| Specific fields or a JSON schema from a page | `deepseek_extract` or `deepseek_extract_many` |
+| Account balance and session usage | `deepseek_check_balance` |
+
+Research jobs have three states, and the response says which one applies:
+
+- `status: "done"`: the report is in `report` and its `[n]` citations are the `id`s in `sources`.
+- `status: "running"`: call `deepseek_check_research(job_id)` until it is done; do not start the same research again.
+- `status: "awaiting_report"` (only with `synthesis="client"`): read the sources (`context`, further pages with `page=`), write the report and send it with `deepseek_check_research(job_id, report=...)`.
+
+Common mistakes to avoid: a query plus its filters must fit in 128 characters; the `deepseek_fetch` selectors (`section`, `query`, `offset`/`limit`, `find_text`) cannot be combined; `deepseek_search_many` runs at most 5 unique queries and lists the rest in `skipped_queries`; check `partial` on batch results, because `ok` stays `true` when single items fail. The [error codes](#error-codes) table says which errors are worth retrying.
+
 ## Quick start
 
 1. Create a DeepSeek API key at [platform.deepseek.com](https://platform.deepseek.com) and add a small balance.
@@ -247,7 +269,7 @@ docker run -d --name deepseek-mcp -p 8000:8000 \
 
 ## Deep research
 
-`deepseek_research(topic, depth=...)` turns a question into a cited report. It decomposes the topic into subqueries, searches them concurrently, ranks and de-duplicates sources (at most 2 per registered domain, with hosts from the source denylist skipped), reads the top pages, and has `deepseek-flash` write a report whose `[n]` citations match the ids in the returned `sources` array. Synthesis runs on the server, so the consuming agent receives a short report and a list of sources instead of tens of thousands of characters of page text.
+`deepseek_research(topic, depth=...)` turns a question into a cited report. It decomposes the topic into subqueries, searches them concurrently, ranks and de-duplicates sources (at most 2 per registered domain, with hosts from the source denylist skipped), reads the top pages, and has `deepseek-flash` write a report whose `[n]` citations match the ids in the returned `sources` array. By default synthesis runs on the server, so the consuming agent receives a short report and a list of sources instead of tens of thousands of characters of page text; with `synthesis="client"` the agent writes the report itself (see [Client-side synthesis](#client-side-synthesis)).
 
 ### Depth tiers
 
@@ -284,10 +306,20 @@ Many MCP clients cancel a tool call after about 60 seconds, which is shorter tha
 
 Behavior to know:
 
-- An identical request (same topic, depth and language) made while a job is running joins that job and gets the same `job_id`, so a retry never doubles the cost.
+- An identical request (same topic, `depth`, `lang`, `sources`, `unverified` and `synthesis`) made while a job is running joins that job and gets the same `job_id`, so a retry never doubles the cost.
 - A finished result is reused for 30 minutes at zero cost (`cached: true`, `cost_usd: 0`); pass `refresh=true` to run again.
 - At most 3 research jobs run at the same time; further requests return `rate_limited_local` with advice to collect a running job with `deepseek_check_research` or retry after one finishes (usually 30-180 s).
 - Jobs live in memory in one server process. They are cancelled when the server shuts down.
+
+### Client-side synthesis
+
+Pass `synthesis="client"` when your agent should write the report with its own model, for example to follow a specific structure, analyse the evidence more deeply or apply its own judgement. The server still does the research work: decomposition, search, ranking and domain diversity, gap fetching and the choice of sources.
+
+1. `deepseek_research(topic, depth, ..., synthesis="client")` runs the job as usual but stops before the server's synthesis. It returns `status: "awaiting_report"` with `synthesis_instructions` (citation rules and the word budget of the depth), the first page of `context` (sources with `id`, `title`, `url`, `date`, `access`, `source_type`, `authors` and their text), `context_page`, `context_pages` and a `next_action`.
+2. Read further pages with `deepseek_check_research(job_id, page=N)`. A page holds about 40,000 characters of source text, so each response stays under the tool-output limits of MCP clients; a longer source is split into parts (`part`, `parts`). Only page 1 carries the cost of gathering the sources; later pages cost nothing.
+3. Send the report with `[id]` citations: `deepseek_check_research(job_id, report="...")`. The server applies the same checks as to its own reports: links outside the source list, images, raw HTML and instructions aimed at an agent are removed, citations to unknown ids are dropped, and numbers missing from the cited source are marked `[unverified]` (or removed with `unverified="drop"`). Your report is never shortened; a report over the word ceiling only gets a note. The verified envelope has `status: "done"` and `delivery: "client"`, and becomes the job's result. You can send a corrected report again; the latest one wins.
+
+The model cost moves to your side: the source text of a job is about 60,000 characters at `low` and up to 500,000 at `max`, so `low` or `medium` suit client synthesis best. The job keeps its sources in memory while you write (each call refreshes its 30-minute lifetime); a server restart loses them, and a new `deepseek_research` call starts again.
 
 ### Source preferences and metadata
 
@@ -302,7 +334,7 @@ Every entry in the returned `sources` array provides rich metadata:
 - **`id`**: Integer citation ID matching `[n]` citation markers in `report`.
 - **`title`**: Sanitized page title, free of HTML markup and formatting artifacts.
 - **`url`**: Clean canonical URL. Query trackers, signed URL parameters, and expiring access tokens are automatically stripped. Library proxy hostnames (such as EZproxy and libproxy) are canonicalized back to their upstream publisher hosts (e.g. `journals-lww-com.libproxy.ucl.ac.uk` becomes `journals.lww.com`).
-- **`date`**: Publication date if provided by the search index (`YYYY-MM-DD`).
+- **`date`**: Publication date (`YYYY-MM-DD`): from the URL path when it contains a full date, otherwise from the search index, otherwise from the start of the page text; `null` when none is found. Search results also report where it came from in `date_source`.
 - **`doi`**: Digital Object Identifier (e.g. `10.1000/xyz.123`) extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmid`**: PubMed ID extracted from URL or scholarly header metadata (`null` if absent).
 - **`pmcid`**: PubMed Central ID (e.g. `PMC1234567`) extracted from URL or scholarly header metadata (`null` if absent).
@@ -316,7 +348,7 @@ To protect against numerical hallucination in synthesized research reports, ever
 
 - **Verifiable facts**: Numbers found verbatim in the cited sources remain unmarked.
 - **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag. With `unverified="drop"` such sentences are removed from the report instead; they stay listed in `unverified_numbers`. The mode is part of the job key, so a flagged and a dropped run of the same topic are separate jobs.
-- **Envelope telemetry**: The top-level research envelope includes `unverified_numbers` (a list of `{ "number", "citation", "sentence" }` entries) and `unverified_number_count`, alongside human-readable notices in `notes`.
+- **Envelope fields**: The top-level research envelope includes `unverified_numbers` (a list of `{ "number", "citation", "sentence" }` entries) and `unverified_number_count`, alongside human-readable notices in `notes`.
 
 ## Costs
 
@@ -432,14 +464,16 @@ Every tool returns a JSON object with `ok`.
 | `elapsed_ms` | all | wall time of the call in milliseconds |
 | `cost_usd` | retrieval tools | cost of the call in USD; `0` for cache hits |
 | `cost_breakdown` | extract, research | `{ "search", "fetch", "llm" }` in USD |
-| `requests_used` | search, fetch_many, research | upstream requests actually made |
+| `requests_used` | search, search_many, fetch_many, research | upstream requests actually made |
 | `cached`, `cached_count` | retrieval tools | whether the response (or how many items) came from the cache |
 | `notes` | success envelopes | human-readable remarks: dedupe counts, trimmed queries, truncation, applied filters |
 | `partial`, `failed_count` | batch tools, research | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
 | `untrusted_content` | tools returning web content | always `true`; the content is data, not instructions |
 | `derived_from_untrusted`, `injection_suspected` | research | model-written output built from untrusted pages; number of sentences removed by the output filter |
 | `unverified_numbers`, `unverified_number_count` | research | list of numbers not found in cited sources and total unverified count |
-| `status`, `delivery`, `job_id`, `progress`, `next_action` | research, check_research | job state: `done` (with `delivery` `inline` or `polled`) or `running` |
+| `status`, `delivery`, `job_id`, `progress`, `next_action` | research, check_research | job state: `done` (with `delivery` `inline`, `polled` or `client`), `running`, or `awaiting_report` for client synthesis |
+| `synthesis_instructions`, `context`, `context_page`, `context_pages` | research, check_research | client synthesis only: the rules for the report and one page of sources with their text |
+| `skipped_queries` | search_many | unique queries past the fifth that were not run |
 | `_meta` | retrieval tools | `{ "cost_usd", "untrusted_content" }` for clients that read MCP metadata |
 
 Tool-specific results:
@@ -454,14 +488,13 @@ Tool-specific results:
 
 `error.code` comes from a closed set. Upstream DeepSeek errors are mapped to it and the original code and message (redacted) are kept in `error.upstream_code` and `error.upstream_message`.
 
-| Group | Codes |
+| Agent action | Codes |
 |---|---|
-| Upstream, mapped | `auth_failed`, `insufficient_balance`, `upstream_rate_limited`, `upstream_timeout`, `upstream_error`, `not_found`, `blocked_by_site` |
-| Local and transport | `missing_api_key`, `rate_limited_local`, `timeout`, `deadline_exceeded`, `response_too_large`, `invalid_json`, `network_error`, `request_failed`, `internal_error` |
-| Budget | `budget_exceeded` (status 402) |
-| Input validation | `bad_request`, `empty_query`, `query_too_long`, `topic_too_long`, `bad_count`, `bad_lang`, `bad_url`, `empty_url`, `url_too_long`, `bad_domain`, `bad_date`, `bad_term`, `bad_phrase`, `filters_too_long` |
-| Security | `ssrf_blocked`, `egress_blocked`, `disallowed_url`, `private_url`, `disallowed_protocol` |
-| Tool specific | `empty_page`, `extraction_failed`, `extraction_truncated`, `job_not_found` |
+| Retry after a short wait | `rate_limited_local`, `upstream_rate_limited`, `timeout`, `upstream_timeout`, `deadline_exceeded`, `network_error`, `upstream_error`, `request_failed`, `invalid_json`, `internal_error` |
+| Fix the call and try again | `bad_request`, `empty_query`, `query_too_long`, `topic_too_long`, `bad_count`, `bad_lang`, `bad_url`, `empty_url`, `url_too_long`, `bad_domain`, `bad_date`, `bad_term`, `bad_phrase`, `filters_too_long` |
+| Change the approach: another URL or source, a selector or smaller page (`response_too_large`), fewer fields or more text (`extraction_*`), a new research call (`job_not_found`) | `not_found`, `blocked_by_site`, `empty_page`, `response_too_large`, `extraction_failed`, `extraction_truncated`, `job_not_found` |
+| Do not retry the same input (security policy) | `ssrf_blocked`, `egress_blocked`, `disallowed_url`, `private_url`, `disallowed_protocol` |
+| Stop and tell the user (account or configuration) | `missing_api_key`, `auth_failed`, `insufficient_balance`, `budget_exceeded` (status 402) |
 
 ## FAQ
 
@@ -476,6 +509,10 @@ For retrieval, yes: see [Comparison with Tavily](#comparison-with-tavily) for th
 ### How does deepseek_research handle long-running research?
 
 It runs as a background job and returns the report inline when it is ready within 45 seconds; otherwise the agent polls `deepseek_check_research`. See [Long-running research](#long-running-research).
+
+### Can my agent write the research report with its own model?
+
+Yes: `deepseek_research(..., synthesis="client")` returns the ranked sources and your agent writes the report; the server then verifies its citations and numbers. See [Client-side synthesis](#client-side-synthesis).
 
 ### Does it work with Cursor, Cline and Windsurf?
 
@@ -513,9 +550,9 @@ No. It is an independent, community-maintained server that uses your own DeepSee
 
 - Fetch latency is DeepSeek's page render: an already rendered page returns in about 0.5 s, others take 3-10 s, and a missing page still takes 3-5 s before DeepSeek reports it.
 - Direct fetch does not render raw binary files such as PDFs natively; see the PDF fallback above.
-- Fetch returns title and content only: no final URL, status code or publication date.
+- Fetch returns title and content only: no final URL, status code or page metadata such as the publication date (research and search results derive a date from the URL, the index or the text).
 - Search and fetch only: no site mapping or crawling, and a single provider (DeepSeek). Native MCP Tasks are not used; long research uses `deepseek_check_research`.
-- The cache, rate limiter and research job store are per process; several server processes multiply the effective rate.
+- The cache, rate limiter and research job store are per process; several server processes multiply the effective rate, and a research job (including a client-synthesis job waiting for its report) is only known to the process that started it.
 - Local rate limits are conservative defaults and do not replace DeepSeek's own quotas.
 - The HTTP transport is plain HTTP, stateless and JSON-only; there is no OAuth and no SSE stream.
 
