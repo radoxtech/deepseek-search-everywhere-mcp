@@ -51,14 +51,14 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 | `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url` (default 4000), `max_total_chars` (default 20000), `query`, `deadline` |
 | `deepseek_extract` | Extract structured JSON from one page, with evidence quotes | `url`, `fields` or `schema`, `instruction`, `max_chars` (default 40000) |
 | `deepseek_extract_many` | Extract structured JSON from 1-10 pages concurrently | `urls`, `fields` or `schema`, `instruction`, `max_chars_per_url`, `max_total_chars`, `deadline` |
-| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `unverified` (`flag` or `drop`; default `flag`), `refresh` |
-| `deepseek_check_research` | Collect a research job that did not finish inside the inline wait | `job_id` |
+| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `unverified` (`flag` or `drop`; default `flag`), `synthesis` (`server` or `client`; default `server`), `strip_boilerplate`, `refresh` |
+| `deepseek_check_research` | Continue a research job: poll it, read the sources of a `synthesis="client"` job page by page, or submit your report for verification | `job_id`, `page`, `report` |
 | `deepseek_check_balance` | Read-only: DeepSeek account balance and session metrics | none |
 
 Details that matter when calling the tools:
 
 - `query` and each entry of `queries` are limited to 128 characters and accept `site:`, `-site:`, `"phrase"`, `lang:`, `after:` and `before:` operators. The explicit filter parameters (`include_domains`, `exclude_domains`, `exclude_terms`, `exact_phrases`, `after`, `before`) are compiled into operators and budget-checked against that limit together with the query. Dates use `YYYY-MM-DD`.
-- `content="snippets"` (default) returns a short snippet per result; `content="full"` returns page text and fetches pages whose search content is missing, which is reflected in `requests_used` and `cost_usd`.
+- `content="snippets"` (default) returns a short snippet per result; `content="full"` returns page text and fetches pages whose search content is missing, one extra request per fetched page, which is reflected in `requests_used` and `cost_usd`.
 - `deepseek_fetch` selectors are mutually exclusive: combining `section`, `query`, `offset`/`limit` and `find_text` returns `bad_request`. `query` returns focused excerpts around matching terms (lexical matching, no LLM call). `offset`/`limit` page through long text and report `total_chars`.
 - `deepseek_fetch_many` skips blanks, fetches duplicate URLs once, keeps input order and reports a failing URL as an item with `ok: false`; the top-level envelope sets `partial: true`.
 - `deepseek_extract` takes either `fields` (list of names) or `schema` (JSON schema), never both. Fields whose evidence quote cannot be found in the page are set to `null` with a note; `extraction_truncated` is raised when the model output was cut off.
@@ -315,8 +315,8 @@ Behavior to know:
 
 Pass `synthesis="client"` when your agent should write the report with its own model, for example to follow a specific structure, analyse the evidence more deeply or apply its own judgement. The server still does the research work: decomposition, search, ranking and domain diversity, gap fetching and the choice of sources.
 
-1. `deepseek_research(topic, depth, ..., synthesis="client")` runs the job as usual but stops before the server's synthesis. It returns `status: "awaiting_report"` with `synthesis_instructions` (citation rules and the word budget of the depth), the first page of `context` (sources with `id`, `title`, `url`, `date`, `access`, `source_type`, `authors` and their text), `context_page`, `context_pages` and a `next_action`.
-2. Read further pages with `deepseek_check_research(job_id, page=N)`. A page holds about 40,000 characters of source text, so each response stays under the tool-output limits of MCP clients; a longer source is split into parts (`part`, `parts`). Only page 1 carries the cost of gathering the sources; later pages cost nothing.
+1. `deepseek_research(topic, depth, ..., synthesis="client")` runs the job as usual but stops before the server's synthesis. It returns `status: "awaiting_report"` with `synthesis_instructions` (citation rules and the word budget of the depth), the first page of `context` (sources with `id`, `title`, `url`, `date`, `doi`, `pmid`, `pmcid`, `access`, `source_type`, `authors` and their text), `context_page`, `context_pages` and a `next_action`.
+2. Read further pages with `deepseek_check_research(job_id, page=N)`. A page holds about 40,000 characters of source text, so each response stays under the tool-output limits of MCP clients; a longer source is split into parts (`part`, `parts`). The cost of gathering the sources is reported once, with the first delivery of page 1; later pages, repeats and report verification cost nothing. Pages stay readable after you send a report, so you can check a source and send a corrected report.
 3. Send the report with `[id]` citations: `deepseek_check_research(job_id, report="...")`. The server applies the same checks as to its own reports: links outside the source list, images, raw HTML and instructions aimed at an agent are removed, citations to unknown ids are dropped, and numbers missing from the cited source are marked `[unverified]` (or removed with `unverified="drop"`). Your report is never shortened; a report over the word ceiling only gets a note. The verified envelope has `status: "done"` and `delivery: "client"`, and becomes the job's result. You can send a corrected report again; the latest one wins.
 
 The model cost moves to your side: the source text of a job is about 60,000 characters at `low` and up to 500,000 at `max`, so `low` or `medium` suit client synthesis best. The job keeps its sources in memory while you write (each call refreshes its 30-minute lifetime); a server restart loses them, and a new `deepseek_research` call starts again.
@@ -494,7 +494,7 @@ Tool-specific results:
 | Fix the call and try again | `bad_request`, `empty_query`, `query_too_long`, `topic_too_long`, `bad_count`, `bad_lang`, `bad_url`, `empty_url`, `url_too_long`, `bad_domain`, `bad_date`, `bad_term`, `bad_phrase`, `filters_too_long` |
 | Change the approach: another URL or source, a selector or smaller page (`response_too_large`), fewer fields or more text (`extraction_*`), a new research call (`job_not_found`) | `not_found`, `blocked_by_site`, `empty_page`, `response_too_large`, `extraction_failed`, `extraction_truncated`, `job_not_found` |
 | Do not retry the same input (security policy) | `ssrf_blocked`, `egress_blocked`, `disallowed_url`, `private_url`, `disallowed_protocol` |
-| Stop and tell the user (account or configuration) | `missing_api_key`, `auth_failed`, `insufficient_balance`, `budget_exceeded` (status 402) |
+| Stop and tell the user (account or configuration) | `missing_api_key`, `auth_failed`, `insufficient_balance`, `budget_exceeded` (HTTP status 402) |
 
 ## FAQ
 

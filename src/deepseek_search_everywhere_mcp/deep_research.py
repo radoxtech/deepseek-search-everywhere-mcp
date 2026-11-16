@@ -1484,7 +1484,7 @@ def build_synthesis_messages(
 # Characters of source text per page of a client-synthesis context (about 10k tokens), so each page
 # stays well under the tool-output limits of MCP clients (Claude Code truncates above 25k tokens).
 CONTEXT_PAGE_CHARS = 40_000
-_CONTEXT_FIELDS = ("id", "title", "url", "date", "access", "source_type", "authors")
+_CONTEXT_FIELDS = ("id", "title", "url", "date", "doi", "pmid", "pmcid", "access", "source_type", "authors")
 
 
 def _context_chunks(context: Sequence[dict[str, Any]], page_chars: int) -> list[dict[str, Any]]:
