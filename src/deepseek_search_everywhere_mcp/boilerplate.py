@@ -11,12 +11,12 @@ known UI label, so user-authored text (Chinese included) is never touched. Singl
 which could plausibly be a whole comment, are only removed inside the menu they belong to.
 Fenced code blocks are left as they are.
 
-One rule is generic: a cookie-consent (CMP) dialog rendered at the very top of a page. It is
-removed only when the first line opens with a known consent phrase, and only as a leading run of
-lines that each look like part of the dialog; the first line that does not ends the banner and
-nothing after it is touched. The removed run must also show a dialog control (``Accept all``,
-``Nieaktywne``, ``Zarządzaj preferencjami zgody``...), so an article that opens by discussing
-privacy is kept.
+One rule is generic: an English cookie-consent (CMP) dialog rendered at the very top of a page.
+It is removed only when the first line opens with a known consent phrase, and only as a leading
+run of lines that each look like part of the dialog; the first line that does not ends the banner
+and nothing after it is touched. The removed run must also show a dialog control (``Accept all``,
+``Manage preferences``...), so an article that opens by discussing privacy is kept. Only English
+consent wording is recognised; dialogs in other languages are left in place.
 """
 
 from __future__ import annotations
@@ -92,41 +92,19 @@ RULES: tuple[SiteRules, ...] = (REDDIT,)
 
 # First line of a consent dialog (searched case-insensitively in the first non-blank line).
 _CONSENT_OPENING = re.compile(
-    r"informacje o prywatności|przetwarzamy (?:twoje )?dane|zanim klikniesz|cenimy (?:twoją )?prywatność"
-    r"|(?:używamy|wykorzystujemy|stosujemy) (?:plików )?cookie"
-    r"|we value your privacy|we care about your privacy|your privacy choices|privacy preference center"
-    r"|(?:this|our) (?:web)?site uses cookies|we (?:and our partners )?use cookies"
-    r"|wir verwenden cookies|wir nutzen cookies|ihre privatsphäre ist uns wichtig|datenschutzeinstellungen",
+    r"we value your privacy|we care about your privacy|your privacy choices|privacy preference center"
+    r"|(?:this|our) (?:web)?site uses cookies|we (?:and our partners )?use cookies",
     re.IGNORECASE,
 )
 # Vocabulary of consent dialogs; a banner line contains at least one of these stems.
 _CONSENT_TERM = re.compile(
-    r"cookie|ciasteczk|prywatnoś|zgod|zgadzam|partner|dostawc|reklam|identyfikator|przetwarza|osobow"
-    r"|preferencj|powiadomieni"
-    r"|privacy|consent|vendor|advertis|personali[sz]|tracking"
-    r"|datenschutz|einwilligung|werbung|anbieter|zustimm|privatsphäre",
+    r"cookie|partner|privacy|consent|vendor|advertis|personali[sz]|tracking",
     re.IGNORECASE,
 )
 # Controls and labels of consent dialogs: a whole line equal to one of these (normalised, lower case).
 _CONSENT_LABELS = frozenset(
     {
-        # Polish
-        "nieaktywne",
-        "aktywne",
-        "zawsze aktywne",
-        "lista dostawców",
-        "akceptuj",
-        "akceptuję",
-        "akceptuj wszystkie",
-        "zaakceptuj wszystkie",
-        "odrzuć",
-        "odrzuć wszystkie",
-        "zgadzam się",
-        "przejdź do serwisu",
-        "ustawienia",
-        "ustawienia zaawansowane",
-        "więcej opcji",
-        # English
+        # Dialog buttons
         "accept",
         "accept all",
         "accept all cookies",
@@ -140,14 +118,6 @@ _CONSENT_LABELS = frozenset(
         "more options",
         "save and exit",
         "confirm my choices",
-        # German
-        "akzeptieren",
-        "alle akzeptieren",
-        "ablehnen",
-        "alle ablehnen",
-        "einstellungen",
-        "zustimmen",
-        "zustimmen und weiter",
         # Form-widget leftovers of the dialog
         "label",
         "leg.interest",
@@ -156,9 +126,8 @@ _CONSENT_LABELS = frozenset(
 )
 # Phrases that only a consent dialog uses; one of them (or a label line) must occur in the banner.
 _CONSENT_CONTROL = re.compile(
-    r"zarządzaj preferencjami|transparency and consent framework|partnerzy mogą użyć|partners can use this"
-    r"|„przejdź do serwisu”|ustawienia zaawansowane|accept all|reject all|manage (?:your )?preferences"
-    r"|alle akzeptieren|zustimmen und weiter",
+    r"transparency and consent framework|partners can use this|accept all|reject all"
+    r"|manage (?:your )?preferences",
     re.IGNORECASE,
 )
 _LABEL_TRIM = re.compile(r"^[#>*\-\s\[]+|[\]\s.:!]+$")
@@ -173,8 +142,8 @@ def _consent_banner_end(lines: list[str]) -> int:
     """Return the index of the first line after a leading consent banner, or 0 when there is none.
 
     A line belongs to the banner when it contains consent vocabulary or is a dialog label. IAB
-    consent dialogs describe each purpose under a heading such as "... 94 partnerzy mogą użyć tego
-    celu", and the one description line under such a heading belongs to the banner too, whatever
+    consent dialogs describe each purpose under a heading such as "... 94 partners can use this
+    purpose", and the one description line under such a heading belongs to the banner too, whatever
     its wording. Blank lines are kept inside the run.
     """
     first = next((i for i, line in enumerate(lines) if line.strip()), None)

@@ -64,7 +64,7 @@ Details that matter when calling the tools:
 - `deepseek_fetch_many` skips blanks, fetches duplicate URLs once, keeps input order and reports a failing URL as an item with `ok: false`; the top-level envelope sets `partial: true`.
 - `deepseek_extract` takes either `fields` (list of names) or `schema` (JSON schema), never both. Fields whose evidence quote cannot be found in the page are set to `null` with a note; `extraction_truncated` is raised when the model output was cut off.
 - `lang` is an ISO code such as `en`, `de`, `pt-BR`. `rewrite=true` translates the query to English with `deepseek-flash` before searching and is skipped when `lang` is set.
-- `strip_boilerplate=true` removes known site interface text (for example the localized Reddit UI and cookie-consent dialogs at the start of a page) without touching article text or code blocks. Search results always get this treatment.
+- `strip_boilerplate=true` removes known site interface text (for example the localized Reddit UI and English cookie-consent dialogs at the start of a page) without touching article text or code blocks. Search results always get this treatment.
 - `fallback_to_search=true` (fetch tools) retrieves a document through the search index when a direct fetch returns 404 for a PDF or Reddit URL; only a result for the same page is accepted, and the result is marked `"source": "search_index"`.
 
 Example calls:

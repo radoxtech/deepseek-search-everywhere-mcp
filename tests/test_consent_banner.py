@@ -8,7 +8,8 @@ import pathlib
 from deepseek_search_everywhere_mcp import server
 from deepseek_search_everywhere_mcp.boilerplate import remove_boilerplate, strip_consent_banner
 
-# A shortened IAB TCF consent dialog as DeepSeek renders it for a Polish news site.
+# A shortened IAB TCF consent dialog as DeepSeek renders it for a Polish news site. The server is
+# English-only, so this dialog (like the German one below) is no longer recognised and is kept.
 BANNER_PL = (pathlib.Path(__file__).parent / "fixtures" / "consent_banner_pl.md").read_text(encoding="utf-8")
 BANNER_ONET_STYLE = (
     "Zanim klikniesz którykolwiek przycisk prosimy o przeczytanie do końca tej informacji – dotyczy ona "
@@ -30,20 +31,25 @@ BANNER_DE = (
     "[Alle akzeptieren]\n\nEinstellungen\n"
 )
 ARTICLE = (
-    "# Krótkie nagrania a koncentracja\n\n"
-    "Nowe badanie pokazuje, że częste przewijanie krótkich filmów osłabia uwagę.\n\n"
-    "Autorzy przeanalizowali dane kilkudziesięciu tysięcy uczestników."
+    "# Short videos and attention\n\n"
+    "A new study shows that frequent scrolling through short videos weakens attention.\n\n"
+    "The authors analysed data from tens of thousands of participants."
 )
-URL = "https://news.example.pl/artykul/123"
+URL = "https://news.example.com/article/123"
 
 
-def test_polish_tcf_banner_alone_is_removed_entirely():
-    assert strip_consent_banner(BANNER_PL) == ""
+def test_english_banner_alone_is_removed_entirely():
+    assert strip_consent_banner(BANNER_EN) == ""
 
 
 def test_banner_before_article_leaves_the_article_intact():
-    for banner in (BANNER_PL, BANNER_ONET_STYLE, BANNER_EN, BANNER_DE):
-        assert strip_consent_banner(banner + "\n" + ARTICLE) == ARTICLE
+    assert strip_consent_banner(BANNER_EN + "\n" + ARTICLE) == ARTICLE
+
+
+def test_non_english_banners_are_kept():
+    for banner in (BANNER_PL, BANNER_ONET_STYLE, BANNER_DE):
+        text = banner + "\n" + ARTICLE
+        assert strip_consent_banner(text) == text
 
 
 def test_article_about_privacy_is_kept():
@@ -82,20 +88,20 @@ def test_remove_boilerplate_applies_the_consent_rule_on_any_site():
 
 
 def test_fetch_of_a_banner_only_page_returns_empty_content_with_a_note(fake_upstream):
-    fake_upstream(default={"ok": True, "data": {"title": "Artykuł", "content": BANNER_PL}})
+    fake_upstream(default={"ok": True, "data": {"title": "Article", "content": BANNER_EN}})
     envelope = asyncio.run(server.deepseek_fetch(URL))
     assert envelope["ok"] is True and envelope["content"] == "" and envelope["chars"] == 0
     assert "cookie-consent banner" in envelope["notes"][0]
 
 
 def test_fetch_strip_boilerplate_off_keeps_the_banner(fake_upstream):
-    fake_upstream(default={"ok": True, "data": {"title": "Artykuł", "content": BANNER_EN + "\n" + ARTICLE}})
+    fake_upstream(default={"ok": True, "data": {"title": "Article", "content": BANNER_EN + "\n" + ARTICLE}})
     envelope = asyncio.run(server.deepseek_fetch(URL, strip_boilerplate=False))
     assert envelope["content"].startswith("## We value your privacy")
 
 
 def test_search_content_loses_a_leading_banner(fake_upstream):
-    item = {"title": "Artykuł", "url": URL, "content": BANNER_DE + "\n" + ARTICLE}
+    item = {"title": "Article", "url": URL, "content": BANNER_EN + "\n" + ARTICLE}
     fake_upstream(default={"ok": True, "data": {"results": [item]}})
-    envelope = asyncio.run(server.deepseek_search("koncentracja", count=1, content="full"))
+    envelope = asyncio.run(server.deepseek_search("attention", count=1, content="full"))
     assert envelope["results"][0]["content"] == ARTICLE
