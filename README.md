@@ -129,71 +129,19 @@ claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- \
   uvx deepseek-search-everywhere-mcp
 ```
 
-### Claude Desktop
+### Claude Desktop, Cursor, Cline, Roo Code, Windsurf and other `mcpServers` clients
 
-Edit `claude_desktop_config.json` (Settings, Developer, Edit Config):
+These clients use the same `mcpServers` block as the [Quick start](#quick-start); only the file differs:
 
-```json
-{
-  "mcpServers": {
-    "deepseek-search-everywhere": {
-      "command": "uvx",
-      "args": ["deepseek-search-everywhere-mcp"],
-      "env": { "DEEPSEEK_API_KEY": "sk-..." }
-    }
-  }
-}
-```
+| Client | Configuration file |
+|---|---|
+| Claude Desktop | `claude_desktop_config.json` (Settings, Developer, Edit Config) |
+| Cursor | `.cursor/mcp.json` in the project, or `~/.cursor/mcp.json` for all projects |
+| Cline, Roo Code (VS Code) | `cline_mcp_settings.json` (MCP settings) |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| Antigravity, Gemini CLI and other stdio clients | the client's MCP server configuration |
 
-### Cursor
-
-Create or edit `.cursor/mcp.json` in your project (or `~/.cursor/mcp.json` for all projects):
-
-```json
-{
-  "mcpServers": {
-    "deepseek-search-everywhere": {
-      "command": "uvx",
-      "args": ["deepseek-search-everywhere-mcp"],
-      "env": { "DEEPSEEK_API_KEY": "sk-..." }
-    }
-  }
-}
-```
-
-### Cline and Roo Code (VS Code)
-
-In the MCP settings file (`cline_mcp_settings.json`):
-
-```json
-{
-  "mcpServers": {
-    "deepseek-search-everywhere": {
-      "command": "uvx",
-      "args": ["deepseek-search-everywhere-mcp"],
-      "env": { "DEEPSEEK_API_KEY": "sk-..." },
-      "disabled": false,
-      "autoApprove": []
-    }
-  }
-}
-```
-
-### Windsurf
-
-In `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "deepseek-search-everywhere": {
-      "command": "uvx",
-      "args": ["deepseek-search-everywhere-mcp"],
-      "env": { "DEEPSEEK_API_KEY": "sk-..." }
-    }
-  }
-}
-```
+With the package installed locally (`pip install deepseek-search-everywhere-mcp`), `"command": "deepseek-search-everywhere-mcp"` without `args` works as well.
 
 ### Zed
 
@@ -225,21 +173,6 @@ In `opencode.json`:
       "command": ["uvx", "deepseek-search-everywhere-mcp"],
       "environment": { "DEEPSEEK_API_KEY": "{env:DEEPSEEK_API_KEY}" },
       "enabled": true
-    }
-  }
-}
-```
-
-### Any other stdio client (Antigravity, Gemini CLI and others)
-
-Any client that accepts an `mcpServers` block works with the `uvx` form above. With the package installed locally, point at the console script:
-
-```json
-{
-  "mcpServers": {
-    "deepseek-search-everywhere": {
-      "command": "deepseek-search-everywhere-mcp",
-      "env": { "DEEPSEEK_API_KEY": "sk-..." }
     }
   }
 }
