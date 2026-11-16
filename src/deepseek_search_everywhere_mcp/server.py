@@ -2796,26 +2796,45 @@ async def deepseek_research(
             raise
 
         if job.task in done:
-            if job.exception is not None:
-                return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
-            res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
-            if res.get("ok"):
-                res["status"] = "done"
-                res["delivery"] = "inline"
-            return res
+            return _finished_job_envelope(job, "inline")
 
-        elapsed_ms = int((_clock() - job.created_at) * 1000)
-        return {
-            "ok": True,
-            "status": "running",
-            "job_id": job.job_id,
-            "depth": depth,
-            "elapsed_ms": elapsed_ms,
-            "progress": _progress_view(job),
-            "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
-        }
+        return _running_job_envelope(job)
     finally:
         job.ctx = None
+
+
+def _job_elapsed_ms(job: ResearchJob) -> int:
+    """Milliseconds since ``job`` was created."""
+    return max(0, int((_clock() - job.created_at) * 1000))
+
+
+def _finished_job_envelope(job: ResearchJob, delivery: Literal["inline", "polled"]) -> dict[str, Any]:
+    """Return a finished job's result marked ``status: "done"``, or an error if the job failed.
+
+    A polled result reports the job's own elapsed time instead of the time of the polling call.
+    """
+    if job.exception is not None:
+        return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
+    res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+    if res.get("ok"):
+        res["status"] = "done"
+        res["delivery"] = delivery
+        if delivery == "polled":
+            res["elapsed_ms"] = _job_elapsed_ms(job)
+    return res
+
+
+def _running_job_envelope(job: ResearchJob) -> dict[str, Any]:
+    """Return the ``status: "running"`` envelope telling the agent to poll the job."""
+    return {
+        "ok": True,
+        "status": "running",
+        "job_id": job.job_id,
+        "depth": job.depth,
+        "elapsed_ms": _job_elapsed_ms(job),
+        "progress": _progress_view(job),
+        "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
+    }
 
 
 def _reuse_finished_result(stored: dict[str, Any]) -> dict[str, Any]:
@@ -2874,14 +2893,7 @@ async def deepseek_check_research(
 
     try:
         if job.task is not None and job.task.done():
-            if job.exception is not None:
-                return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
-            res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
-            if res.get("ok"):
-                res["status"] = "done"
-                res["delivery"] = "polled"
-                res["elapsed_ms"] = max(0, int((_clock() - job.created_at) * 1000))
-            return res
+            return _finished_job_envelope(job, "polled")
 
         inline_wait = settings.research_inline_wait
         assert job.task is not None
@@ -2891,25 +2903,9 @@ async def deepseek_check_research(
             raise
 
         if job.task in done:
-            if job.exception is not None:
-                return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
-            res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
-            if res.get("ok"):
-                res["status"] = "done"
-                res["delivery"] = "polled"
-                res["elapsed_ms"] = max(0, int((_clock() - job.created_at) * 1000))
-            return res
+            return _finished_job_envelope(job, "polled")
 
-        elapsed_ms = int((_clock() - job.created_at) * 1000)
-        return {
-            "ok": True,
-            "status": "running",
-            "job_id": job.job_id,
-            "depth": job.depth,
-            "elapsed_ms": elapsed_ms,
-            "progress": _progress_view(job),
-            "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
-        }
+        return _running_job_envelope(job)
     finally:
         job.ctx = None
 
