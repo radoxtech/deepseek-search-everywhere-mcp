@@ -53,15 +53,14 @@ def test_map_http_error_statuses_and_paths(
         assert hint_keyword.lower() in envelope["error"]["message"].lower()
 
 
-@pytest.mark.parametrize("status", [400, 401, 402, 403, 404, 405, 413, 422, 429, 500, 502, 503, 504, 520])
-@pytest.mark.parametrize(
-    "path",
-    ["/v1/tools/fetch", "/v1/tools/search", "/v1/chat/completions", "/user/balance", ""],
-)
-def test_all_statuses_and_paths_belong_to_closed_code_set(status: int, path: str) -> None:
+def test_all_statuses_and_paths_belong_to_closed_code_set() -> None:
     body = json.dumps({"error": {"message": "something failed", "code": "raw_code"}})
-    envelope = _map_http_error(status, body, path=path)
-    assert envelope["error"]["code"] in CLOSED_ERROR_CODES
+    statuses = [400, 401, 402, 403, 404, 405, 413, 422, 429, 500, 502, 503, 504, 520]
+    paths = ["/v1/tools/fetch", "/v1/tools/search", "/v1/chat/completions", "/user/balance", ""]
+    for status in statuses:
+        for path in paths:
+            code = _map_http_error(status, body, path=path)["error"]["code"]
+            assert code in CLOSED_ERROR_CODES, f"{status} {path!r} -> {code}"
 
 
 def test_map_http_error_handles_non_json_body() -> None:

@@ -61,21 +61,12 @@ def test_dropped_parameters_not_in_search_tools(dropped_param: str) -> None:
     assert dropped_param not in inspect.signature(server.deepseek_search_many).parameters
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "_search",
-        "deepseek_search",
-        "deepseek_search_many",
-        "deepseek_fetch",
-        "deepseek_research",
-        "deepseek_extract",
-        "deepseek_extract_many",
-    ],
-)
-def test_new_parameters_are_keyword_only(name):
-    signature = inspect.signature(getattr(server, name))
-    assert signature.parameters["refresh"].kind is inspect.Parameter.KEYWORD_ONLY
+def test_refresh_is_a_keyword_only_parameter_of_cached_tools():
+    names = ["_search", "deepseek_search", "deepseek_search_many", "deepseek_fetch"]
+    names += ["deepseek_research", "deepseek_extract", "deepseek_extract_many"]
+    for name in names:
+        refresh = inspect.signature(getattr(server, name)).parameters.get("refresh")
+        assert refresh is not None and refresh.kind is inspect.Parameter.KEYWORD_ONLY, name
 
 
 def test_check_balance_has_no_parameters() -> None:
