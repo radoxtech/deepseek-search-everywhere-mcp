@@ -228,3 +228,38 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
     assert "20,000" in desc_fetch_many and "4,000" in desc_fetch_many
     desc_research = tools["deepseek_research"].description
     assert "6-24 sources" in desc_research or "sources" in desc_research
+
+
+def test_every_tool_has_a_title() -> None:
+    tools = asyncio.run(server.mcp.list_tools())
+    titles = [tool.annotations.title for tool in tools]
+    assert all(titles) and len(set(titles)) == len(titles)
+
+
+def test_research_description_explains_polling_and_client_synthesis() -> None:
+    tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+    research = tools["deepseek_research"].description
+    assert "deepseek_check_research" in research and '"running"' in research
+    assert 'synthesis="client"' in research
+    check = tools["deepseek_check_research"].description
+    assert "page=" in check and "report=" in check and "awaiting_report" in check
+    assert 'synthesis="client"' in server.SERVER_INSTRUCTIONS
+
+
+@pytest.mark.parametrize(
+    ("tool", "param"),
+    [
+        ("deepseek_search", "max_total_chars"),
+        ("deepseek_search_many", "max_total_chars"),
+        ("deepseek_fetch", "max_chars"),
+        ("deepseek_fetch_many", "max_chars_per_url"),
+        ("deepseek_fetch_many", "max_total_chars"),
+        ("deepseek_extract", "max_chars"),
+        ("deepseek_extract_many", "max_chars_per_url"),
+        ("deepseek_extract_many", "max_total_chars"),
+    ],
+)
+def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -> None:
+    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+    default = tools[tool].inputSchema["properties"][param]["default"]
+    assert f"{default:,}" in tools[tool].description, f"{tool}.{param} default {default} not in description"
