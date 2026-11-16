@@ -1114,10 +1114,10 @@ def is_scholarly_host(host: str) -> bool:
     return False
 
 
-# An author line near the top of a page: "Authors: A, B and C" (arXiv, papers), "Autorzy: ..." or a
-# "By A and B" byline at the start of a line (blogs, news).
-_AUTHOR_LINE_RE = re.compile(r"(?mi)^[ \t>*_#]*(?:authors?|autorzy|autor)\s*:\s*(.+)$|^[ \t>*_]*by\s+(.+)$")
-_AUTHOR_SPLIT_RE = re.compile(r"\s*(?:,|;|\band\b|\bi\b|&)\s*")
+# An author line near the top of a page: "Authors: A, B and C" (arXiv, papers) or a "By A and B"
+# byline at the start of a line (blogs, news).
+_AUTHOR_LINE_RE = re.compile(r"(?mi)^[ \t>*_#]*authors?\s*:\s*(.+)$|^[ \t>*_]*by\s+(.+)$")
+_AUTHOR_SPLIT_RE = re.compile(r"\s*(?:,|;|\band\b|&)\s*")
 # Footnote markers and affiliations glued to a name: "Jane Doe1,2", "Jane Doe*", "Jane Doe (MIT)".
 _AUTHOR_NOISE_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]|[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹⁰]+")
 # 2-5 capitalized words; lowercase name particles ("van", "de", "von") are allowed between them.
@@ -1132,7 +1132,7 @@ MAX_SOURCE_AUTHORS = 20
 def source_authors(url: str, content: str = "") -> list[str] | None:
     """Return author names from an author line near the top of a source's text, or None.
 
-    Only an explicit "Authors:"/"Autorzy:" label or a "By ..." byline within the first
+    Only an explicit "Authors:" label or a "By ..." byline within the first
     ``_AUTHOR_WINDOW`` characters is read; names are split on commas, semicolons and "and", stripped
     of footnote markers and affiliations in brackets, and kept only when they look like 2-5 word
     personal names. Affiliations are not extracted. Non-content pages return None.
@@ -1692,16 +1692,13 @@ _GROUNDING_NUM_RE = re.compile(
     r"(?:\s*-\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+)%?))?(?![A-Za-z0-9_])"
 )
 
-# English (capitalized) and Polish (lowercase, nominative and genitive) month names for date stripping.
+# English month names (capitalized, full and abbreviated) for date stripping.
 _GROUNDING_MONTHS = (
     "January|February|March|April|May|June|July|August|September|October|November|December|"
-    "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|"
-    "styczeń|stycznia|luty|lutego|marzec|marca|kwiecień|kwietnia|maj|maja|czerwiec|czerwca|"
-    "lipiec|lipca|sierpień|sierpnia|wrzesień|września|październik|października|listopad|listopada|"
-    "grudzień|grudnia"
+    "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
 )
 # Calendar dates are metadata, not findings: "2026-01-22", "22 January 2026", "January 22, 2026",
-# "22 stycznia 2026", "22 Jan". A month and year without a day keeps its year (handled as a bare year).
+# "22 Jan". A month and year without a day keeps its year (handled as a bare year).
 _GROUNDING_DATE_RES: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?<![\w.])\d{4}-\d{1,2}-\d{1,2}(?![\w.]|-\d)"),
     re.compile(r"(?<![\w.])\d{1,2}\.?\s+(?:" + _GROUNDING_MONTHS + r")\b\.?(?:,?\s+\d{4}\b)?"),
