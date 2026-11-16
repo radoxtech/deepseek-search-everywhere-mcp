@@ -263,3 +263,14 @@ def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -
     tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
     default = tools[tool].inputSchema["properties"][param]["default"]
     assert f"{default:,}" in tools[tool].description, f"{tool}.{param} default {default} not in description"
+
+
+def test_error_codes_named_in_server_instructions_exist() -> None:
+    import re
+
+    from deepseek_search_everywhere_mcp.errors import CLOSED_ERROR_CODES
+
+    named = set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", server.SERVER_INSTRUCTIONS))
+    codes = {word for word in named if not word.startswith("deepseek_")}
+    codes -= {"job_id", "cost_usd", "error_code", "synthesis_instructions"}
+    assert codes <= CLOSED_ERROR_CODES, codes - CLOSED_ERROR_CODES

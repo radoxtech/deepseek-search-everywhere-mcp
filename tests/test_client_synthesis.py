@@ -94,7 +94,7 @@ async def test_client_report_is_verified_like_a_server_report(fake_upstream: Any
     assert "[unverified]" in done["report"]
     assert done["derived_from_untrusted"] is True
     assert [s["id"] for s in done["sources"]] == [1, 2] and "content" not in done["sources"][0]
-    assert done["requests_used"] == res["requests_used"]  # no synthesis request
+    assert done["requests_used"] == 0 and done["cost_usd"] == 0  # verifying makes no upstream call
 
     # The verified report is now the job's result.
     polled = await server.deepseek_check_research(res["job_id"])
@@ -301,5 +301,93 @@ async def test_tool_surface_stays_at_nine_tools() -> None:
     research_params = names["deepseek_research"].inputSchema["properties"]
     check_params = names["deepseek_check_research"].inputSchema["properties"]
     assert research_params["synthesis"]["default"] == "server"
-    assert check_params["page"]["default"] == 1 and check_params["report"]["default"] is None
+    assert check_params["page"]["default"] is None and check_params["report"]["default"] is None
     del _asyncio
+
+
+async def test_sources_stay_readable_after_a_report_and_the_report_is_the_result(fake_upstream: Any) -> None:
+    big = [
+        {"title": f"Source {i}", "url": f"https://big{i}.test/page", "content": f"Fact {i}. " * 3_000}
+        for i in range(1, 5)
+    ]
+    res = await _awaiting(fake_upstream, Upstream(search_results=big))
+    assert res["context_pages"] > 1
+    done = await server.deepseek_check_research(res["job_id"], report="Fact 1 holds [1].")
+    assert done["status"] == "done"
+    page_two = await server.deepseek_check_research(res["job_id"], page=2)
+    assert page_two["status"] == "awaiting_report" and page_two["context_page"] == 2
+    again = await server.deepseek_check_research(res["job_id"])
+    assert again["status"] == "done" and again["report"] == done["report"]
+    revised = await server.deepseek_check_research(res["job_id"], report="Fact 2 holds [2].")
+    assert revised["status"] == "done" and "[2]" in revised["report"]
+
+
+async def test_another_caller_gets_the_sources_not_a_submitted_report(fake_upstream: Any) -> None:
+    res = await _awaiting(fake_upstream)
+    await server.deepseek_check_research(res["job_id"], report="Surface codes help [1].")
+    other = await server.deepseek_research("quantum error correction", depth="low", synthesis="client")
+    assert other["status"] == "awaiting_report" and other["job_id"] == res["job_id"]
+    assert "report" not in other and other["cost_usd"] == 0
+
+
+async def test_gathering_cost_is_reported_once(fake_upstream: Any) -> None:
+    res = await _awaiting(fake_upstream)
+    assert res["cost_usd"] > 0 and res["requests_used"] > 0
+    repeat = await server.deepseek_check_research(res["job_id"])
+    assert repeat["status"] == "awaiting_report" and repeat["context_page"] == 1
+    assert repeat["cost_usd"] == 0 and repeat["requests_used"] == 0
+    assert "synthesis_instructions" in repeat
+
+
+async def test_first_delivery_through_polling_carries_the_cost(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.01))
+
+    class Slow(Upstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            await asyncio.sleep(0.05)
+            return await super().__call__(method, path, **kwargs)
+
+    fake_upstream(Slow())
+    running = await server.deepseek_research("slow cost topic", depth="low", synthesis="client")
+    assert running["status"] == "running"
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=5.0))
+    first = await server.deepseek_check_research(running["job_id"])
+    second = await server.deepseek_check_research(running["job_id"])
+    assert first["status"] == second["status"] == "awaiting_report"
+    assert first["cost_usd"] > 0 and second["cost_usd"] == 0
+
+
+async def test_awaiting_pages_are_marked_as_derived_from_untrusted(fake_upstream: Any) -> None:
+    res = await _awaiting(fake_upstream)
+    assert res["untrusted_content"] is True and res["derived_from_untrusted"] is True
+
+
+async def test_page_and_report_together_are_rejected(fake_upstream: Any) -> None:
+    res = await _awaiting(fake_upstream)
+    bad = await server.deepseek_check_research(res["job_id"], page=1, report="x [1].")
+    assert bad["error"]["code"] == "bad_request" and "not both" in bad["error"]["message"]
+
+
+async def test_page_zero_is_rejected(fake_upstream: Any) -> None:
+    res = await _awaiting(fake_upstream)
+    bad = await server.deepseek_check_research(res["job_id"], page=0)
+    assert bad["error"]["code"] == "bad_request"
+
+
+async def test_report_for_a_failed_client_job_returns_the_failure(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def broken(**kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("pipeline broke")
+
+    monkeypatch.setattr(server, "_execute_research_pipeline", broken)
+    fake_upstream(Upstream())
+    res = await server.deepseek_research("broken topic", depth="low", synthesis="client")
+    job_id = next(iter(server.get_job_store()._jobs))
+    bad = await server.deepseek_check_research(job_id, report="x [1].")
+    assert res["ok"] is False or res.get("status") != "awaiting_report"
+    assert bad["ok"] is False and bad["error"]["code"] == "internal_error"

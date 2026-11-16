@@ -2784,8 +2784,10 @@ async def deepseek_research(
     if existing is None and not refresh:
         finished = store.find_finished_match(clean_topic, depth, lang, _clock(), **key)
         if finished is not None and finished.result is not None:
-            if finished.awaiting_report:
-                finished.completed_at = _clock()  # a client still writing its report keeps the job
+            if finished.has_client_sources and finished.client_sources_result is not None:
+                # Another caller gets the sources to write its own report, never someone else's report.
+                finished.completed_at = _clock()
+                return _reuse_finished_result(finished.client_sources_result)
             return _reuse_finished_result(finished.result)
     if existing is not None and existing.task is not None and not existing.task.done():
         job = existing
@@ -2853,6 +2855,10 @@ def _finished_job_envelope(job: ResearchJob, delivery: Literal["inline", "polled
     if job.exception is not None:
         return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
     res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+    if job.awaiting_report:
+        if job.client_charged:
+            return _awaiting_report_envelope(job, 1)  # the gathering cost was already reported
+        job.client_charged = True
     if res.get("ok"):
         if res.get("status") != "awaiting_report":
             res["status"] = "done"
@@ -2900,9 +2906,9 @@ async def deepseek_check_research(
     ],
     *,
     page: Annotated[
-        int,
-        Field(description="Page of sources to read for a synthesis='client' job (default 1)"),
-    ] = 1,
+        int | None,
+        Field(description="Page of sources to read for a synthesis='client' job (default None)"),
+    ] = None,
     report: Annotated[
         str | None,
         Field(
@@ -2937,10 +2943,14 @@ async def deepseek_check_research(
             "Research job not found or expired. Restart the research with deepseek_research.",
         )
     if report is not None:
+        if page is not None:
+            return _fail("bad_request", "Pass either page= or report=, not both.")
         return await _verify_client_report(job, report)
-    if job.awaiting_report:
-        job.completed_at = _clock()  # a client still writing its report keeps the job
-        return _client_page(job, page)
+    if job.has_client_sources and job.task is not None and job.task.done():
+        job.completed_at = _clock()  # a client still reading or writing keeps the job
+        if page is not None:
+            return _client_page(job, page)
+        return _client_page(job, 1) if job.awaiting_report else _finished_job_envelope(job, "polled")
     if ctx is not None:
         job.ctx = ctx
 
@@ -2956,8 +2966,8 @@ async def deepseek_check_research(
             raise
 
         if job.task in done:
-            if job.awaiting_report:
-                return _client_page(job, page)
+            if job.has_client_sources:
+                return _client_page(job, page or 1)
             return _with_page_note(_finished_job_envelope(job, "polled"), page)
 
         return _running_job_envelope(job)
@@ -2965,9 +2975,9 @@ async def deepseek_check_research(
         job.ctx = None
 
 
-def _with_page_note(envelope: dict[str, Any], page: int) -> dict[str, Any]:
+def _with_page_note(envelope: dict[str, Any], page: int | None) -> dict[str, Any]:
     """Note that ``page`` was ignored on a job that has no client-synthesis pages."""
-    if page != 1 and envelope.get("ok"):
+    if page is not None and envelope.get("ok"):
         envelope["notes"] = [
             *envelope.get("notes", []),
             "page applies only to synthesis='client' jobs; ignored.",
@@ -3544,11 +3554,12 @@ async def _finalize_report(
 MAX_CLIENT_REPORT_CHARS = 60_000
 
 
-def _awaiting_report_envelope(job: ResearchJob, page: int) -> dict[str, Any]:
+def _awaiting_report_envelope(job: ResearchJob, page: int, *, charge: bool = False) -> dict[str, Any]:
     """Return one page of a client-synthesis job's sources (``status: "awaiting_report"``).
 
-    Page 1 carries the synthesis instructions and the cost of gathering the sources; later pages
-    cost nothing. ``next_action`` points to the next page, then to submitting the report.
+    Page 1 carries the synthesis instructions; only its first delivery (``charge``) reports the cost
+    of gathering the sources, every other page or repeat costs nothing. ``next_action`` points to the
+    next page, then to submitting the report.
     """
     run: _ResearchRun = job.client_run
     entries, pages = paginate_context(job.synthesis_context or [], page)
@@ -3564,10 +3575,10 @@ def _awaiting_report_envelope(job: ResearchJob, page: int) -> dict[str, Any]:
             "deepseek_check_research(job_id, report=...); the server verifies citations and numbers."
         )
     first = page == 1
-    requests_used = run.requests_used if first else 0
-    llm_cost = round(run.llm_cost, 6) if first else 0.0
-    search_cost = run.search_cost if first else 0.0
-    fetch_cost = run.fetch_cost if first else 0.0
+    requests_used = run.requests_used if charge else 0
+    llm_cost = round(run.llm_cost, 6) if charge else 0.0
+    search_cost = run.search_cost if charge else 0.0
+    fetch_cost = run.fetch_cost if charge else 0.0
     total_cost = round(search_cost + fetch_cost + llm_cost, 6)
     envelope: dict[str, Any] = {
         "ok": True,
@@ -3586,8 +3597,8 @@ def _awaiting_report_envelope(job: ResearchJob, page: int) -> dict[str, Any]:
             "context": entries,
             "next_action": next_action,
             "requests_used": requests_used,
-            "cached": _all_cached(requests_used, run.cached_count) if first else True,
-            "cached_count": run.cached_count if first else 0,
+            "cached": _all_cached(requests_used, run.cached_count) if charge else True,
+            "cached_count": run.cached_count if charge else 0,
             "cost_usd": total_cost,
             "cost_breakdown": {
                 "search": round(search_cost, 6),
@@ -3595,6 +3606,8 @@ def _awaiting_report_envelope(job: ResearchJob, page: int) -> dict[str, Any]:
                 "llm": llm_cost,
             },
             "untrusted_content": True,
+            # Round-2 subqueries (depth max) were written by the model from untrusted search results.
+            "derived_from_untrusted": True,
             "notes": list(run.notes),
             "_meta": _envelope_meta(total_cost, untrusted_content=True),
         }
@@ -3603,12 +3616,19 @@ def _awaiting_report_envelope(job: ResearchJob, page: int) -> dict[str, Any]:
 
 
 def _client_page(job: ResearchJob, page: int) -> dict[str, Any]:
-    """Return ``page`` of an awaiting client-synthesis job, or ``bad_request`` when it does not exist."""
+    """Return ``page`` of a client-synthesis job's sources, or ``bad_request`` when it does not exist.
+
+    The first delivery of page 1 reports the gathering cost; every later page or repeat is free.
+    """
     _, pages = paginate_context(job.synthesis_context or [], page)
     if not 1 <= page <= pages:
         return _fail("bad_request", f"page must be between 1 and {pages} for this job.")
-    if page == 1:
-        return _finished_job_envelope(job, "polled")
+    if page == 1 and not job.client_charged and job.client_sources_result is not None:
+        job.client_charged = True
+        res = dict(job.client_sources_result)
+        res["delivery"] = "polled"
+        res["elapsed_ms"] = _job_elapsed_ms(job)
+        return res
     return _awaiting_report_envelope(job, page)
 
 
@@ -3623,6 +3643,8 @@ async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]
             "bad_request",
             "This job was synthesized by the server; report= applies only to synthesis='client' jobs.",
         )
+    if job.exception is not None:
+        return _finished_job_envelope(job, "polled")
     if job.task is None or not job.task.done():
         return _fail(
             "bad_request",
@@ -3648,7 +3670,17 @@ async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]
         synth_step=run.total_steps,
         condense=False,
     )
-    result["delivery"] = "client"
+    # Verifying makes no upstream call; the gathering cost was reported with the sources.
+    result.update(
+        {
+            "delivery": "client",
+            "requests_used": 0,
+            "cached": True,
+            "cost_usd": 0,
+            "cost_breakdown": {"search": 0, "fetch": 0, "llm": 0},
+            "_meta": _envelope_meta(0, untrusted_content=True),
+        }
+    )
     job.result = result
     job.completed_at = _clock()
     return dict(result)
@@ -3707,7 +3739,8 @@ async def _execute_research_pipeline(
     if client:
         job.synthesis_context = context
         job.client_run = run
-        return _awaiting_report_envelope(job, 1)
+        job.client_sources_result = _awaiting_report_envelope(job, 1, charge=True)
+        return job.client_sources_result
     if (stopped := _research_cost_guard(run, context)) is not None:
         return stopped
 

@@ -49,6 +49,9 @@ class ResearchJob:
     # report the client sends back. Never returned as such.
     synthesis_context: list[dict[str, Any]] | None = None
     client_run: Any = None
+    # Page 1 of the sources as first delivered (with the gathering cost), and whether it was delivered.
+    client_sources_result: dict[str, Any] | None = None
+    client_charged: bool = False
 
     def normalize_key(self) -> tuple[str, str, str | None, str, str, str]:
         return (
@@ -59,6 +62,11 @@ class ResearchJob:
             self.unverified,
             self.synthesis,
         )
+
+    @property
+    def has_client_sources(self) -> bool:
+        """True for a finished client-synthesis job whose sources can be read and reported on."""
+        return self.synthesis == "client" and self.synthesis_context is not None
 
     @property
     def awaiting_report(self) -> bool:
@@ -1500,8 +1508,9 @@ def paginate_context(
     """Return ``(entries, page_count)`` for 1-based ``page`` of a client-synthesis context.
 
     Sources keep their order and their ``id``; each page holds whole sources up to ``page_chars`` of
-    text, and a source longer than that is split into parts (``part``/``parts``) on pages of their
-    own. A page outside ``1..page_count`` returns no entries.
+    source text (metadata and, on page 1, the instructions come on top), and a source longer than
+    that is split into page-sized parts (``part``/``parts``). A page outside ``1..page_count``
+    returns no entries.
     """
     pages: list[list[dict[str, Any]]] = [[]]
     used = 0
