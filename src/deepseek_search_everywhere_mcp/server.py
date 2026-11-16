@@ -23,7 +23,7 @@ import re
 import time
 import urllib.parse
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from datetime import time as dt_time
@@ -124,6 +124,7 @@ MIN_TITLE_SITE_CHARS = 20
 MIN_TITLE_SITE_WORDS = 3
 MAX_COUNT = 50  # largest ``count`` accepted from callers and by the upstream search API
 MAX_QUERIES = 5  # most queries accepted by deepseek_search_many
+EXTRACT_CONCURRENCY = 4  # LLM extraction calls deepseek_extract_many runs at once
 # With dedupe on, the upstream is asked for up to max(OVERFETCH_MIN, ceil(count * OVERFETCH_RATIO))
 # extra results (capped at MAX_COUNT) so that removing duplicates still leaves ``count`` results.
 OVERFETCH_MIN = 2
@@ -1656,15 +1657,7 @@ async def deepseek_search_many(
 
     tasks = [asyncio.create_task(_run_one(q)) for q in unique_queries]
     timeout = deadline if deadline is not None else SEARCH_TIMEOUT
-    try:
-        if tasks:
-            await asyncio.wait(tasks, timeout=timeout)
-    finally:
-        pending = [task for task in tasks if not task.done()]
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+    await _wait_or_cancel(tasks, timeout)
 
     deadline_error = _fail("deadline_exceeded", f"Search query timed out after {timeout:g} s.")
     results: list[dict[str, Any]] = []
@@ -2282,6 +2275,40 @@ def _dedupe_urls(urls: list[str]) -> tuple[list[_BatchItem], int]:
     return items, duplicates
 
 
+async def _wait_or_cancel(tasks: Iterable[asyncio.Task[Any]], timeout: float) -> None:
+    """Wait up to ``timeout`` seconds for ``tasks``, then cancel and reap those still running.
+
+    A cancelled task is how the batch tools report an item that missed the deadline.
+    """
+    tasks = list(tasks)
+    try:
+        if tasks:
+            await asyncio.wait(tasks, timeout=timeout)
+    finally:
+        pending = [task for task in tasks if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+
+def _batch_deadline_error(deadline: float | None) -> dict[str, Any]:
+    """Error envelope for a batch item that was not fetched before the batch deadline."""
+    seconds = deadline if deadline is not None else get_settings().batch_deadline
+    return _fail("deadline_exceeded", f"Not fetched within the {seconds:g} s batch deadline.")
+
+
+def _batch_envelope(
+    rejection: dict[str, Any] | None,
+    task: asyncio.Task[dict[str, Any]] | None,
+    deadline_error: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a batch item's fetch envelope: its rejection, the deadline error or the task result."""
+    if rejection is not None or task is None:
+        return rejection or deadline_error
+    return deadline_error if task.cancelled() else task.result()
+
+
 async def _run_batch(
     items: list[_BatchItem],
     clean: bool,
@@ -2315,14 +2342,7 @@ async def _run_batch(
         for index, (url, rejection) in enumerate(items)
         if rejection is None
     }
-    try:
-        if tasks:
-            await asyncio.wait(tasks.values(), timeout=timeout)
-    finally:
-        pending = [task for task in tasks.values() if not task.done()]
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+    await _wait_or_cancel(tasks.values(), timeout)
     return tasks
 
 
@@ -2336,21 +2356,13 @@ def _batch_results(
 
     Returns ``(results, trimmed, requests_used)``.
     """
-    actual_deadline = deadline if deadline is not None else get_settings().batch_deadline
-    deadline_error = _fail(
-        "deadline_exceeded", f"Not fetched within the {actual_deadline:g} s batch deadline."
-    )
+    deadline_error = _batch_deadline_error(deadline)
     results: list[dict[str, Any]] = []
     remaining = max_total_chars
     trimmed = False
     requests_used = 0
     for index, (url, rejection) in enumerate(items):
-        if rejection is not None:
-            envelope = rejection
-        elif tasks[index].cancelled():
-            envelope = deadline_error
-        else:
-            envelope = tasks[index].result()
+        envelope = _batch_envelope(rejection, tasks.get(index), deadline_error)
         item = _batch_item(url, envelope)
         if item["ok"]:
             trimmed = trimmed or envelope["truncated"]
@@ -2598,40 +2610,30 @@ async def _fill_gaps(
     strip_boilerplate: bool = True,
     deadline: float | None = None,
     max_pages: int | None = None,
-    internal_batch: bool = False,
+    share_total: bool = True,
 ) -> _GapFill:
-    """Fetch sources with missing or short content and merge the fetched pages in place."""
+    """Fetch sources with missing or short content and merge the fetched pages in place.
+
+    Each page gets up to ``per_page_chars``; with ``share_total`` that cap is also limited to an equal
+    share of ``total_chars`` (search results), otherwise only the batch total is enforced (research).
+    """
     fill = _GapFill()
     gaps = _select_gaps(sources, fill, max_pages=max_pages)
     if not gaps:
         return fill
-    if internal_batch:
-        items: list[_BatchItem] = [(source["url"].strip(), None) for source in gaps.values()]
-        tasks = await _run_batch(
-            items,
-            clean=True,
-            per_url=per_page_chars,
-            refresh=refresh,
-            strip_boilerplate=strip_boilerplate,
-            deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
-            fallback_to_search=True,
-        )
-        batch = _assemble_batch(
-            items,
-            tasks,
-            duplicates=0,
-            max_total_chars=total_chars,
-            deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
-        )
-    else:
-        batch = await deepseek_fetch_many(
-            [source["url"].strip() for source in gaps.values()],
-            max_chars_per_url=per_page_chars,
-            max_total_chars=total_chars,
-            refresh=refresh,
-            strip_boilerplate=strip_boilerplate,
-            deadline=deadline if deadline is not None else get_settings().research_gap_deadline,
-        )
+    items: list[_BatchItem] = [(source["url"].strip(), None) for source in gaps.values()]
+    per_url = max(1, min(per_page_chars, total_chars // len(items))) if share_total else per_page_chars
+    batch_deadline = deadline if deadline is not None else get_settings().research_gap_deadline
+    tasks = await _run_batch(
+        items,
+        clean=True,
+        per_url=per_url,
+        refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
+        deadline=batch_deadline,
+        fallback_to_search=True,
+    )
+    batch = _assemble_batch(items, tasks, duplicates=0, max_total_chars=total_chars, deadline=batch_deadline)
     fill.requests_used = batch["requests_used"]
     fill.cached_count = batch["cached_count"]
     fill.trimmed = TRUNCATED_NOTE in batch["notes"]
@@ -3313,7 +3315,7 @@ async def _research_rank_and_fill(run: _ResearchRun) -> None:
         run.strip_boilerplate,
         deadline=run.phase_timeout(30.0),
         max_pages=run.cfg.k_sources,
-        internal_batch=True,
+        share_total=False,
     )
     run.requests_used += fill.requests_used
     run.cached_count += fill.cached_count
@@ -3883,10 +3885,7 @@ async def deepseek_extract_many(
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
     fetch_tasks = await _run_batch(items, clean, per_url, refresh, strip_boilerplate, deadline=deadline)
 
-    actual_deadline = deadline if deadline is not None else settings.batch_deadline
-    deadline_error = _fail(
-        "deadline_exceeded", f"Not fetched within the {actual_deadline:g} s batch deadline."
-    )
+    deadline_error = _batch_deadline_error(deadline)
 
     system_prompt = build_extract_prompt(fields, schema, instruction)
 
@@ -3894,7 +3893,7 @@ async def deepseek_extract_many(
     extract_indices: dict[int, int] = {}
     fetch_envelopes: dict[int, dict[str, Any]] = {}
 
-    extract_sem = asyncio.Semaphore(4)
+    extract_sem = asyncio.Semaphore(EXTRACT_CONCURRENCY)
 
     async def _bounded_extract_page(u: str, e: dict[str, Any]) -> tuple[dict[str, Any], int]:
         async with extract_sem:
@@ -3902,12 +3901,7 @@ async def deepseek_extract_many(
 
     requests_used = 0
     for index, (url, rejection) in enumerate(items):
-        if rejection is not None:
-            fetch_envelopes[index] = rejection
-        elif fetch_tasks[index].cancelled():
-            fetch_envelopes[index] = deadline_error
-        else:
-            fetch_envelopes[index] = fetch_tasks[index].result()
+        fetch_envelopes[index] = _batch_envelope(rejection, fetch_tasks.get(index), deadline_error)
 
         env = fetch_envelopes[index]
         if env.get("ok"):
