@@ -265,3 +265,9 @@ def test_dual_max_chars_defaults_are_in_the_description(tool: str, single: int, 
     tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
     description = tools[tool].description
     assert f"{single:,}" in description and f"{per_url:,}" in description
+
+
+def test_every_tool_description_fits_the_length_limit() -> None:
+    tools = asyncio.run(server.mcp.list_tools())
+    for tool in tools:
+        assert len(tool.description) <= 1200, (tool.name, len(tool.description))

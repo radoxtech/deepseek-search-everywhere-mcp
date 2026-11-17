@@ -294,7 +294,7 @@ async def test_page_on_a_server_job_is_ignored_with_a_note(fake_upstream: Any) -
     assert res["status"] == "done" and any("page applies only" in n for n in res["notes"])
 
 
-async def test_tool_surface_stays_at_nine_tools() -> None:
+async def test_tool_surface_stays_at_six_tools() -> None:
     import asyncio as _asyncio
 
     tools = await server.mcp.list_tools()

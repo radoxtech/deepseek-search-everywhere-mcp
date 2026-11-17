@@ -86,22 +86,21 @@ async def deepseek_research(
     """Research a topic across the web and get a cited report in one call.
 
     The server searches several angles, reads 6-24 sources and returns a compact report whose [n]
-    citations match the ids in the sources array, instead of filling your context with raw pages. About
-    $0.003 (depth "low") to $0.03 ("max"). depth: "low" quick overview, "medium" (default) most
-    questions, "high" decisions with several viewpoints, "max" broad or contested topics.
-    sources="academic" favours peer-reviewed papers, "technical" official docs, specs and repos.
-    Numbers missing from their cited source are marked [unverified] (unverified="drop" removes
-    those sentences). If status is "running", call deepseek_check_research with the job_id; do not
-    start the same research again. With synthesis="client" you get the ranked sources in pages
-    and write the report yourself; the server then verifies its citations and numbers. At most 3
-    jobs run at once.
+    citations match the ids in the sources array. About $0.003 (depth "low") to $0.03 ("max"). depth:
+    "low" quick overview, "medium" (default) most questions, "high" decisions with several viewpoints,
+    "max" broad or contested topics. sources="academic" favours peer-reviewed papers, "technical"
+    official docs, specs and repos. Numbers missing from their cited source are marked [unverified]. If
+    status is "running", poll deepseek_check_research with the job_id; never restart it. With
+    synthesis="client" the job returns status "needs_input" (step "report") with the ranked sources in
+    pages; send your report as answer= and the server verifies citations and numbers. At most 3 jobs run
+    at once.
 
     When NOT to use: one fact or a few independent queries (deepseek_search), known URLs
     (deepseek_fetch), or fields as JSON (deepseek_extract).
 
     Returns: {"ok": True, "status": "done"|"running"|"needs_input", "job_id"?, "report": str,
-    "sources": [{id, title, url, date, doi, pmid, pmcid, access, source_type, authors}],
-    "unverified_numbers": [...], "cost_usd": float}.
+    "sources": [{id, title, url, date, doi, source_type, ...}], "unverified_numbers": [...],
+    "cost_usd": float}.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:
