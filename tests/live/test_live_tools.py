@@ -15,7 +15,7 @@ import pytest
 from live_judge import assert_quality, judge_items
 from repeat_runner import repeat_llm
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.boilerplate import REDDIT, rules_for
 
 pytestmark = pytest.mark.live
@@ -33,7 +33,7 @@ def upstream_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(path)
         return await real(method, path, **kwargs)
 
-    monkeypatch.setattr(server, "_request", spy)
+    monkeypatch.setattr(runtime, "_request", spy)
     return calls
 
 

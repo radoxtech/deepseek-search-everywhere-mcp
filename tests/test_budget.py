@@ -8,7 +8,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.budget import DailyBudgetTracker
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
@@ -121,7 +121,7 @@ def test_server_enforces_budget_exceeded(fake_upstream, tmp_path):
 
     # Wire tracker to temporary state file
     tracker = DailyBudgetTracker(limit_usd=0.001, state_path=state_file)
-    server._budget_tracker = tracker
+    runtime._budget_tracker = tracker
 
     # First search succeeds
     res1 = asyncio.run(server.deepseek_search("test1"))
@@ -218,7 +218,7 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
     settings = Settings(daily_budget_usd=limit)
     set_settings(settings)
     server.reset_state()
-    server._budget_tracker = tracker
+    runtime._budget_tracker = tracker
 
     # Mock responses with a small delay to induce a concurrency race in reserve
     async def delayed_handler(method: str, path: str, **kwargs: Any) -> dict[str, Any]:

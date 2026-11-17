@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
 from deepseek_search_everywhere_mcp.settings import Settings
 
@@ -52,7 +52,7 @@ def upstream(fake_upstream: Any) -> Upstream:
 def limiter(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> RateLimiter:
     """A limiter on a frozen clock, so token balances are exact."""
     instance = RateLimiter.from_settings(Settings(), clock=fake_clock.monotonic)
-    monkeypatch.setattr(server, "_rate_limiter", instance)
+    monkeypatch.setattr(runtime, "_rate_limiter", instance)
     return instance
 
 

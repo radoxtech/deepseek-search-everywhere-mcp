@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.deep_research import (
     CONTEXT_PAGE_CHARS,
     build_synthesis_system_prompt,
@@ -151,7 +151,7 @@ async def test_report_before_the_sources_are_ready_is_rejected(
 ) -> None:
     import asyncio
 
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.01))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.01))
 
     class Slow(Upstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -344,7 +344,7 @@ async def test_first_delivery_through_polling_carries_the_cost(
 ) -> None:
     import asyncio
 
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.01))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.01))
 
     class Slow(Upstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -354,7 +354,7 @@ async def test_first_delivery_through_polling_carries_the_cost(
     fake_upstream(Slow())
     running = await server.deepseek_research("slow cost topic", depth="low", synthesis="client")
     assert running["status"] == "running"
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=5.0))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=5.0))
     first = await server.deepseek_check_research(running["job_id"])
     second = await server.deepseek_check_research(running["job_id"])
     assert first["status"] == second["status"] == "awaiting_report"

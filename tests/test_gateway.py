@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import ratelimit, server
+from deepseek_search_everywhere_mcp import ratelimit, runtime, server
 from deepseek_search_everywhere_mcp.budget import DailyBudgetTracker
 from deepseek_search_everywhere_mcp.settings import get_pricing_period
 
@@ -88,7 +88,7 @@ async def test_chat_request_releases_reservation_on_upstream_failure(
 ) -> None:
     state_file = tmp_path / "budget.json"
     tracker = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
-    server._budget_tracker = tracker
+    runtime._budget_tracker = tracker
 
     fake_upstream(
         responses={
@@ -116,13 +116,13 @@ async def test_chat_request_releases_reservation_on_cancellation(
 ) -> None:
     state_file = tmp_path / "budget.json"
     tracker = DailyBudgetTracker(limit_usd=1.0, state_path=state_file)
-    server._budget_tracker = tracker
+    runtime._budget_tracker = tracker
 
     async def hanging_request(*args: Any, **kwargs: Any) -> dict[str, Any]:
         await asyncio.sleep(10.0)
         return {"ok": True, "data": {}}
 
-    monkeypatch.setattr(server, "_request", hanging_request)
+    monkeypatch.setattr(runtime, "_request", hanging_request)
 
     task = asyncio.create_task(
         server._chat_request([{"role": "user", "content": "cancel test"}], thinking={"type": "disabled"})
@@ -204,7 +204,7 @@ async def test_chat_request_prices_from_usage_tokens(
     )
 
     # Test peak period
-    monkeypatch.setattr(server, "get_pricing_period", lambda: "peak")
+    monkeypatch.setattr(runtime, "get_pricing_period", lambda: "peak")
     res_peak = await server._chat_request(
         [{"role": "user", "content": "hi"}],
         thinking={"type": "disabled"},
@@ -217,7 +217,7 @@ async def test_chat_request_prices_from_usage_tokens(
     assert res_peak["cost_usd"] == 0.000422
 
     # Test off_peak period
-    monkeypatch.setattr(server, "get_pricing_period", lambda: "off_peak")
+    monkeypatch.setattr(runtime, "get_pricing_period", lambda: "off_peak")
     res_off = await server._chat_request(
         [{"role": "user", "content": "hi"}],
         thinking={"type": "disabled"},

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.deep_research import get_job_store
 from deepseek_search_everywhere_mcp.settings import LLMPricing, LLMRates, Settings
 
@@ -179,7 +179,7 @@ async def test_research_finishing_within_inline_wait_returns_inline(fake_upstrea
 async def test_research_exceeding_inline_wait_returns_running(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -212,7 +212,7 @@ async def test_research_exceeding_inline_wait_returns_running(
 async def test_research_cancellation_does_not_cancel_background_job(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=10.0))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=10.0))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -240,7 +240,7 @@ async def test_research_cancellation_does_not_cancel_background_job(
 async def test_running_research_progress_carries_timing(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -268,7 +268,7 @@ async def test_progress_reports_a_synthesis_sub_step(fake_upstream: Any) -> None
 async def test_research_duplicate_joins_running_job(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -289,7 +289,7 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        server,
+        runtime,
         "get_settings",
         lambda: Settings(research_inline_wait=0.01, research_max_jobs=3),
     )
@@ -318,7 +318,7 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
 async def test_check_research_long_poll_returns_polled_done(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -332,7 +332,7 @@ async def test_check_research_long_poll_returns_polled_done(
     assert running_env["status"] == "running"
     job_id = running_env["job_id"]
 
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.20))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.20))
     polled_env = await server.deepseek_check_research(job_id)
     assert polled_env["ok"] is True
     assert polled_env["status"] == "done"
@@ -343,7 +343,7 @@ async def test_check_research_long_poll_returns_polled_done(
 async def test_check_research_returns_running_when_still_not_done(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.02))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.02))
 
     class VerySlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -384,7 +384,7 @@ async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytes
     job = list(store._jobs.values())[0]
     job_id = job.job_id
 
-    monkeypatch.setattr(server, "_clock", lambda: job.completed_at + 1801.0)
+    monkeypatch.setattr(runtime, "_clock", lambda: job.completed_at + 1801.0)
     check_res = await server.deepseek_check_research(job_id)
     assert check_res["ok"] is False
     assert check_res["error"]["code"] == "job_not_found"
@@ -554,7 +554,7 @@ async def test_deadline_budgeter_shrinks_phases_and_aborts_synthesis_if_too_late
         nonlocal curr_time
         return curr_time
 
-    monkeypatch.setattr(server, "_clock", fake_clock)
+    monkeypatch.setattr(runtime, "_clock", fake_clock)
 
     class AdvancingUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -795,7 +795,7 @@ async def test_synthesis_cost_ceiling_aborts_and_returns_sources(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     settings = Settings(research_cost_ceiling_usd=0.0005)
-    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    monkeypatch.setattr(runtime, "get_settings", lambda: settings)
 
     upstream = DeepResearchUpstream()
     fake_upstream(upstream)
@@ -878,7 +878,7 @@ async def test_lean_envelope_contains_no_page_content_on_all_fallbacks(
 
     # 2. Cost ceiling exceeded fallback
     settings = Settings(research_cost_ceiling_usd=0.0005)
-    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    monkeypatch.setattr(runtime, "get_settings", lambda: settings)
     upstream2 = DeepResearchUpstream()
     fake_upstream(upstream2)
 
@@ -998,7 +998,7 @@ def _install_counting_pipeline(monkeypatch: pytest.MonkeyPatch) -> list[dict[str
         }
 
     monkeypatch.setattr(server, "_execute_research_pipeline", fake_pipeline)
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=5.0))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=5.0))
     return calls
 
 
@@ -1044,10 +1044,10 @@ async def test_research_refresh_true_starts_new_job(monkeypatch: pytest.MonkeyPa
 async def test_research_finished_result_not_reused_after_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _install_counting_pipeline(monkeypatch)
     monkeypatch.setattr(
-        server, "get_settings", lambda: Settings(research_inline_wait=5.0, research_job_ttl=100.0)
+        runtime, "get_settings", lambda: Settings(research_inline_wait=5.0, research_job_ttl=100.0)
     )
     now = [1000.0]
-    monkeypatch.setattr(server, "_clock", lambda: now[0])
+    monkeypatch.setattr(runtime, "_clock", lambda: now[0])
 
     await server.deepseek_research("ttl topic", depth="low")
     now[0] += 99.0
@@ -1106,7 +1106,7 @@ async def test_synthesis_retry_cost_includes_failed_first_attempt(
             "raw": {},
         }
 
-    monkeypatch.setattr(server, "_chat_request", fake_chat_request)
+    monkeypatch.setattr(runtime, "_chat_request", fake_chat_request)
     res = await server.deepseek_research("cost retry topic", depth="medium")
     assert res["ok"] is True
     assert res["synthesized"] is True
@@ -1136,7 +1136,7 @@ async def test_research_cost_ceiling_uses_configured_pricing(
         research_cost_ceiling_usd=1.0,
         llm_pricing=LLMPricing(peak=expensive, off_peak=expensive),
     )
-    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    monkeypatch.setattr(runtime, "get_settings", lambda: settings)
     fake_upstream(DeepResearchUpstream())
 
     res = await server.deepseek_research("configured pricing topic", depth="low")
@@ -1187,7 +1187,7 @@ def _install_condense_chat(
         assert condense_result is not None, "unexpected extra chat call"
         return condense_result
 
-    monkeypatch.setattr(server, "_chat_request", fake_chat_request)
+    monkeypatch.setattr(runtime, "_chat_request", fake_chat_request)
     return calls
 
 
@@ -1311,7 +1311,7 @@ async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_deny
 
 async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = {"now": 1000.0}
-    monkeypatch.setattr(server, "_clock", lambda: clock["now"])
+    monkeypatch.setattr(runtime, "_clock", lambda: clock["now"])
     gate = asyncio.Event()
 
     async def gated_pipeline(*, job: Any, clean_topic: str, depth: str, **kwargs: Any) -> dict[str, Any]:
@@ -1331,7 +1331,7 @@ async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: 
         }
 
     monkeypatch.setattr(server, "_execute_research_pipeline", gated_pipeline)
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.01))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.01))
 
     started = await server.deepseek_research("Elapsed polled topic", depth="low")
     assert started["status"] == "running"

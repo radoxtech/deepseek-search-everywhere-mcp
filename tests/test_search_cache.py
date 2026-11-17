@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 
 RESULTS = [
     {"title": "One", "url": "https://example.com/one", "site_name": "Example", "content": "a" * 500},
@@ -114,7 +114,7 @@ async def test_api_key_is_not_part_of_the_cache_key(
     upstream: Upstream, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await _search()
-    monkeypatch.setattr(server, "_api_key", lambda: "another-key")
+    monkeypatch.setattr(runtime, "_api_key", lambda: "another-key")
     assert (await _search())["cached"] is True
     assert len(upstream.calls) == 1
 

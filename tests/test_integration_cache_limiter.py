@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server, transport
+from deepseek_search_everywhere_mcp import runtime, server, transport
 from deepseek_search_everywhere_mcp.ratelimit import CHAT, FETCH, SEARCH, RateLimiter, Ticket
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
@@ -88,7 +88,7 @@ def _install_limiter(
         settings or Settings(), clock=clock.monotonic, sleep=sleep or RecordingSleep(clock)
     )
     limiter = CountingLimiter(built.buckets)
-    monkeypatch.setattr(server, "_rate_limiter", limiter)
+    monkeypatch.setattr(runtime, "_rate_limiter", limiter)
     return limiter
 
 

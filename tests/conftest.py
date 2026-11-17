@@ -20,7 +20,7 @@ PACKAGE = "deepseek_search_everywhere_mcp"
 # Modules that may own process-wide state (cache entries, in-flight maps, rate-limit
 # buckets, the rewrite cache). Each one opts in by defining a ``reset_state()`` function;
 # modules that do not exist yet are skipped.
-STATEFUL_MODULES = ("cache", "deep_research", "ratelimit", "server", "settings", "transport")
+STATEFUL_MODULES = ("cache", "deep_research", "ratelimit", "runtime", "server", "settings", "transport")
 
 # The real key, captured once at import time before any fixture strips the environment.
 # Only tests marked ``live`` get it back, through the ``live_api_key`` fixture.
@@ -159,7 +159,7 @@ def fake_upstream(monkeypatch: pytest.MonkeyPatch) -> InstallUpstream:
     ``fake_upstream(custom)`` installs any async callable (e.g. a file-specific fake) as-is.
     Either way the installed fake is returned. ``api_key=None`` leaves the key lookup alone.
     """
-    from deepseek_search_everywhere_mcp import server
+    from deepseek_search_everywhere_mcp import runtime
 
     def install(
         upstream: RequestFake | None = None,
@@ -169,9 +169,9 @@ def fake_upstream(monkeypatch: pytest.MonkeyPatch) -> InstallUpstream:
         api_key: str | None = "test-key",
     ) -> Any:
         fake = upstream if upstream is not None else FakeUpstream(responses, default)
-        monkeypatch.setattr(server, "_request", fake)
+        monkeypatch.setattr(runtime, "_request", fake)
         if api_key is not None:
-            monkeypatch.setattr(server, "_api_key", lambda: api_key)
+            monkeypatch.setattr(runtime, "_api_key", lambda: api_key)
         return fake
 
     return install

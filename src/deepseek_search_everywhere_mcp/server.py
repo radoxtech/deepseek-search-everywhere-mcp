@@ -13,15 +13,12 @@ from __future__ import annotations
 import asyncio
 import copy
 import dataclasses
-import functools
-import hashlib
 import inspect
 import json
 import logging
 import math
 import os
 import re
-import time
 import urllib.parse
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
@@ -29,16 +26,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
 from datetime import time as dt_time
 from pathlib import Path
-from typing import Annotated, Any, Final, Literal, ParamSpec
+from typing import Annotated, Any, Final, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from . import runtime
 from ._version import __version__
 from .boilerplate import remove_boilerplate
-from .budget import DailyBudgetTracker, Reservation
-from .cache import SingleFlight, TTLCache
 from .deep_research import (
     DEPTH_CONFIG,
     ResearchJob,
@@ -67,9 +63,6 @@ from .deep_research import (
     source_identifiers,
     validate_r2_queries,
 )
-from .deep_research import (
-    reset_state as reset_deep_research_state,
-)
 from .egress import check_fetch_egress, check_search_egress
 from .errors import _fail
 from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
@@ -81,8 +74,65 @@ from .extract import (
     verify_evidence,
 )
 from .filters import MAX_QUERY, compile_filters, filter_results_by_domain, fit_query
-from .ratelimit import CHAT, FETCH, SEARCH, RateLimiter, RateLimitExceeded
+from .ratelimit import FETCH, SEARCH
 from .redact import redact
+from .runtime import (
+    CHAT_TIMEOUT as CHAT_TIMEOUT,
+)
+from .runtime import (
+    REWRITE_MODEL as REWRITE_MODEL,
+)
+from .runtime import (
+    SessionMetrics as SessionMetrics,
+)
+from .runtime import (
+    _cached_call as _cached_call,
+)
+from .runtime import (
+    _canonical_json as _canonical_json,
+)
+from .runtime import (
+    _get_budget_tracker as _get_budget_tracker,
+)
+from .runtime import (
+    _get_cache_stats as _get_cache_stats,
+)
+from .runtime import (
+    _get_fetch_cache as _get_fetch_cache,
+)
+from .runtime import (
+    _get_fetch_flight as _get_fetch_flight,
+)
+from .runtime import (
+    _get_rewrite_cache as _get_rewrite_cache,
+)
+from .runtime import (
+    _get_rewrite_flight as _get_rewrite_flight,
+)
+from .runtime import (
+    _get_search_cache as _get_search_cache,
+)
+from .runtime import (
+    _get_search_flight as _get_search_flight,
+)
+from .runtime import (
+    _get_session_metrics as _get_session_metrics,
+)
+from .runtime import (
+    _limited_request as _limited_request,
+)
+from .runtime import (
+    _sha256 as _sha256,
+)
+from .runtime import (
+    _timed as _timed,
+)
+from .runtime import (
+    logger as logger,
+)
+from .runtime import (
+    reset_state as reset_state,
+)
 from .sanitize import (
     sanitize_structure,
     sanitize_untrusted_text,
@@ -91,12 +141,9 @@ from .sanitize import (
 from .settings import (
     DEFAULT_LOG_LEVEL,
     ENV_DEBUG_DUMP_DIR,
-    get_pricing_period,
-    get_settings,
 )
 from .snippets import MAX_SNIPPETS, extract_snippets, split_sections
-from .transport import _api_key, _base_url
-from .transport import request as _request  # tests monkeypatch server._request
+from .transport import _base_url
 from .urls import (
     CODE_INVALID,
     UrlError,
@@ -110,11 +157,9 @@ MAX_TOPIC = 500
 SEARCH_TIMEOUT = 45.0
 FETCH_TIMEOUT = 60.0
 BALANCE_TIMEOUT = 20.0
-CHAT_TIMEOUT = 8.0
 
 SEARCH_PATH = "/v1/tools/search"
 FETCH_PATH = "/v1/tools/fetch"
-REWRITE_MODEL = "deepseek-flash"
 
 SYSTEM_PROMPT = (
     "You rewrite search queries. Output ONLY the rewritten query, no quotes, no explanation. "
@@ -205,158 +250,10 @@ def _envelope_meta(cost_usd: float, untrusted_content: bool = True) -> dict[str,
     }
 
 
-logger = logging.getLogger(__name__)
-
-# Monotonic clock behind every envelope's ``elapsed_ms``; tests may replace it.
-_clock: Callable[[], float] = time.monotonic
-
-_P = ParamSpec("_P")
-
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 SERVER_NAME = "deepseek-search-everywhere-mcp"
-
-
-@dataclass
-class SessionMetrics:
-    """In-memory request and cache-hit counts for the current session."""
-
-    start_time: float
-    requests_upstream: int = 0
-    cache_hits: int = 0
-
-
-# Runtime state, built lazily from the active settings on first use so nothing is bound
-# to an event loop at import time. ``reset_state()`` drops it all.
-_search_cache: TTLCache | None = None
-_search_flight: SingleFlight | None = None
-_fetch_cache: TTLCache | None = None
-_fetch_flight: SingleFlight | None = None
-_rewrite_cache: TTLCache | None = None
-_rewrite_flight: SingleFlight | None = None
-_rate_limiter: RateLimiter | None = None
-_session_metrics: SessionMetrics | None = None
-_budget_tracker: DailyBudgetTracker | None = None
-
-
-def reset_state() -> None:
-    """Forget the response and rewrite caches, in-flight calls, session metrics and the rate limiter."""
-    global _search_cache, _search_flight, _fetch_cache, _fetch_flight
-    global _rewrite_cache, _rewrite_flight, _rate_limiter, _session_metrics, _budget_tracker
-    _search_cache = _search_flight = _fetch_cache = _fetch_flight = None
-    _rewrite_cache = _rewrite_flight = _rate_limiter = _session_metrics = _budget_tracker = None
-    reset_deep_research_state()
-
-
-def _get_budget_tracker() -> DailyBudgetTracker | None:
-    """Return the active daily budget tracker, or ``None`` when daily budget is disabled."""
-    global _budget_tracker
-    settings = get_settings()
-    if settings.daily_budget_usd is None:
-        return None
-    if _budget_tracker is None:
-        _budget_tracker = DailyBudgetTracker(settings.daily_budget_usd)
-    return _budget_tracker
-
-
-def _get_session_metrics() -> SessionMetrics:
-    """Return the active session metrics tracker, creating it lazily."""
-    global _session_metrics
-    if _session_metrics is None:
-        _session_metrics = SessionMetrics(start_time=_clock())
-    return _session_metrics
-
-
-def _get_search_cache() -> TTLCache | None:
-    """Return the search response cache, or ``None`` when caching is disabled."""
-    global _search_cache
-    settings = get_settings()
-    if not settings.cache_enabled:
-        return None
-    if _search_cache is None:
-        _search_cache = TTLCache(
-            settings.cache_search_entries, settings.cache_search_bytes, ttl=settings.cache_search_ttl
-        )
-    return _search_cache
-
-
-def _get_search_flight() -> SingleFlight:
-    """Return the single-flight group that collapses identical concurrent searches."""
-    global _search_flight
-    if _search_flight is None:
-        # Cache writes are done by the leader itself so only usable responses are stored.
-        _search_flight = SingleFlight(None)
-    return _search_flight
-
-
-def _get_fetch_cache() -> TTLCache | None:
-    """Return the fetch response cache, or ``None`` when caching is disabled."""
-    global _fetch_cache
-    settings = get_settings()
-    if not settings.cache_enabled:
-        return None
-    if _fetch_cache is None:
-        _fetch_cache = TTLCache(
-            settings.cache_fetch_entries, settings.cache_fetch_bytes, ttl=settings.cache_fetch_ttl
-        )
-    return _fetch_cache
-
-
-def _get_fetch_flight() -> SingleFlight:
-    """Return the single-flight group that collapses identical concurrent fetches."""
-    global _fetch_flight
-    if _fetch_flight is None:
-        # Cache writes are done by the leader itself so only usable pages are stored.
-        _fetch_flight = SingleFlight(None)
-    return _fetch_flight
-
-
-def _get_rewrite_cache() -> TTLCache | None:
-    """Return the query-rewrite cache, or ``None`` when caching is disabled."""
-    global _rewrite_cache
-    settings = get_settings()
-    if not settings.cache_enabled:
-        return None
-    if _rewrite_cache is None:
-        _rewrite_cache = TTLCache(
-            settings.cache_rewrite_entries, settings.cache_rewrite_bytes, ttl=settings.cache_rewrite_ttl
-        )
-    return _rewrite_cache
-
-
-def _get_rewrite_flight() -> SingleFlight:
-    """Return the single-flight group that collapses identical concurrent query rewrites."""
-    global _rewrite_flight
-    if _rewrite_flight is None:
-        # Cache writes are done by the leader itself so failed rewrites are not stored.
-        _rewrite_flight = SingleFlight(None)
-    return _rewrite_flight
-
-
-def _get_rate_limiter() -> RateLimiter:
-    """Return the process-wide per-endpoint rate limiter."""
-    global _rate_limiter
-    if _rate_limiter is None:
-        _rate_limiter = RateLimiter.from_settings(get_settings())
-    return _rate_limiter
-
-
-def _get_cache_stats() -> dict[str, Any]:
-    """Return current occupancy and capacity stats across active caches."""
-    return {
-        "search": _search_cache.stats() if _search_cache is not None else None,
-        "fetch": _fetch_cache.stats() if _fetch_cache is not None else None,
-        "rewrite": _rewrite_cache.stats() if _rewrite_cache is not None else None,
-    }
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _search_cache_key(payload: dict[str, Any]) -> str:
@@ -372,198 +269,6 @@ def _fetch_cache_key(url: str) -> str:
     """
     target = url.strip().split("#", 1)[0]
     return _sha256(_canonical_json({"path": FETCH_PATH, "base_url": _base_url(), "url": target}))
-
-
-async def _limited_request(
-    endpoint: str,
-    path: str,
-    payload: dict[str, Any],
-    timeout: float,
-    deadline: float | None = None,
-) -> dict[str, Any]:
-    """Take one ``endpoint`` token, then call upstream once (transport retries included).
-
-    Returns the transport envelope, or a ``rate_limited_local`` error envelope when no token
-    is available in time. The token is refunded if the call is cancelled.
-    """
-    try:
-        ticket = await _get_rate_limiter().acquire(endpoint)
-    except RateLimitExceeded as exc:
-        return exc.to_envelope()
-    try:
-        metrics = _get_session_metrics()
-        metrics.requests_upstream += 1
-        return await _request("POST", path, payload=payload, timeout=timeout, deadline=deadline)
-    except asyncio.CancelledError:
-        ticket.refund()
-        raise
-
-
-async def _chat_request(
-    messages: list[dict[str, Any]],
-    *,
-    thinking: dict[str, Any],
-    model: str = REWRITE_MODEL,
-    max_tokens: int | None = None,
-    response_format: dict[str, Any] | None = None,
-    temperature: float | None = None,
-    timeout: float = CHAT_TIMEOUT,
-    deadline: float | None = None,
-    attempts: int = 2,
-    reasoning_effort: str | None = None,
-) -> dict[str, Any]:
-    """Execute a chat completion request through rate limiting and budget reservation.
-
-    'thinking' is a required keyword-only argument with no default.
-    Surfaces finish_reason, usage-based cost, and pricing_period.
-    """
-    if not isinstance(thinking, dict):
-        raise ValueError("'thinking' must be a dictionary.")
-
-    try:
-        ticket = await _get_rate_limiter().acquire(CHAT)
-    except RateLimitExceeded as exc:
-        return exc.to_envelope()
-
-    budget = _get_budget_tracker()
-    reservation: Reservation | None = None
-    settings = get_settings()
-    est_cost = 0.001
-    if budget is not None:
-        est_input_tokens = sum(len(str(m.get("content", ""))) for m in messages) // 2
-        est_output_tokens = max_tokens if max_tokens is not None else 2048
-        peak_rates = settings.llm_pricing.peak
-        est_cost = max(
-            0.0001,
-            (est_input_tokens / 1_000_000) * peak_rates.cache_miss_per_1m
-            + (est_output_tokens / 1_000_000) * peak_rates.output_per_1m,
-        )
-        reservation = await budget.reserve(est_cost)
-        if reservation is None:
-            ticket.refund()
-            return _fail(
-                "budget_exceeded",
-                f"Daily spend limit of ${budget.limit_usd:.2f} exceeded.",
-                402,
-            )
-
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "thinking": thinking,
-        "stream": False,
-    }
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
-    if response_format is not None:
-        payload["response_format"] = response_format
-    if temperature is not None:
-        payload["temperature"] = temperature
-    if reasoning_effort is not None:
-        payload["reasoning_effort"] = reasoning_effort
-
-    period = get_pricing_period()
-    rates = settings.llm_pricing.peak if period == "peak" else settings.llm_pricing.off_peak
-
-    try:
-        result = await _request(
-            "POST",
-            "/v1/chat/completions",
-            payload=payload,
-            timeout=timeout,
-            deadline=deadline,
-            attempts=attempts,
-        )
-    except BaseException:
-        ticket.refund()
-        if reservation is not None:
-            await reservation.release()
-        raise
-
-    if not result.get("ok"):
-        if reservation is not None:
-            await reservation.release()
-        return result
-
-    data = result.get("data") or {}
-    choices = data.get("choices") or []
-    choice = choices[0] if choices else {}
-    msg = choice.get("message") or {}
-    content = msg.get("content") or ""
-    reasoning_content = msg.get("reasoning_content")
-    finish_reason = choice.get("finish_reason")
-    usage = data.get("usage") or {}
-
-    notes: list[str] = []
-
-    if usage and ("prompt_tokens" in usage or "completion_tokens" in usage):
-        prompt_tokens = int(usage.get("prompt_tokens", 0))
-        comp_tokens = int(usage.get("completion_tokens", 0))
-        hit_tokens = int(usage.get("prompt_cache_hit_tokens", 0))
-        miss_tokens = int(usage.get("prompt_cache_miss_tokens", max(0, prompt_tokens - hit_tokens)))
-        cost_usd = (
-            (hit_tokens / 1_000_000) * rates.cache_hit_per_1m
-            + (miss_tokens / 1_000_000) * rates.cache_miss_per_1m
-            + (comp_tokens / 1_000_000) * rates.output_per_1m
-        )
-    else:
-        cost_usd = est_cost
-        notes.append("Usage missing from upstream response; cost estimated.")
-
-    cost_usd = round(cost_usd, 6)
-    if reservation is not None:
-        await reservation.commit(cost_usd)
-
-    return {
-        "ok": True,
-        "content": content,
-        "reasoning_content": reasoning_content,
-        "finish_reason": finish_reason,
-        "usage": usage,
-        "cost_usd": cost_usd,
-        "pricing_period": period,
-        "notes": notes,
-        "raw": data,
-    }
-
-
-async def _cached_call(
-    cache: TTLCache | None,
-    flight: SingleFlight,
-    key: str,
-    leader: Callable[[], Awaitable[dict[str, Any]]],
-    *,
-    refresh: bool,
-) -> tuple[dict[str, Any], bool]:
-    """Serve ``key`` from ``cache`` or through a single-flight ``leader`` call.
-
-    Returns ``(record, cached)``; the record is an error envelope when the leader failed.
-    """
-    record = None if refresh or cache is None else cache.get(key)
-    if record is not None:
-        _get_session_metrics().cache_hits += 1
-        return record, True
-    result = await flight.run(key, leader, refresh=refresh)
-    return result.value, False
-
-
-def _timed(
-    tool: Callable[_P, Awaitable[dict[str, Any]]],
-) -> Callable[_P, Awaitable[dict[str, Any]]]:
-    """Add ``elapsed_ms``, the call's wall time on the monotonic clock, to every envelope ``tool`` returns.
-
-    Success and error envelopes alike get it, on a copy; a cache hit reports its own (small) time.
-    ``functools.wraps`` keeps the signature and docstring that FastMCP turns into the tool schema.
-    """
-
-    @functools.wraps(tool)
-    async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> dict[str, Any]:
-        started = _clock()
-        envelope = await tool(*args, **kwargs)
-        # A copy: the envelope may be shared (single-flight followers, the upstream's error dict).
-        return {**envelope, "elapsed_ms": max(0, round((_clock() - started) * 1000))}
-
-    return wrapper
 
 
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
@@ -803,7 +508,7 @@ def _clean_index_text(text: str) -> str:
 
 async def _rewrite_query(query: str) -> str | None:
     try:
-        result = await _chat_request(
+        result = await runtime._chat_request(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": query},
@@ -896,7 +601,7 @@ def _check_search_args(
     """Validate query, count, lang and filter budget; return an error envelope or None."""
     if not query:
         return _fail("empty_query", "query must not be empty.")
-    egress_err = check_search_egress(query, get_settings())
+    egress_err = check_search_egress(query, runtime.get_settings())
     if egress_err is not None:
         return _fail("egress_blocked", egress_err)
     ops_len = len(filter_ops) if filter_ops else 0
@@ -924,7 +629,7 @@ async def _maybe_rewrite(
     Returns ``(query, ori_question, query_original, rewrite_failed)``; ``query_original`` is
     set only when the rewrite changed the query, and then also seeds a missing ``ori_question``.
     """
-    if not (rewrite and lang is None and _api_key()):
+    if not (rewrite and lang is None and runtime._api_key()):
         return query, ori_question, None, False
     rewritten = await _cached_rewrite(query)
     if rewritten is None:
@@ -1801,7 +1506,7 @@ def _check_fetch_url(url: str) -> dict[str, Any] | None:
     rejection = _reject_url(url)
     if rejection is not None:
         return rejection
-    egress_err = check_fetch_egress(url, get_settings())
+    egress_err = check_fetch_egress(url, runtime.get_settings())
     if egress_err is not None:
         return _fail("egress_blocked", egress_err)
     return None
@@ -2330,7 +2035,7 @@ async def _wait_or_cancel(tasks: Iterable[asyncio.Task[Any]], timeout: float) ->
 
 def _batch_deadline_error(deadline: float | None) -> dict[str, Any]:
     """Error envelope for a batch item that was not fetched before the batch deadline."""
-    seconds = deadline if deadline is not None else get_settings().batch_deadline
+    seconds = deadline if deadline is not None else runtime.get_settings().batch_deadline
     return _fail("deadline_exceeded", f"Not fetched within the {seconds:g} s batch deadline.")
 
 
@@ -2361,7 +2066,7 @@ async def _run_batch(
 
     Returns the tasks by item index; those still pending at the deadline are cancelled.
     """
-    settings = get_settings()
+    settings = runtime.get_settings()
     timeout = deadline if deadline is not None else settings.batch_deadline
     semaphore = asyncio.Semaphore(settings.batch_concurrency)
     tasks = {
@@ -2503,7 +2208,7 @@ async def deepseek_fetch_many(
     Returns: {"ok": True, "results": [{"url": str, "ok": bool, "content": str, ...}],
     "partial": bool, "cost_usd": float}.
     """
-    settings = get_settings()
+    settings = runtime.get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
         return _fail("bad_request", f"urls must contain 1-{settings.batch_max_urls} entries.")
     if max_chars_per_url < 1 or max_total_chars < 1:
@@ -2628,7 +2333,7 @@ def _select_gaps(
 
     At most ``max_pages`` distinct URLs are selected; rejections count as failures.
     """
-    limit = max_pages if max_pages is not None else get_settings().research_max_pages
+    limit = max_pages if max_pages is not None else runtime.get_settings().research_max_pages
     gaps: dict[str, dict[str, Any]] = {}
     for source in sources:
         url, rejection = _gap_check(source)
@@ -2662,7 +2367,7 @@ async def _fill_gaps(
         return fill
     items: list[_BatchItem] = [(source["url"].strip(), None) for source in gaps.values()]
     per_url = max(1, min(per_page_chars, total_chars // len(items))) if share_total else per_page_chars
-    batch_deadline = deadline if deadline is not None else get_settings().research_gap_deadline
+    batch_deadline = deadline if deadline is not None else runtime.get_settings().research_gap_deadline
     tasks = await _run_batch(
         items,
         clean=True,
@@ -2794,18 +2499,18 @@ async def deepseek_research(
     if synthesis not in {"server", "client"}:
         return _fail("bad_request", f"synthesis must be 'server' or 'client', got {synthesis!r}.")
 
-    settings = get_settings()
+    settings = runtime.get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
-    store.prune_expired(_clock())
+    store.prune_expired(runtime._clock())
 
     key = {"sources": sources, "unverified": unverified, "synthesis": synthesis}
     existing = store.find_active_match(clean_topic, depth, lang, **key)
     if existing is None and not refresh:
-        finished = store.find_finished_match(clean_topic, depth, lang, _clock(), **key)
+        finished = store.find_finished_match(clean_topic, depth, lang, runtime._clock(), **key)
         if finished is not None and finished.result is not None:
             if finished.has_client_sources and finished.client_sources_result is not None:
                 # Another caller gets the sources to write its own report, never someone else's report.
-                finished.completed_at = _clock()
+                finished.completed_at = runtime._clock()
                 return _reuse_finished_result(finished.client_sources_result)
             return _reuse_finished_result(finished.result)
     if existing is not None and existing.task is not None and not existing.task.done():
@@ -2829,7 +2534,7 @@ async def deepseek_research(
             sources=sources,
             unverified=unverified,
             synthesis=synthesis,
-            created_at=_clock(),
+            created_at=runtime._clock(),
             ctx=ctx,
         )
         job.task = asyncio.create_task(
@@ -2863,7 +2568,7 @@ async def deepseek_research(
 
 def _job_elapsed_ms(job: ResearchJob) -> int:
     """Milliseconds since ``job`` was created."""
-    return max(0, int((_clock() - job.created_at) * 1000))
+    return max(0, int((runtime._clock() - job.created_at) * 1000))
 
 
 def _finished_job_envelope(job: ResearchJob, delivery: Literal["inline", "polled"]) -> dict[str, Any]:
@@ -2951,9 +2656,9 @@ async def deepseek_check_research(
     if not clean_id:
         return _fail("bad_request", "job_id must not be empty.")
 
-    settings = get_settings()
+    settings = runtime.get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
-    store.prune_expired(_clock())
+    store.prune_expired(runtime._clock())
 
     job = store.get(clean_id)
     if job is None:
@@ -2966,7 +2671,7 @@ async def deepseek_check_research(
             return _fail("bad_request", "Pass either page= or report=, not both.")
         return await _verify_client_report(job, report)
     if job.has_client_sources and job.task is not None and job.task.done():
-        job.completed_at = _clock()  # a client still reading or writing keeps the job
+        job.completed_at = runtime._clock()  # a client still reading or writing keeps the job
         if page is not None:
             return _client_page(job, page)
         return _client_page(job, 1) if job.awaiting_report else _finished_job_envelope(job, "polled")
@@ -3014,7 +2719,7 @@ def _progress_view(job: ResearchJob) -> dict[str, Any]:
     """
     view = dict(job.progress)
     if job.phase_started_at is not None:
-        view["phase_elapsed_ms"] = max(0, int((_clock() - job.phase_started_at) * 1000))
+        view["phase_elapsed_ms"] = max(0, int((runtime._clock() - job.phase_started_at) * 1000))
     cfg = DEPTH_CONFIG.get(job.depth)
     if cfg is not None:
         view["deadline_ms"] = int(cfg.deadline_s * 1000)
@@ -3035,7 +2740,7 @@ async def _report_job_progress(
     if detail:
         event["detail"] = detail
     job.progress = event
-    job.phase_started_at = _clock()
+    job.phase_started_at = runtime._clock()
     job.progress_history.append(event)
     if job.ctx is not None and hasattr(job.ctx, "report_progress"):
         try:
@@ -3048,14 +2753,14 @@ async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
     try:
         res = await _execute_research_pipeline(job=job, **kwargs)
         job.result = res
-        job.completed_at = _clock()
+        job.completed_at = runtime._clock()
         return res
     except asyncio.CancelledError:
-        job.completed_at = _clock()
+        job.completed_at = runtime._clock()
         raise
     except Exception as exc:
         job.exception = exc
-        job.completed_at = _clock()
+        job.completed_at = runtime._clock()
         job.result = _fail("internal_error", redact(str(exc)))
         return job.result
 
@@ -3077,10 +2782,10 @@ async def _condense_report(
     words = report_body_words(report)
     if words <= cfg.max_words:
         return report, 0.0, False, []
-    remaining = deadline_at - _clock()
+    remaining = deadline_at - runtime._clock()
     if remaining < 8.0:
         return report, 0.0, False, ["Report exceeds the word ceiling; condensing skipped (deadline)."]
-    res = await _chat_request(
+    res = await runtime._chat_request(
         messages=build_condense_messages(report, depth),
         thinking={"type": "disabled"},
         model=REWRITE_MODEL,
@@ -3125,7 +2830,7 @@ def _maybe_dump_research_job(
     unverified_numbers: list[dict[str, str]],
 ) -> None:
     """Optionally dump research job synthesis inputs and outputs for offline debugging/audits."""
-    dump_dir = get_settings().debug_dump_dir or os.environ.get(ENV_DEBUG_DUMP_DIR, "").strip()
+    dump_dir = runtime.get_settings().debug_dump_dir or os.environ.get(ENV_DEBUG_DUMP_DIR, "").strip()
     if not dump_dir:
         return
     try:
@@ -3195,7 +2900,7 @@ class _ResearchRun:
 
     def remaining(self) -> float:
         """Seconds left before the job deadline."""
-        return self.deadline_at - _clock()
+        return self.deadline_at - runtime._clock()
 
     def phase_timeout(self, cap: float) -> float:
         """Timeout for a phase: the time left after the synthesis reserve, between 5 s and ``cap``."""
@@ -3298,7 +3003,7 @@ async def _research_decompose(run: _ResearchRun) -> None:
         run.job, "decomposition", 1, run.total_steps, "Decomposing topic into subqueries"
     )
     timeout = run.phase_timeout(20.0)
-    res = await _chat_request(
+    res = await runtime._chat_request(
         messages=build_decomposition_messages(
             run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref
         ),
@@ -3344,7 +3049,7 @@ async def _research_round_two(run: _ResearchRun) -> None:
     r1_domains = {d for item in r1_items if (d := _url_etld1(item.get("url") or ""))}
     timeout = min(25.0, max(5.0, budget / 2))
     try:
-        res = await _chat_request(
+        res = await runtime._chat_request(
             messages=build_r2_gap_messages(run.topic, r1_items, run.subqueries),
             thinking={"type": "disabled"},
             model=REWRITE_MODEL,
@@ -3387,7 +3092,7 @@ async def _research_rank_and_fill(run: _ResearchRun) -> None:
     selected, rank_notes = rank_and_diversify_sources(
         run.result_lists,
         k_sources=run.cfg.k_sources,
-        denylist=get_settings().source_denylist,
+        denylist=runtime.get_settings().source_denylist,
         sources=run.sources_pref,
     )
     run.notes.extend(rank_notes)
@@ -3422,12 +3127,12 @@ async def _research_rank_and_fill(run: _ResearchRun) -> None:
 def _research_cost_guard(run: _ResearchRun, context: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Return the sources-only envelope when synthesis would break the cost ceiling or the deadline."""
     total_source_chars = sum(len(s.get("content") or "") for s in context)
-    pricing = get_settings().llm_pricing.peak
+    pricing = runtime.get_settings().llm_pricing.peak
     est_synth_cost = ((total_source_chars // 2) / 1_000_000) * pricing.cache_miss_per_1m + (
         run.cfg.max_tokens / 1_000_000
     ) * pricing.output_per_1m
     est_total = run.search_cost + run.fetch_cost + run.llm_cost + est_synth_cost
-    ceiling = get_settings().research_cost_ceiling_usd
+    ceiling = runtime.get_settings().research_cost_ceiling_usd
     if est_total > ceiling:
         return run.unsynthesized(
             f"Estimated research cost (${est_total:.4f}) exceeds ceiling "
@@ -3461,7 +3166,7 @@ async def _research_synthesize(
     else:
         kwargs["thinking"] = {"type": "disabled"}
         kwargs["temperature"] = 0.0
-    res = await _chat_request(**kwargs)
+    res = await runtime._chat_request(**kwargs)
 
     needs_retry = (
         not res.get("ok") or res.get("finish_reason") == "length" or not (res.get("content") or "").strip()
@@ -3478,7 +3183,7 @@ async def _research_synthesize(
         "Retrying synthesis with thinking disabled",
         detail="retry",
     )
-    retry = await _chat_request(
+    retry = await runtime._chat_request(
         messages=messages,
         thinking={"type": "disabled"},
         temperature=0.0,
@@ -3701,7 +3406,7 @@ async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]
         }
     )
     job.result = result
-    job.completed_at = _clock()
+    job.completed_at = runtime._clock()
     return dict(result)
 
 
@@ -3728,7 +3433,7 @@ async def _execute_research_pipeline(
         refresh=refresh,
         strip_boilerplate=strip_boilerplate,
         cfg=cfg,
-        deadline_at=_clock() + cfg.deadline_s,
+        deadline_at=runtime._clock() + cfg.deadline_s,
         synthesis_reserve=0.0 if client else _SYNTHESIS_RESERVE_S.get(depth, 30.0),
         total_steps=5 if depth == "max" else 4,
     )
@@ -3850,7 +3555,7 @@ async def _extract_page(
     user_content = f"URL: {clean_url}\nTitle: {page_title}\n\nPage Content:\n{content}"
 
     max_tokens, timeout = _calculate_extract_budget(fields, schema, len(content))
-    chat_res = await _chat_request(
+    chat_res = await runtime._chat_request(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -4123,7 +3828,7 @@ async def deepseek_extract_many(
     if spec_err is not None:
         return spec_err
 
-    settings = get_settings()
+    settings = runtime.get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
         return _fail("bad_request", f"urls must contain 1-{settings.batch_max_urls} entries.")
     if max_chars_per_url < 1 or max_total_chars < 1:
@@ -4227,12 +3932,12 @@ async def deepseek_check_balance() -> dict[str, Any]:
 
     Returns: {"ok": True, "is_available": bool, "balances": [...], "session": {...}}.
     """
-    result = await _request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
+    result = await runtime._request("GET", "/user/balance", timeout=BALANCE_TIMEOUT)
     if not result.get("ok"):
         return result
     data = result["data"]
     metrics = _get_session_metrics()
-    uptime = round(_clock() - metrics.start_time, 1)
+    uptime = round(runtime._clock() - metrics.start_time, 1)
     total_handled = metrics.requests_upstream + metrics.cache_hits
     hit_rate = round(metrics.cache_hits / total_handled, 3) if total_handled > 0 else 0.0
     cost_usd = round(metrics.requests_upstream * COST_PER_REQUEST, 5)
@@ -4358,3 +4063,32 @@ def create_server(**options: Any) -> FastMCP:
 
 
 mcp = create_server()
+
+
+# Live runtime state and patch points are looked up in ``runtime`` at call time; reading them here
+# (``server._clock``, ``server._request``, ``server._budget_tracker``, ...) returns the current value.
+_RUNTIME_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "_api_key",
+        "_budget_tracker",
+        "_chat_request",
+        "_clock",
+        "_fetch_cache",
+        "_fetch_flight",
+        "_rate_limiter",
+        "_request",
+        "_rewrite_cache",
+        "_rewrite_flight",
+        "_search_cache",
+        "_search_flight",
+        "_session_metrics",
+        "get_pricing_period",
+        "get_settings",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    if name in _RUNTIME_NAMES:
+        return getattr(runtime, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

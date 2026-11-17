@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 
 PAGE = {"ok": True, "data": {"title": "T", "content": "page text " * 50}}
 RESULT = {"title": "T", "url": "https://example.com/x", "content": "c " * 200}
@@ -37,7 +37,7 @@ class SlowUpstream:
 @pytest.fixture
 def clocked(monkeypatch, fake_clock, fake_upstream):
     """Install the fake clock and return a factory for a slow upstream on it."""
-    monkeypatch.setattr(server, "_clock", fake_clock.monotonic)
+    monkeypatch.setattr(runtime, "_clock", fake_clock.monotonic)
 
     def install(step: float, answer: dict[str, Any] | None = None) -> SlowUpstream:
         return fake_upstream(SlowUpstream(fake_clock, step, answer))

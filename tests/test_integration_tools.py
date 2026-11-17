@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
@@ -109,7 +109,7 @@ async def test_batch_of_ten_is_paced_by_the_limiter_without_blocking(
     settings = Settings(fetch_qps=5, fetch_burst=5, limiter_max_wait=5)
     set_settings(settings)
     monkeypatch.setattr(
-        server, "_rate_limiter", RateLimiter.from_settings(settings, clock=fake_clock.monotonic, sleep=sleep)
+        runtime, "_rate_limiter", RateLimiter.from_settings(settings, clock=fake_clock.monotonic, sleep=sleep)
     )
     urls = [f"https://example.com/{i}" for i in range(10)]
     result = await server.deepseek_fetch_many(urls)
