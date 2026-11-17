@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import fetch_core, server
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 A = "https://example.com/a"
@@ -147,7 +147,7 @@ async def test_unexpected_exception_is_isolated(upstream: Upstream, monkeypatch:
             raise RuntimeError("boom")
         return await original(url, *args, **kwargs)
 
-    monkeypatch.setattr(server, "_fetch", flaky)
+    monkeypatch.setattr(fetch_core, "_fetch", flaky)
     result = await server.deepseek_fetch_many([A, B])
     assert result["ok"] is True
     assert result["results"][0]["ok"] is True
@@ -160,7 +160,7 @@ async def test_unexpected_exception_is_logged_redacted(
     async def broken(url: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("boom Bearer sk-abcdefghijklmnop")
 
-    monkeypatch.setattr(server, "_fetch", broken)
+    monkeypatch.setattr(fetch_core, "_fetch", broken)
     with caplog.at_level(logging.DEBUG, logger=server.__name__):
         result = await server.deepseek_fetch_many([A])
     assert result["results"][0]["error"]["code"] == "internal_error"

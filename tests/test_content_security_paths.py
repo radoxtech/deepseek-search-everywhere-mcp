@@ -173,7 +173,7 @@ async def test_extract_path_sanitization(monkeypatch: pytest.MonkeyPatch, inject
             "cost_usd": 0.0001,
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._fetch", fake_fetch)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.fetch_core._fetch", fake_fetch)
     monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._chat_request", fake_chat_request)
 
     res = await deepseek_extract("https://example.com/extract", fields=["notes", "tracker", "action"])
@@ -205,7 +205,7 @@ async def test_extract_many_path_sanitization(
             "cost_usd": 0.0001,
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._fetch", fake_fetch)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.fetch_core._fetch", fake_fetch)
     monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._chat_request", fake_chat_request)
 
     res = await deepseek_extract_many(["https://example.com/1"], fields=["field"])
