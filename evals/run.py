@@ -18,6 +18,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -101,6 +102,12 @@ def main() -> None:
     parser.add_argument("--parallel", type=int, default=3)
     parser.add_argument("--max-usd", type=float, default=5.0)
     parser.add_argument("--estimate", action="store_true", help="print the planned jobs, cost and time only")
+    parser.add_argument(
+        "--time-budget",
+        type=float,
+        default=None,
+        help="seconds; start no job that may not finish in time (for shells that stop long commands)",
+    )
     args = parser.parse_args()
 
     jobs = plan(args)
@@ -126,15 +133,27 @@ def main() -> None:
     pending = [j for j in jobs if not record_path(out, j).exists()]
     spent = sum(metrics.offpeak_cost(r) for r in metrics.load_records(out))
     print(f"{len(jobs)} jobs, {len(jobs) - len(pending)} already done, ${spent:.4f} spent", file=sys.stderr)
+    started = time.monotonic()
+
+    def fits(job: dict[str, Any]) -> bool:
+        if args.time_budget is None:
+            return True
+        return time.monotonic() - started + 1.3 * DEPTH_TIME_S[job["depth"]] < args.time_budget
+
     with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
         futures = {}
         queue = list(pending)
         while queue or futures:
             while queue and len(futures) < args.parallel and spent < args.max_usd:
-                job = queue.pop(0)
+                fitting = next((j for j in queue if fits(j)), None)
+                if fitting is None:
+                    break
+                queue.remove(fitting)
+                job = fitting
                 futures[pool.submit(run_job, job, out)] = job
             if not futures:
-                print(f"stopped: ${spent:.4f} reached --max-usd {args.max_usd}", file=sys.stderr)
+                reason = "time budget" if spent < args.max_usd else f"--max-usd {args.max_usd}"
+                print(f"stopped: {len(queue)} job(s) left ({reason}), ${spent:.4f} spent", file=sys.stderr)
                 break
             done = next(as_completed(futures))
             job = futures.pop(done)
