@@ -8,6 +8,7 @@ import pytest
 
 from deepseek_search_everywhere_mcp.errors import (
     CLOSED_ERROR_CODES,
+    CLOSED_ERROR_REASONS,
     _fail,
     _map_http_error,
 )
@@ -44,7 +45,7 @@ def test_map_http_error_statuses_and_paths(
     envelope = _map_http_error(status, body, path=path)
 
     assert envelope["ok"] is False
-    assert envelope["error"]["code"] == expected_code
+    assert envelope["error"]["reason"] == expected_code
     assert envelope["error"]["code"] in CLOSED_ERROR_CODES
     assert envelope["error"]["status"] == status
     assert envelope["error"]["upstream_code"] == "upstream_orig_code"
@@ -68,7 +69,7 @@ def test_map_http_error_handles_non_json_body() -> None:
     envelope = _map_http_error(504, body, path="/v1/tools/fetch")
 
     assert envelope["ok"] is False
-    assert envelope["error"]["code"] == "upstream_timeout"
+    assert envelope["error"]["reason"] == "upstream_timeout"
     assert envelope["error"]["code"] in CLOSED_ERROR_CODES
     assert envelope["error"]["upstream_message"] == body
     assert "upstream_code" not in envelope["error"]
@@ -81,18 +82,18 @@ def test_map_http_error_redacts_credentials_in_message() -> None:
 
     assert "secretsecretsecret" not in envelope["error"]["message"]
     assert "secretsecretsecret" not in envelope["error"]["upstream_message"]
-    assert envelope["error"]["code"] == "auth_failed"
+    assert envelope["error"]["reason"] == "auth_failed"
 
 
 def test_fail_enforces_closed_code_set(caplog: pytest.LogCaptureFixture) -> None:
     valid = _fail("auth_failed", "msg")
-    assert valid["error"]["code"] == "auth_failed"
+    assert valid["error"]["reason"] == "auth_failed"
 
     # In production, _fail must NOT raise for an unknown code: log at WARNING and return internal_error
     with caplog.at_level("WARNING"):
         envelope = _fail("arbitrary_unknown_code", "msg")
     assert envelope["ok"] is False
-    assert envelope["error"]["code"] == "internal_error"
+    assert envelope["error"]["reason"] == "internal_error"
     assert "arbitrary_unknown_code" in caplog.text
 
 
@@ -103,7 +104,7 @@ def test_src_error_codes_belong_to_closed_set() -> None:
     src_dir = pathlib.Path(__file__).parent.parent / "src" / "deepseek_search_everywhere_mcp"
     found_codes: set[str] = set()
 
-    for p in src_dir.glob("*.py"):
+    for p in src_dir.rglob("*.py"):
         tree = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
@@ -136,8 +137,8 @@ def test_src_error_codes_belong_to_closed_set() -> None:
                     if isinstance(elt, ast.Constant) and elt.value == "filters_too_long":
                         found_codes.add(elt.value)
 
-    missing = found_codes - CLOSED_ERROR_CODES
-    assert not missing, f"Found codes in src/ not in CLOSED_ERROR_CODES: {missing}"
+    missing = found_codes - CLOSED_ERROR_REASONS - CLOSED_ERROR_CODES
+    assert not missing, f"Found reasons in src/ not in CLOSED_ERROR_REASONS: {missing}"
 
 
 @pytest.mark.asyncio
@@ -147,23 +148,23 @@ async def test_filter_validation_errors_produce_valid_envelopes() -> None:
     # 1. exclude_terms with whitespace -> bad_term
     r1 = await server.deepseek_search("test", exclude_terms=["two words"])
     assert r1["ok"] is False
-    assert r1["error"]["code"] == "bad_term"
+    assert r1["error"]["reason"] == "bad_term"
 
     # 2. exact_phrases with internal quotes -> bad_phrase
     r2 = await server.deepseek_search("test", exact_phrases=['a"b'])
     assert r2["ok"] is False
-    assert r2["error"]["code"] == "bad_phrase"
+    assert r2["error"]["reason"] == "bad_phrase"
 
     # 3. oversized filters -> filters_too_long
     many_domains = [f"domain{i}.com" for i in range(20)]
     r3 = await server.deepseek_search("test", include_domains=many_domains)
     assert r3["ok"] is False
-    assert r3["error"]["code"] == "filters_too_long"
+    assert r3["error"]["reason"] == "filters_too_long"
 
     # 4. bad date -> bad_date
     r4 = await server.deepseek_search("test", after="invalid-date")
     assert r4["ok"] is False
-    assert r4["error"]["code"] == "bad_date"
+    assert r4["error"]["reason"] == "bad_date"
 
 
 @pytest.mark.asyncio
@@ -219,3 +220,41 @@ async def test_all_tools_validation_errors_return_error_envelopes() -> None:
     res = await server.deepseek_extract_many([], fields=["a"])
     assert res["ok"] is False
     assert res["error"]["code"] in CLOSED_ERROR_CODES
+
+
+def test_every_reason_maps_to_a_code_with_an_action() -> None:
+    from deepseek_search_everywhere_mcp.errors import CODE_ACTIONS, REASON_CODES
+
+    assert set(REASON_CODES.values()) == CLOSED_ERROR_CODES
+    assert set(CODE_ACTIONS) == CLOSED_ERROR_CODES
+    assert set(CODE_ACTIONS.values()) == {
+        "retry",
+        "fix_input",
+        "change_approach",
+        "do_not_retry",
+        "start_again",
+        "ask_user",
+    }
+    for reason in CLOSED_ERROR_REASONS:
+        error = _fail(reason, "msg")["error"]
+        assert error["reason"] == reason
+        assert error["code"] == REASON_CODES[reason]
+        assert error["action"] == CODE_ACTIONS[error["code"]]
+
+
+def test_fail_reports_param_for_input_errors() -> None:
+    error = _fail("bad_count", "count must be between 1 and 50.", param="count")["error"]
+    assert error == {
+        "code": "invalid_input",
+        "message": "count must be between 1 and 50.",
+        "action": "fix_input",
+        "param": "count",
+        "reason": "bad_count",
+    }
+    assert "param" not in _fail("timeout", "slow")["error"]
+
+
+def test_unknown_reason_keeps_the_internal_error_action(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING"):
+        error = _fail("no_such_reason", "msg")["error"]
+    assert (error["code"], error["action"], error["reason"]) == ("internal_error", "retry", "internal_error")

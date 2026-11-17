@@ -254,7 +254,7 @@ async def test_live_auth_failed_on_invalid_key(monkeypatch: pytest.MonkeyPatch) 
     server.reset_state()
     envelope = await server.deepseek_search("test invalid key")
     assert envelope["ok"] is False
-    assert envelope["error"]["code"] == "auth_failed"
+    assert envelope["error"]["reason"] == "auth_failed"
     assert envelope["error"]["status"] == 401
 
 
@@ -287,7 +287,7 @@ async def test_live_phase3_data_correctness() -> None:
     dead_url = "https://arxiv.org/abs/nonexistent-dead-paper-999999"
     fetch_res = await server.deepseek_fetch(dead_url)
     assert fetch_res["ok"] is False
-    assert fetch_res["error"]["code"] == "not_found"
+    assert fetch_res["error"]["reason"] == "not_found"
 
     # 2. Query with lang + two domains: len(query_used) <= 128, word-boundary cut, HTTP success
     long_query = "machine learning models for natural language processing and transformer architectures in ai"

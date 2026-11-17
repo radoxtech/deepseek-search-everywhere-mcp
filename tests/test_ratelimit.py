@@ -83,7 +83,7 @@ async def test_wait_beyond_max_wait_fails_without_sleeping_or_consuming(fake_clo
     assert excinfo.value.wait == pytest.approx(1.0)
     envelope = excinfo.value.to_envelope()
     assert envelope["ok"] is False
-    assert envelope["error"]["code"] == "rate_limited_local"
+    assert envelope["error"]["reason"] == "rate_limited_local"
     assert "status" not in envelope["error"]
 
 

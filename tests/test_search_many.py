@@ -40,7 +40,7 @@ def _install_fake_search(fake_upstream: Any, results_map: dict[str, list[dict[st
 def test_search_many_validation_errors(queries, expected_code):
     result = asyncio.run(server.deepseek_search_many(queries))
     assert result["ok"] is False
-    assert result["error"]["code"] == expected_code
+    assert result["error"]["reason"] == expected_code
 
 
 def test_search_many_runs_the_first_five_and_reports_the_rest(fake_upstream):
@@ -113,7 +113,7 @@ def test_search_many_partial_failure(fake_upstream):
 
     failed_res = res["results"][1]
     assert failed_res["ok"] is False
-    assert failed_res["error"]["code"] == "query_too_long"
+    assert failed_res["error"]["reason"] == "query_too_long"
 
 
 def test_search_many_cache_and_refresh(fake_upstream):
@@ -166,7 +166,7 @@ def test_search_many_exception_redacts_secrets(monkeypatch):
 def test_search_many_invalid_count_and_caps(kwargs, expected_code):
     res = asyncio.run(server.deepseek_search_many(["q"], **kwargs))
     assert res["ok"] is False
-    assert res["error"]["code"] == expected_code
+    assert res["error"]["reason"] == expected_code
 
 
 def test_search_many_content_full(fake_upstream):
@@ -189,7 +189,7 @@ def test_search_many_deadline_timeout(fake_upstream):
     assert res["partial"] is True
     assert res["failed_count"] == 1
     assert res["results"][0]["ok"] is False
-    assert res["results"][0]["error"]["code"] == "deadline_exceeded"
+    assert res["results"][0]["error"]["reason"] == "deadline_exceeded"
 
 
 def test_search_many_partial_on_slow_query(fake_upstream):
@@ -217,7 +217,7 @@ def test_search_many_partial_on_slow_query(fake_upstream):
     slow_res = res["results"][1]
     assert slow_res["ok"] is False
     assert slow_res["query"] == "slow_q"
-    assert slow_res["error"]["code"] == "deadline_exceeded"
+    assert slow_res["error"]["reason"] == "deadline_exceeded"
 
 
 def test_search_many_enforces_payload_budget_without_duplicate_searches(fake_upstream):

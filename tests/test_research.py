@@ -13,6 +13,7 @@ import pytest
 
 from deepseek_search_everywhere_mcp import research_jobs, runtime, server
 from deepseek_search_everywhere_mcp.deep_research import get_job_store
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.settings import LLMPricing, LLMRates, Settings
 
 
@@ -84,7 +85,7 @@ class DeepResearchUpstream:
                 }
             # Second chat is synthesis
             if self.fail_synthesis:
-                return {"ok": False, "error": {"code": "rate_limit", "message": "Synthesis limited"}}
+                return _fail("rate_limit", "Synthesis limited")
             return {
                 "ok": True,
                 "data": {
@@ -108,17 +109,17 @@ async def test_research_validations(fake_upstream: Any) -> None:
     # Empty topic
     res = await server.deepseek_research("   ")
     assert res["ok"] is False
-    assert res["error"]["code"] == "empty_query"
+    assert res["error"]["reason"] == "empty_query"
 
     # Too long topic
     res = await server.deepseek_research("x" * 501)
     assert res["ok"] is False
-    assert res["error"]["code"] == "topic_too_long"
+    assert res["error"]["reason"] == "topic_too_long"
 
     # Invalid depth
     res = await server.deepseek_research("valid topic", depth="extreme")  # type: ignore[arg-type]
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
 
 async def test_research_end_to_end_success(fake_upstream: Any) -> None:
@@ -310,7 +311,7 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
 
     res4 = await server.deepseek_research("topic 4", depth="low")
     assert res4["ok"] is False
-    assert res4["error"]["code"] == "rate_limited_local"
+    assert res4["error"]["reason"] == "rate_limited_local"
     assert "At most 3 research jobs" in res4["error"]["message"]
     assert "deepseek_check_research" in res4["error"]["message"]
 
@@ -367,12 +368,12 @@ async def test_check_research_returns_running_when_still_not_done(
 async def test_check_research_unknown_or_expired_job_id() -> None:
     res = await server.deepseek_check_research("non-existent-uuid")
     assert res["ok"] is False
-    assert res["error"]["code"] == "job_not_found"
+    assert res["error"]["reason"] == "job_not_found"
     assert "deepseek_research" in res["error"]["message"]
 
     res_empty = await server.deepseek_check_research("   ")
     assert res_empty["ok"] is False
-    assert res_empty["error"]["code"] == "bad_request"
+    assert res_empty["error"]["reason"] == "bad_request"
 
 
 async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -387,7 +388,7 @@ async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytes
     monkeypatch.setattr(runtime, "_clock", lambda: job.completed_at + 1801.0)
     check_res = await server.deepseek_check_research(job_id)
     assert check_res["ok"] is False
-    assert check_res["error"]["code"] == "job_not_found"
+    assert check_res["error"]["reason"] == "job_not_found"
 
 
 @pytest.mark.parametrize(
@@ -1443,7 +1444,7 @@ async def test_research_unverified_mode_is_part_of_the_job_key(fake_upstream: An
 
 async def test_research_rejects_an_unknown_unverified_mode() -> None:
     res = await server.deepseek_research("topic", unverified="hide")  # type: ignore[arg-type]
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
 
 async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
@@ -1464,7 +1465,7 @@ async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
 
     res_invalid = await server.deepseek_research("therapy", depth="low", sources="invalid")
     assert res_invalid["ok"] is False
-    assert res_invalid["error"]["code"] == "bad_request"
+    assert res_invalid["error"]["reason"] == "bad_request"
 
 
 async def test_research_debug_dump_hook(
@@ -1515,7 +1516,7 @@ async def test_research_without_readable_content_returns_sources_only(fake_upstr
     class EmptyPages(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
             if path == server.FETCH_PATH:
-                return {"ok": False, "error": {"code": "not_found", "message": "gone", "status": 404}}
+                return _fail("not_found", "gone", 404)
             return await super().__call__(method, path, **kwargs)
 
     fake_upstream(EmptyPages(search_results=[{"title": "Empty", "url": "https://a.test/1", "content": ""}]))
@@ -1552,7 +1553,7 @@ async def test_round_two_without_search_results_keeps_round_one(fake_upstream: A
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
             payload = kwargs.get("payload") or {}
             if path == server.SEARCH_PATH and "gap angle" in payload.get("query", ""):
-                return {"ok": False, "error": {"code": "upstream_error", "message": "down", "status": 502}}
+                return _fail("upstream_error", "down", 502)
             if path == "/v1/chat/completions" and len(self.chats) == 1:
                 self.chats.append(payload)
                 return _chat_reply(json.dumps({"queries": ["gap angle one", "gap angle two"]}))

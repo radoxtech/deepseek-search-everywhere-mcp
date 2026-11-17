@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from deepseek_search_everywhere_mcp import fetch_core, server
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 A = "https://example.com/a"
@@ -48,13 +49,13 @@ def upstream(fake_upstream: Any) -> Upstream:
 
 async def test_partial_failure_keeps_order_and_ok(upstream: Upstream) -> None:
     upstream.delays[C] = 0.05
-    upstream.pages[B] = {"ok": False, "error": {"code": "not_found", "message": "failed", "status": 404}}
+    upstream.pages[B] = _fail("not_found", "failed", 404)
     result = await server.deepseek_fetch_many([C, "ftp://bad", B, A])
     assert result["ok"] is True
     assert [item["url"] for item in result["results"]] == [C, "ftp://bad", B, A]
     assert [item["ok"] for item in result["results"]] == [True, False, False, True]
-    assert result["results"][1]["error"]["code"] == "bad_url"
-    assert result["results"][2]["error"]["code"] == "not_found"
+    assert result["results"][1]["error"]["reason"] == "bad_url"
+    assert result["results"][2]["error"]["reason"] == "not_found"
     assert result["results"][0]["title"] == f"Title {C}"
     assert result["count"] == 4
     assert result["partial"] is True
@@ -65,7 +66,7 @@ async def test_partial_failure_keeps_order_and_ok(upstream: Upstream) -> None:
 
 async def test_ssrf_url_is_rejected_without_upstream_call(upstream: Upstream) -> None:
     result = await server.deepseek_fetch_many(["http://127.0.0.1/admin", A])
-    assert result["results"][0]["error"]["code"] == "ssrf_blocked"
+    assert result["results"][0]["error"]["reason"] == "ssrf_blocked"
     assert result["results"][1]["ok"] is True
     assert upstream.calls == [A]
 
@@ -95,7 +96,7 @@ async def test_cache_is_shared_with_deepseek_fetch(upstream: Upstream) -> None:
 async def test_bad_batch_size_is_rejected_without_upstream_calls(upstream: Upstream, urls: list[str]) -> None:
     result = await server.deepseek_fetch_many(urls)
     assert result["ok"] is False
-    assert result["error"]["code"] == "bad_request"
+    assert result["error"]["reason"] == "bad_request"
     assert upstream.calls == []
 
 
@@ -134,7 +135,7 @@ async def test_deadline_returns_partial_results(upstream: Upstream) -> None:
     assert result["ok"] is True
     assert [item["url"] for item in result["results"]] == [A, B, C]
     assert result["results"][0]["ok"] is True
-    codes = [item["error"]["code"] for item in result["results"] if not item["ok"]]
+    codes = [item["error"]["reason"] for item in result["results"] if not item["ok"]]
     assert codes and set(codes) == {"deadline_exceeded"}
     assert result["requests_used"] == 1
 
@@ -151,7 +152,7 @@ async def test_unexpected_exception_is_isolated(upstream: Upstream, monkeypatch:
     result = await server.deepseek_fetch_many([A, B])
     assert result["ok"] is True
     assert result["results"][0]["ok"] is True
-    assert result["results"][1]["error"]["code"] == "internal_error"
+    assert result["results"][1]["error"]["reason"] == "internal_error"
 
 
 async def test_unexpected_exception_is_logged_redacted(
@@ -163,7 +164,7 @@ async def test_unexpected_exception_is_logged_redacted(
     monkeypatch.setattr(fetch_core, "_fetch", broken)
     with caplog.at_level(logging.DEBUG, logger=server.__name__):
         result = await server.deepseek_fetch_many([A])
-    assert result["results"][0]["error"]["code"] == "internal_error"
+    assert result["results"][0]["error"]["reason"] == "internal_error"
     messages = [record.getMessage() for record in caplog.records if record.name == server.__name__]
     assert any("RuntimeError" in message for message in messages)
     assert all("sk-abcdefghijklmnop" not in message for message in messages)

@@ -10,6 +10,7 @@ from typing import Any
 
 from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.budget import DailyBudgetTracker
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 
@@ -131,7 +132,7 @@ def test_server_enforces_budget_exceeded(fake_upstream, tmp_path):
     # Second search exceeds budget
     res2 = asyncio.run(server.deepseek_search("test2"))
     assert res2["ok"] is False
-    assert res2["error"]["code"] == "budget_exceeded"
+    assert res2["error"]["reason"] == "budget_exceeded"
     assert res2["error"]["status"] == 402
     assert "Daily spend limit" in res2["error"]["message"]
 
@@ -236,7 +237,7 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
                     "usage": {"prompt_tokens": 10, "completion_tokens": 10},
                 },
             }
-        return {"ok": False, "error": {"code": "not_found", "message": "Unknown path"}}
+        return _fail("not_found", "Unknown path")
 
     fake_upstream(delayed_handler)
 
@@ -254,7 +255,9 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
         f"Budget breached! Spent {status['spent_usd']}, limit {limit}"
     )
     # Check that budget_exceeded occurred on excess requests
-    failures = [r for r in results if not r.get("ok") and r.get("error", {}).get("code") == "budget_exceeded"]
+    failures = [
+        r for r in results if not r.get("ok") and r.get("error", {}).get("reason") == "budget_exceeded"
+    ]
     assert len(failures) > 0
 
     set_settings(None)

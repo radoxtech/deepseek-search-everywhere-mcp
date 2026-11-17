@@ -37,7 +37,7 @@ def test_filters_reject_bad_domain(fake_upstream):
     _install_search(fake_upstream)
     result = asyncio.run(server.deepseek_search("test", include_domains=["bad domain with spaces"]))
     assert result["ok"] is False
-    assert result["error"]["code"] == "bad_domain"
+    assert result["error"]["reason"] == "bad_domain"
 
 
 def test_filters_accept_idn_domains_and_send_unicode_to_search(fake_upstream):
@@ -64,7 +64,7 @@ def test_filters_reject_bad_date(fake_upstream):
     _install_search(fake_upstream)
     result = asyncio.run(server.deepseek_search("test", after="2024-02-31"))
     assert result["ok"] is False
-    assert result["error"]["code"] == "bad_date"
+    assert result["error"]["reason"] == "bad_date"
 
 
 def test_filters_budget_guard_rejects_overflow(fake_upstream):
@@ -79,7 +79,7 @@ def test_filters_budget_guard_rejects_overflow(fake_upstream):
         )
     )
     assert result["ok"] is False
-    assert result["error"]["code"] == "query_too_long"
+    assert result["error"]["reason"] == "query_too_long"
     assert "when filters" in result["error"]["message"]
 
 
@@ -90,7 +90,7 @@ def test_query_too_long_reports_the_query_length(fake_upstream):
             "a" * 80, include_domains=["longdomainname1.org", "longdomainname2.org"], after="2024-01-01"
         )
     )
-    assert result["error"]["code"] == "query_too_long"
+    assert result["error"]["reason"] == "query_too_long"
     assert result["error"]["message"].startswith("query is 80 characters;")
     plain = asyncio.run(server.deepseek_search("a" * 130))
     assert plain["error"]["message"] == "query is 130 characters; it must be at most 128."

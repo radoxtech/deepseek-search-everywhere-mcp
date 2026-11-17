@@ -29,7 +29,7 @@ def test_search_count_description_matches_max_count() -> None:
 
 def test_search_count_limit_is_enforced_at_the_stated_maximum() -> None:
     res = asyncio.run(server.deepseek_search("python", count=server.MAX_COUNT + 1))
-    assert res["ok"] is False and res["error"]["code"] == "bad_count"
+    assert res["ok"] is False and res["error"]["reason"] == "bad_count"
 
 
 def test_search_many_queries_description_matches_validation() -> None:

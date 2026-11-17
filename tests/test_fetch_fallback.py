@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.errors import _fail, _map_http_status_to_code
 
 
 class FallbackUpstream:
@@ -35,17 +36,14 @@ class FallbackUpstream:
                         "content": "Standard Content",
                     },
                 }
-            return {
-                "ok": False,
-                "error": {
-                    "code": "not_found" if self.fetch_status == 404 else f"http_{self.fetch_status}",
-                    "message": "failed to fetch URL",
-                    "status": self.fetch_status,
-                },
-            }
+            return _fail(
+                _map_http_status_to_code(self.fetch_status, server.FETCH_PATH),
+                "failed to fetch URL",
+                self.fetch_status,
+            )
         if path == server.SEARCH_PATH:
             if not self.search_ok:
-                return {"ok": False, "error": {"code": "upstream_error", "message": "Search error"}}
+                return _fail("upstream_error", "Search error")
             return {
                 "ok": True,
                 "data": {
@@ -66,7 +64,7 @@ class FallbackUpstream:
                     ]
                 },
             }
-        return {"ok": False, "error": {"code": "not_found", "message": f"Unexpected path {path}"}}
+        return _fail("not_found", f"Unexpected path {path}")
 
 
 async def test_fetch_pdf_fallback_success(fake_upstream: Any) -> None:
@@ -152,7 +150,7 @@ async def test_fetch_fallback_same_host_different_path_rejected(fake_upstream: A
 
     res = await server.deepseek_fetch(reddit_url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "not_found"
+    assert res["error"]["reason"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
 
 
@@ -168,7 +166,7 @@ async def test_fetch_fallback_disabled(fake_upstream: Any) -> None:
 
     res = await server.deepseek_fetch(pdf_url, fallback_to_search=False)
     assert res["ok"] is False
-    assert res["error"]["code"] == "not_found"
+    assert res["error"]["reason"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
     # Only 1 fetch call, no search call
     assert len(upstream.calls) == 1
@@ -188,7 +186,7 @@ async def test_fetch_fallback_domain_mismatch_fails_to_404(fake_upstream: Any) -
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "not_found"
+    assert res["error"]["reason"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
 
 
@@ -204,7 +202,7 @@ async def test_fetch_fallback_empty_content_fails_to_404(fake_upstream: Any) -> 
 
     res = await server.deepseek_fetch(pdf_url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "not_found"
+    assert res["error"]["reason"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]
 
 
@@ -238,5 +236,5 @@ async def test_fetch_fallback_survives_oversized_host(fake_upstream: Any) -> Non
     # Must survive without raising ValueError and return the 404 envelope
     res = await server.deepseek_fetch(url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "not_found"
+    assert res["error"]["reason"] == "not_found"
     assert res["error"]["status"] == 404

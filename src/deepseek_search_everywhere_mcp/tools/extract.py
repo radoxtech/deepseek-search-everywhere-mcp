@@ -13,7 +13,7 @@ from pydantic import Field
 
 from .. import fetch_core, runtime
 from ..batch import (
-    _LOCAL_ERROR_CODES,
+    _LOCAL_ERROR_REASONS,
     _batch_deadline_error,
     _batch_envelope,
     _dedupe_urls,
@@ -108,7 +108,7 @@ async def _extract_page(
         return {
             "ok": False,
             "url": clean_url,
-            "error": {"code": "empty_page", "message": msg},
+            "error": _fail("empty_page", msg)["error"],
         }, 0
 
     page_title = fetch_res.get("title") or "Untitled"
@@ -133,7 +133,7 @@ async def _extract_page(
             "ok": False,
             "url": clean_url,
             "error": chat_res.get("error")
-            or {"code": "extraction_failed", "message": "Extraction model request failed."},
+            or _fail("extraction_failed", "Extraction model request failed.")["error"],
             "llm_cost_usd": 0.0,
         }, 1
 
@@ -152,10 +152,7 @@ async def _extract_page(
         return {
             "ok": False,
             "url": clean_url,
-            "error": {
-                "code": err_code,
-                "message": err_msg,
-            },
+            "error": _fail(err_code, err_msg)["error"],
             "llm_cost_usd": llm_cost,
         }, 1
 
@@ -170,10 +167,7 @@ async def _extract_page(
         return {
             "ok": False,
             "url": clean_url,
-            "error": {
-                "code": err_code,
-                "message": err_msg,
-            },
+            "error": _fail(err_code, err_msg)["error"],
             "llm_cost_usd": llm_cost,
         }, 1
 
@@ -425,7 +419,7 @@ async def deepseek_extract_many(
             requests_used += fetch_reqs
             extract_indices[index] = len(extract_coros)
             extract_coros.append(_bounded_extract_page(url, env))
-        elif rejection is None and env.get("error", {}).get("code") not in _LOCAL_ERROR_CODES:
+        elif rejection is None and env.get("error", {}).get("reason") not in _LOCAL_ERROR_REASONS:
             requests_used += 1
 
     extracted_results: list[tuple[dict[str, Any], int]] = []

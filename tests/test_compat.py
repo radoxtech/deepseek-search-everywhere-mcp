@@ -98,7 +98,7 @@ def test_search_parameter_order_is_unchanged():
     ],
 )
 def test_search_error_codes(kwargs, code):
-    assert asyncio.run(server.deepseek_search(**kwargs))["error"]["code"] == code
+    assert asyncio.run(server.deepseek_search(**kwargs))["error"]["reason"] == code
 
 
 @pytest.mark.parametrize(
@@ -109,12 +109,12 @@ def test_search_error_codes(kwargs, code):
     ],
 )
 def test_fetch_error_codes(url, code):
-    assert asyncio.run(server.deepseek_fetch(url))["error"]["code"] == code
+    assert asyncio.run(server.deepseek_fetch(url))["error"]["reason"] == code
 
 
 def test_missing_api_key_error_code():
     result = asyncio.run(server.deepseek_search("q"))
-    assert result["error"]["code"] == "missing_api_key"
+    assert result["error"]["reason"] == "missing_api_key"
 
 
 def test_dedupe_note(fake_upstream):
@@ -259,9 +259,10 @@ def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -
 def test_error_codes_named_in_server_instructions_exist() -> None:
     import re
 
-    from deepseek_search_everywhere_mcp.errors import CLOSED_ERROR_CODES
+    from deepseek_search_everywhere_mcp.errors import CLOSED_ERROR_CODES, CODE_ACTIONS
 
     named = set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", server.SERVER_INSTRUCTIONS))
     codes = {word for word in named if not word.startswith("deepseek_")}
     codes -= {"job_id", "cost_usd", "error_code", "synthesis_instructions"}
+    codes -= set(CODE_ACTIONS.values())
     assert codes <= CLOSED_ERROR_CODES, codes - CLOSED_ERROR_CODES

@@ -10,55 +10,77 @@ from .redact import redact
 
 logger = logging.getLogger(__name__)
 
-CLOSED_ERROR_CODES: frozenset[str] = frozenset(
-    {
-        # Upstream mapped error codes
-        "auth_failed",
-        "insufficient_balance",
-        "upstream_rate_limited",
-        "upstream_timeout",
-        "upstream_error",
-        "not_found",
-        "blocked_by_site",
-        "bad_request",
-        # Local transport and system error codes
-        "missing_api_key",
-        "rate_limited_local",
-        "timeout",
-        "deadline_exceeded",
-        "response_too_large",
-        "invalid_json",
-        "network_error",
-        "budget_exceeded",
-        "internal_error",
-        "request_failed",
-        # Input validation codes
-        "empty_query",
-        "query_too_long",
-        "bad_count",
-        "bad_lang",
-        "bad_url",
-        "empty_url",
-        "url_too_long",
-        "topic_too_long",
-        "bad_domain",
-        "bad_date",
-        "bad_term",
-        "bad_phrase",
-        "filters_too_long",
-        # Security and URL validation codes
-        "ssrf_blocked",
-        "disallowed_url",
-        "private_url",
-        "disallowed_protocol",
-        "egress_blocked",
-        # Tool specific codes
-        "empty_page",
-        "extraction_failed",
-        "extraction_truncated",
-        "job_not_found",
-    }
-)
+# Error codes an agent acts on, each with one recommended action. The finer cause stays in
+# ``error.reason`` (a closed set below) for diagnostics; agents decide by ``code`` and ``action``.
+CODE_ACTIONS: dict[str, str] = {
+    "invalid_input": "fix_input",
+    "blocked_by_policy": "do_not_retry",
+    "page_unavailable": "change_approach",
+    "extraction_failed": "change_approach",
+    "temporary_failure": "retry",
+    "job_not_found": "start_again",
+    "limit_reached": "ask_user",
+    "account_error": "ask_user",
+    "internal_error": "retry",
+}
+
+CLOSED_ERROR_CODES: frozenset[str] = frozenset(CODE_ACTIONS)
+
+# Every reason maps to exactly one code.
+REASON_CODES: dict[str, str] = {
+    # Input validation
+    "bad_request": "invalid_input",
+    "empty_query": "invalid_input",
+    "query_too_long": "invalid_input",
+    "bad_count": "invalid_input",
+    "bad_lang": "invalid_input",
+    "bad_url": "invalid_input",
+    "empty_url": "invalid_input",
+    "url_too_long": "invalid_input",
+    "topic_too_long": "invalid_input",
+    "bad_domain": "invalid_input",
+    "bad_date": "invalid_input",
+    "bad_term": "invalid_input",
+    "bad_phrase": "invalid_input",
+    "filters_too_long": "invalid_input",
+    # Security and URL policy
+    "ssrf_blocked": "blocked_by_policy",
+    "disallowed_url": "blocked_by_policy",
+    "private_url": "blocked_by_policy",
+    "disallowed_protocol": "blocked_by_policy",
+    "egress_blocked": "blocked_by_policy",
+    # The page cannot be read
+    "not_found": "page_unavailable",
+    "blocked_by_site": "page_unavailable",
+    "empty_page": "page_unavailable",
+    "response_too_large": "page_unavailable",
+    # Extraction
+    "extraction_failed": "extraction_failed",
+    "extraction_truncated": "extraction_failed",
+    # Transient failures
+    "rate_limited_local": "temporary_failure",
+    "upstream_rate_limited": "temporary_failure",
+    "timeout": "temporary_failure",
+    "upstream_timeout": "temporary_failure",
+    "deadline_exceeded": "temporary_failure",
+    "network_error": "temporary_failure",
+    "upstream_error": "temporary_failure",
+    "request_failed": "temporary_failure",
+    "invalid_json": "temporary_failure",
+    # Jobs
+    "job_not_found": "job_not_found",
+    # Spending limits
+    "budget_exceeded": "limit_reached",
+    "max_cost_reached": "limit_reached",
+    # Account
+    "missing_api_key": "account_error",
+    "auth_failed": "account_error",
+    "insufficient_balance": "account_error",
+    # Bugs
+    "internal_error": "internal_error",
+}
+
+CLOSED_ERROR_REASONS: frozenset[str] = frozenset(REASON_CODES)
 
 HTTP_HINTS = {
     400: "Invalid request parameters.",
@@ -73,19 +95,27 @@ HTTP_HINTS = {
 
 
 def _fail(
-    code: str,
+    reason: str,
     message: str,
     status: int | None = None,
     *,
+    param: str | None = None,
     upstream_code: str | None = None,
     upstream_message: str | None = None,
 ) -> dict[str, Any]:
-    """Build the ``{"ok": False, "error": {...}}`` envelope returned by every tool."""
-    if code not in CLOSED_ERROR_CODES:
-        logger.warning("Unknown error code %r encountered; returning internal_error", code)
-        code = "internal_error"
+    """Build the ``{"ok": False, "error": {...}}`` envelope returned by every tool.
 
-    err: dict[str, Any] = {"code": code, "message": message}
+    ``reason`` is the fine cause from ``CLOSED_ERROR_REASONS``; it decides the public ``code`` and its
+    ``action``. ``param`` names the offending parameter of an input error.
+    """
+    if reason not in CLOSED_ERROR_REASONS:
+        logger.warning("Unknown error reason %r encountered; returning internal_error", reason)
+        reason = "internal_error"
+    code = REASON_CODES[reason]
+    err: dict[str, Any] = {"code": code, "message": message, "action": CODE_ACTIONS[code]}
+    if param is not None:
+        err["param"] = param
+    err["reason"] = reason
     if status is not None:
         err["status"] = status
     if upstream_code is not None:
@@ -96,7 +126,7 @@ def _fail(
 
 
 def _map_http_status_to_code(status: int, path: str = "") -> str:
-    """Map an HTTP status code and request path to a closed error code."""
+    """Map an HTTP status code and request path to a closed error reason."""
     if status == 400:
         return "bad_request"
     if status == 401:

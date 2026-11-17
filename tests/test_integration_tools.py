@@ -63,7 +63,7 @@ async def test_mixed_batch_makes_one_upstream_call_and_reports_two_errors(fake_u
     result = await server.deepseek_fetch_many(urls)
     assert result["ok"] is True
     assert [item["url"] for item in result["results"]][0] == PUBLIC
-    errors = [(item["url"], item["error"]["code"]) for item in result["results"] if not item["ok"]]
+    errors = [(item["url"], item["error"]["reason"]) for item in result["results"] if not item["ok"]]
     assert errors == [(INTERNAL, "ssrf_blocked"), ("not a url", "bad_url")]
     assert [item["ok"] for item in result["results"]] == [True, False, False, True]
     assert sorted(upstream.fetches) == sorted([PUBLIC, OTHER])
@@ -75,7 +75,7 @@ async def test_search_marks_internal_source_ssrf_blocked_and_still_succeeds(fake
     result = await server.deepseek_search("internal source question", content="full")
     assert result["ok"] is True
     by_url = {item["url"]: item for item in result["results"]}
-    assert by_url[INTERNAL]["error"]["code"] == "ssrf_blocked"
+    assert by_url[INTERNAL]["error"]["reason"] == "ssrf_blocked"
     assert by_url[PUBLIC].get("error") is None
     assert upstream.fetches == [PUBLIC]
 

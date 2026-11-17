@@ -28,7 +28,7 @@ from .urls import (
 )
 
 # Error codes that mean no upstream request was made for a batch item.
-_LOCAL_ERROR_CODES = frozenset({"rate_limited_local", "deadline_exceeded", "internal_error"})
+_LOCAL_ERROR_REASONS = frozenset({"rate_limited_local", "deadline_exceeded", "internal_error"})
 
 
 def _batch_item(url: str, envelope: dict[str, Any]) -> dict[str, Any]:
@@ -200,7 +200,7 @@ def _batch_results(
                 trimmed = True
             remaining -= item["chars"]
             requests_used += not item["cached"]
-        elif rejection is None and item["error"].get("code") not in _LOCAL_ERROR_CODES:
+        elif rejection is None and item["error"].get("reason") not in _LOCAL_ERROR_REASONS:
             requests_used += 1
         results.append(item)
     return results, trimmed, requests_used

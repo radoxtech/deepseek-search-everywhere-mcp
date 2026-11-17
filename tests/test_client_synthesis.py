@@ -134,7 +134,9 @@ async def test_over_length_client_report_is_noted_not_condensed(fake_upstream: A
 async def test_bad_client_reports_are_rejected(fake_upstream: Any, report: str, message: str) -> None:
     res = await _awaiting(fake_upstream)
     bad = await server.deepseek_check_research(res["job_id"], report=report)
-    assert bad["ok"] is False and bad["error"]["code"] == "bad_request" and message in bad["error"]["message"]
+    assert (
+        bad["ok"] is False and bad["error"]["reason"] == "bad_request" and message in bad["error"]["message"]
+    )
 
 
 async def test_report_for_a_server_job_is_rejected(fake_upstream: Any) -> None:
@@ -143,7 +145,7 @@ async def test_report_for_a_server_job_is_rejected(fake_upstream: Any) -> None:
     assert res["synthesized"] is True
     job_id = server.get_job_store().find_finished_match("server topic", "low", None, server._clock()).job_id
     bad = await server.deepseek_check_research(job_id, report="Anything [1].")
-    assert bad["error"]["code"] == "bad_request" and "synthesized by the server" in bad["error"]["message"]
+    assert bad["error"]["reason"] == "bad_request" and "synthesized by the server" in bad["error"]["message"]
 
 
 async def test_report_before_the_sources_are_ready_is_rejected(
@@ -162,12 +164,12 @@ async def test_report_before_the_sources_are_ready_is_rejected(
     running = await server.deepseek_research("slow topic", depth="low", synthesis="client")
     assert running["status"] == "running"
     bad = await server.deepseek_check_research(running["job_id"], report="Too early [1].")
-    assert bad["error"]["code"] == "bad_request" and "not ready" in bad["error"]["message"]
+    assert bad["error"]["reason"] == "bad_request" and "not ready" in bad["error"]["message"]
 
 
 async def test_unknown_synthesis_mode_is_rejected() -> None:
     res = await server.deepseek_research("topic", synthesis="model")  # type: ignore[arg-type]
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
 
 async def test_server_and_client_modes_are_separate_jobs(fake_upstream: Any) -> None:
@@ -279,7 +281,7 @@ async def test_check_research_pages_through_a_large_context(fake_upstream: Any) 
         seen |= {e["id"] for e in more["context"]}
     assert seen == set(range(1, len(server.get_job_store().get(res["job_id"]).synthesis_context) + 1))
     bad = await server.deepseek_check_research(res["job_id"], page=pages + 1)
-    assert bad["error"]["code"] == "bad_request"
+    assert bad["error"]["reason"] == "bad_request"
 
 
 async def test_page_on_a_server_job_is_ignored_with_a_note(fake_upstream: Any) -> None:
@@ -369,13 +371,13 @@ async def test_awaiting_pages_are_marked_as_derived_from_untrusted(fake_upstream
 async def test_page_and_report_together_are_rejected(fake_upstream: Any) -> None:
     res = await _awaiting(fake_upstream)
     bad = await server.deepseek_check_research(res["job_id"], page=1, report="x [1].")
-    assert bad["error"]["code"] == "bad_request" and "not both" in bad["error"]["message"]
+    assert bad["error"]["reason"] == "bad_request" and "not both" in bad["error"]["message"]
 
 
 async def test_page_zero_is_rejected(fake_upstream: Any) -> None:
     res = await _awaiting(fake_upstream)
     bad = await server.deepseek_check_research(res["job_id"], page=0)
-    assert bad["error"]["code"] == "bad_request"
+    assert bad["error"]["reason"] == "bad_request"
 
 
 async def test_report_for_a_failed_client_job_returns_the_failure(
@@ -390,4 +392,4 @@ async def test_report_for_a_failed_client_job_returns_the_failure(
     job_id = next(iter(server.get_job_store()._jobs))
     bad = await server.deepseek_check_research(job_id, report="x [1].")
     assert res["ok"] is False or res.get("status") != "awaiting_report"
-    assert bad["ok"] is False and bad["error"]["code"] == "internal_error"
+    assert bad["ok"] is False and bad["error"]["reason"] == "internal_error"

@@ -60,7 +60,7 @@ def test_fetch_section_out_of_bounds(fake_upstream):
     _install_fetch(fake_upstream)
     result = asyncio.run(server.deepseek_fetch("https://example.com/quantum", section=10))
     assert result["ok"] is False
-    assert result["error"]["code"] == "bad_request"
+    assert result["error"]["reason"] == "bad_request"
     assert "out of bounds" in result["error"]["message"]
 
 
@@ -108,12 +108,12 @@ def test_fetch_offset_limit_rejections(fake_upstream):
     _install_fetch(fake_upstream)
     res1 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=-1))
     assert res1["ok"] is False
-    assert res1["error"]["code"] == "bad_request"
+    assert res1["error"]["reason"] == "bad_request"
     assert "offset must be at least 0" in res1["error"]["message"]
 
     res2 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", limit=0))
     assert res2["ok"] is False
-    assert res2["error"]["code"] == "bad_request"
+    assert res2["error"]["reason"] == "bad_request"
     assert "limit must be greater than 0" in res2["error"]["message"]
 
 
@@ -155,7 +155,7 @@ def test_fetch_conflicting_selectors_rejected(fake_upstream, kwargs):
     _install_fetch(fake_upstream)
     result = asyncio.run(server.deepseek_fetch("https://example.com/quantum", **kwargs))
     assert result["ok"] is False
-    assert result["error"]["code"] == "bad_request"
+    assert result["error"]["reason"] == "bad_request"
     assert (
         "Selectors section, query, offset/limit, and find_text are mutually exclusive."
         in result["error"]["message"]

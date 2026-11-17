@@ -8,12 +8,13 @@ from typing import Any
 import pytest
 
 from deepseek_search_everywhere_mcp import runtime, server
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
 from deepseek_search_everywhere_mcp.settings import Settings
 
 URL = "https://example.com/article"
 PAGE = {"title": "Article", "content": "\\# Heading\n\nBody text\\, with escapes" + "x" * 500}
-NOT_FOUND = {"ok": False, "error": {"code": "not_found", "message": "failed to fetch URL"}}
+NOT_FOUND = _fail("not_found", "failed to fetch URL")
 
 
 class Upstream:
@@ -176,7 +177,7 @@ async def test_invalid_url_touches_neither_cache_nor_limiter(
     upstream: Upstream, limiter: RateLimiter
 ) -> None:
     result = await server.deepseek_fetch("ftp://example.com/file")
-    assert result["error"]["code"] == "bad_url"
+    assert result["error"]["reason"] == "bad_url"
     assert upstream.calls == []
     assert limiter.buckets["fetch"].tokens == limiter.buckets["fetch"].burst
 
@@ -203,12 +204,10 @@ async def test_invalid_url_touches_neither_cache_nor_limiter(
 async def test_404_suggests_search_only_for_pdf_and_reddit(
     upstream: Upstream, url: str, advice: bool
 ) -> None:
-    upstream.responses = [
-        {"ok": False, "error": {"code": "not_found", "message": "failed to fetch URL", "status": 404}}
-    ]
+    upstream.responses = [_fail("not_found", "failed to fetch URL", 404)]
     result = await server.deepseek_fetch(url)
     assert result["ok"] is False
-    assert result["error"]["code"] == "not_found"
+    assert result["error"]["reason"] == "not_found"
     assert result["error"]["status"] == 404
     assert ("deepseek_search" in result["error"]["message"]) is advice
     assert result["error"]["message"].startswith("failed to fetch URL")

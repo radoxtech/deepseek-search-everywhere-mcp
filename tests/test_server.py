@@ -113,22 +113,22 @@ def test_http_error_non_json_body():
 
 def test_search_rejects_empty_query():
     result = asyncio.run(server._search("", 5, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "empty_query"
+    assert result["error"]["reason"] == "empty_query"
 
 
 def test_search_rejects_long_query():
     result = asyncio.run(server._search("a" * 129, 5, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "query_too_long"
+    assert result["error"]["reason"] == "query_too_long"
 
 
 def test_search_rejects_bad_count():
     result = asyncio.run(server._search("test", 0, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "bad_count"
+    assert result["error"]["reason"] == "bad_count"
 
 
 def test_search_rejects_bad_lang():
     result = asyncio.run(server._search("test", 5, None, False, "polish", 1000, 4000))
-    assert result["error"]["code"] == "bad_lang"
+    assert result["error"]["reason"] == "bad_lang"
 
 
 def test_api_key_env_wins(monkeypatch):
@@ -154,17 +154,17 @@ def test_search_without_key_returns_error(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     result = asyncio.run(server._search("test", 1, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "missing_api_key"
+    assert result["error"]["reason"] == "missing_api_key"
 
 
 def test_fetch_rejects_non_http_url():
     result = asyncio.run(server.deepseek_fetch("ftp://example.com/file"))
-    assert result["error"]["code"] == "bad_url"
+    assert result["error"]["reason"] == "bad_url"
 
 
 def test_fetch_rejects_long_url():
     result = asyncio.run(server.deepseek_fetch("https://x.test/" + "a" * 9000))
-    assert result["error"]["code"] == "url_too_long"
+    assert result["error"]["reason"] == "url_too_long"
 
 
 def _search_response(results):
@@ -373,7 +373,7 @@ def test_rewrite_with_missing_key_makes_no_chat_call(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     result = asyncio.run(server._search("test", 1, None, False, None, 1000, 4000, True, True))
-    assert result["error"]["code"] == "missing_api_key"
+    assert result["error"]["reason"] == "missing_api_key"
 
 
 def test_rewrite_payload_is_flash_without_thinking(fake_upstream):
