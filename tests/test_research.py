@@ -397,7 +397,7 @@ async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytes
         ("low", {"type": "disabled"}, None, 16384, True),
         ("medium", {"type": "enabled"}, "low", 32768, False),
         ("high", {"type": "enabled"}, "high", 65536, False),
-        ("max", {"type": "enabled"}, "max", 131072, False),
+        ("max", {"type": "enabled"}, "high", 131072, False),
     ],
 )
 async def test_synthesis_tier_payload_contracts(
