@@ -11,6 +11,7 @@ import pytest
 from deepseek_search_everywhere_mcp import ratelimit, runtime, server
 from deepseek_search_everywhere_mcp.budget import DailyBudgetTracker
 from deepseek_search_everywhere_mcp.settings import get_pricing_period
+from deepseek_search_everywhere_mcp.tools import extract as extract_tool
 
 
 async def test_chat_request_requires_thinking_argument() -> None:
@@ -160,7 +161,7 @@ async def test_extract_many_bounds_llm_concurrency_to_at_most_four(
         current_concurrent -= 1
         return {"ok": True, "url": args[0], "data": {"price": 10}}, 1
 
-    monkeypatch.setattr(server, "_extract_page", mock_extract_page)
+    monkeypatch.setattr(extract_tool, "_extract_page", mock_extract_page)
 
     res = await server.deepseek_extract_many(urls, fields=["price"])
     assert res["ok"] is True
