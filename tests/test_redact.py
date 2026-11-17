@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
-from deepseek_search_everywhere_mcp import server, transport
+from deepseek_search_everywhere_mcp import search_core, server, transport
 from deepseek_search_everywhere_mcp.errors import _map_http_error
 from deepseek_search_everywhere_mcp.redact import redact
 
@@ -94,7 +94,7 @@ def test_notes_are_redacted_but_result_content_is_not(
     async def fake_rewrite(query: str) -> str:
         return "find sk-abcdefghijkl"
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     fake_upstream(
         default={
             "ok": True,

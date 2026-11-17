@@ -272,7 +272,7 @@ async def test_deep_research_path_sanitization(
         }
 
     monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._chat_request", fake_chat_request)
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._search", fake_search)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.search_core._search", fake_search)
 
     res = await deepseek_research("ai security", depth="low", refresh=True)
     assert res["ok"] is True

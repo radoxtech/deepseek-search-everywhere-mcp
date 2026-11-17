@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import search_core, server
 
 
 def _install_fake_search(fake_upstream: Any, results_map: dict[str, list[dict[str, Any]]]) -> list[dict]:
@@ -146,7 +146,7 @@ def test_search_many_exception_redacts_secrets(monkeypatch):
     async def mock_search(*args, **kwargs):
         raise RuntimeError("failed with secret sk-ant-api03-verysecretkey123456")
 
-    monkeypatch.setattr(server, "_search", mock_search)
+    monkeypatch.setattr(search_core, "_search", mock_search)
     res = asyncio.run(server.deepseek_search_many(["test"]))
     assert res["ok"] is True
     assert res["failed_count"] == 1

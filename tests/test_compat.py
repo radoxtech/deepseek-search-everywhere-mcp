@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import search_core, server
 
 TOOL_NAMES = {
     "deepseek_search",
@@ -128,7 +128,7 @@ def test_rewrite_note(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return "better query"
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     _install_fake_request(fake_upstream, [])
     result = asyncio.run(server._search("q", 5, None, "snippets", None, 1000, 4000, True, True))
     assert "query rewritten (flash): 'better query'" in result["notes"]

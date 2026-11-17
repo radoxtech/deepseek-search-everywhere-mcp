@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import runtime, server
+from deepseek_search_everywhere_mcp import runtime, search_core, server
 
 RESULTS = [
     {"title": "One", "url": "https://example.com/one", "site_name": "Example", "content": "a" * 500},
@@ -133,7 +133,7 @@ async def test_failed_rewrite_is_not_cached(upstream: Upstream, monkeypatch: pyt
         rewrites.append(query)
         return None
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     await _search(rewrite=True)
     second = await _search(rewrite=True)
     assert len(rewrites) == 2
@@ -147,7 +147,7 @@ async def test_refresh_still_uses_rewrite_cache(upstream: Upstream, monkeypatch:
         rewrites.append(query)
         return "rewritten query"
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     await _search(rewrite=True)
     await _search(rewrite=True, refresh=True)
     assert len(rewrites) == 1
