@@ -119,18 +119,18 @@ def _reject_url(url: str) -> dict[str, Any] | None:
     try:
         validate_url(url)
     except UrlError as exc:
-        return _fail("bad_url" if exc.code == CODE_INVALID else exc.code, exc.message)
+        return _fail("bad_url" if exc.code == CODE_INVALID else exc.code, exc.message, param="url")
     return None
 
 
 def _check_fetch_url(url: str) -> dict[str, Any] | None:
     """Validate a stripped fetch URL; return an error envelope if it is unusable, else ``None``."""
     if not url:
-        return _fail("empty_url", "url must not be empty.")
+        return _fail("empty_url", "url must not be empty.", param="url")
     if len(url) > MAX_URL:
-        return _fail("url_too_long", f"url must be at most {MAX_URL} characters.")
+        return _fail("url_too_long", f"url must be at most {MAX_URL} characters.", param="url")
     if not re.match(r"^https?://", url, re.I):
-        return _fail("bad_url", "url must start with http:// or https://.")
+        return _fail("bad_url", "url must start with http:// or https://.", param="url")
     rejection = _reject_url(url)
     if rejection is not None:
         return rejection
@@ -300,9 +300,9 @@ async def _fetch(
             "bad_request", "Selectors section, query, offset/limit, and find_text are mutually exclusive."
         )
     if offset is not None and offset < 0:
-        return _fail("bad_request", "offset must be at least 0.")
+        return _fail("bad_request", "offset must be at least 0.", param="offset")
     if limit is not None and limit <= 0:
-        return _fail("bad_request", "limit must be greater than 0.")
+        return _fail("bad_request", "limit must be greater than 0.", param="limit")
 
     key = _fetch_cache_key(url)
     record, cached = await _cached_call(
@@ -352,14 +352,16 @@ async def _fetch(
 
     if section is not None:
         if section < 1:
-            return _fail("bad_request", "section must be at least 1.")
+            return _fail("bad_request", "section must be at least 1.", param="section")
         sections = split_sections(content)
         total_sections = len(sections)
         if total_sections == 0:
             content = ""
         elif section > total_sections:
             return _fail(
-                "bad_request", f"section {section} out of bounds; document has {total_sections} section(s)."
+                "bad_request",
+                f"section {section} out of bounds; document has {total_sections} section(s).",
+                param="section",
             )
         else:
             section_index = section

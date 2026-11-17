@@ -51,9 +51,9 @@ EXTRACT_CONCURRENCY = 4  # LLM extraction calls a deepseek_extract URL list runs
 def _validate_extract_spec(fields: list[str] | None, schema: dict[str, Any] | None) -> dict[str, Any] | None:
     """Validate that either 'fields' or 'schema' is provided and structurally sound."""
     if not fields and not schema:
-        return _fail("bad_request", "Either 'fields' or 'schema' must be provided.")
+        return _fail("bad_request", "Either 'fields' or 'schema' must be provided.", param="fields")
     if fields is not None and schema is not None:
-        return _fail("bad_request", "Provide either 'fields' or 'schema', not both.")
+        return _fail("bad_request", "Provide either 'fields' or 'schema', not both.", param="schema")
     if fields is not None:
         valid_fields = (
             isinstance(fields, list)
@@ -61,9 +61,11 @@ def _validate_extract_spec(fields: list[str] | None, schema: dict[str, Any] | No
             and all(isinstance(f, str) and f.strip() for f in fields)
         )
         if not valid_fields:
-            return _fail("bad_request", "'fields' must be a non-empty list of non-empty strings.")
+            return _fail(
+                "bad_request", "'fields' must be a non-empty list of non-empty strings.", param="fields"
+            )
     if schema is not None and not isinstance(schema, dict):
-        return _fail("bad_request", "'schema' must be a dictionary.")
+        return _fail("bad_request", "'schema' must be a dictionary.", param="schema")
     return None
 
 
@@ -300,7 +302,7 @@ async def _extract_list(
             "bad_request", f"a URL list must contain 1-{settings.batch_max_urls} entries.", param="url"
         )
     if max_chars_per_url < 1 or max_total_chars < 1:
-        return _fail("bad_request", "max_chars and max_total_chars must be at least 1.")
+        return _fail("bad_request", "max_chars and max_total_chars must be at least 1.", param="max_chars")
 
     items, duplicates = _dedupe_urls(urls)
     if not items:

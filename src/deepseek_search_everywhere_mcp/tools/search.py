@@ -96,7 +96,7 @@ async def _search_one(
 ) -> dict[str, Any]:
     """Run one query: the single-query branch of ``deepseek_search``."""
     if max_total_chars < 1:
-        return _fail("bad_request", "max_total_chars must be at least 1.")
+        return _fail("bad_request", "max_total_chars must be at least 1.", param="max_total_chars")
     per_result = max(500, max_total_chars // max(1, count))
     res = await search_core._search(
         query,
@@ -270,15 +270,15 @@ async def deepseek_search(
     if isinstance(content, bool):
         content = "full" if content else "snippets"
     if content not in ("snippets", "full"):
-        return _fail("bad_request", "content must be 'snippets' or 'full'.")
+        return _fail("bad_request", "content must be 'snippets' or 'full'.", param="content")
     if not isinstance(queries, list) or not queries:
         return _fail("bad_request", "query must be a string or a non-empty list of strings.", param="query")
     if not all(isinstance(q, str) for q in queries):
         return _fail("bad_request", "every item of a query list must be a string.", param="query")
     if count < 1 or count > MAX_COUNT:
-        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
+        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.", param="count")
     if max_total_chars < 1:
-        return _fail("bad_request", "max_total_chars must be at least 1.")
+        return _fail("bad_request", "max_total_chars must be at least 1.", param="max_total_chars")
 
     unique_queries: list[str] = []
     seen: set[str] = set()

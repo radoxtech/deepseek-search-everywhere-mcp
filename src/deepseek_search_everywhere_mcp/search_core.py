@@ -265,12 +265,35 @@ async def _search_upstream(payload: dict[str, Any], query_original: str | None, 
     return record
 
 
+def _filter_param(
+    include_domains: list[str] | None,
+    exclude_domains: list[str] | None,
+    exclude_terms: list[str] | None,
+    exact_phrases: list[str] | None,
+    after: str | None,
+    before: str | None,
+) -> str | None:
+    """Name the first filter parameter that fails on its own, or None when only their combination does."""
+    single: dict[str, dict[str, Any]] = {
+        "include_domains": {"include_domains": include_domains},
+        "exclude_domains": {"exclude_domains": exclude_domains},
+        "exclude_terms": {"exclude_terms": exclude_terms},
+        "exact_phrases": {"exact_phrases": exact_phrases},
+        "after": {"after": after},
+        "before": {"before": before},
+    }
+    for name, kwargs in single.items():
+        if next(iter(kwargs.values())) and compile_filters(**kwargs)[1]:
+            return name
+    return None
+
+
 def _check_search_args(
     query: str, count: int, lang: str | None, filter_ops: str | None = None
 ) -> dict[str, Any] | None:
     """Validate query, count, lang and filter budget; return an error envelope or None."""
     if not query:
-        return _fail("empty_query", "query must not be empty.")
+        return _fail("empty_query", "query must not be empty.", param="query")
     egress_err = check_search_egress(query, runtime.get_settings())
     if egress_err is not None:
         return _fail("egress_blocked", egress_err)
@@ -282,12 +305,17 @@ def _check_search_args(
                 "query_too_long",
                 f"query is {len(query)} characters; it must be at most {budget} when filters "
                 f"({ops_len} chars) are applied ({MAX_QUERY} in total).",
+                param="query",
             )
-        return _fail("query_too_long", f"query is {len(query)} characters; it must be at most {MAX_QUERY}.")
+        return _fail(
+            "query_too_long",
+            f"query is {len(query)} characters; it must be at most {MAX_QUERY}.",
+            param="query",
+        )
     if not 1 <= count <= MAX_COUNT:
-        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
+        return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.", param="count")
     if lang and not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2})?", lang):
-        return _fail("bad_lang", "lang must look like 'es' or 'pt-BR'.")
+        return _fail("bad_lang", "lang must look like 'es' or 'pt-BR'.", param="lang")
     return None
 
 
@@ -501,7 +529,7 @@ async def _search(
     if isinstance(content, bool):
         content = "full" if content else "snippets"
     if content not in ("snippets", "full"):
-        return _fail("bad_request", "content must be 'snippets' or 'full'.")
+        return _fail("bad_request", "content must be 'snippets' or 'full'.", param="content")
     need_content = content == "full"
 
     query = (query or "").strip()
@@ -514,7 +542,13 @@ async def _search(
         before=before,
     )
     if filter_code:
-        return _fail(filter_code, filter_err or "Invalid search filters.")
+        return _fail(
+            filter_code,
+            filter_err or "Invalid search filters.",
+            param=_filter_param(
+                include_domains, exclude_domains, exclude_terms, exact_phrases, after, before
+            ),
+        )
 
     rejection = _check_search_args(query, count, lang, filter_ops=ops_string)
     if rejection is not None:
@@ -528,7 +562,9 @@ async def _search(
     try:
         used, trimmed = fit_query(query, lang=lang, filter_ops=ops_string)
     except ValueError:
-        return _fail("query_too_long", f"Filters and language exceed the {MAX_QUERY}-character limit.")
+        return _fail(
+            "query_too_long", f"Filters and language exceed the {MAX_QUERY}-character limit.", param="query"
+        )
 
     payload = _build_search_payload(
         used, count, dedupe, need_content, ori_question, localization=localization

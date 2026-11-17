@@ -105,20 +105,25 @@ async def deepseek_research(
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:
-        return _fail("empty_query", "topic must not be empty.")
+        return _fail("empty_query", "topic must not be empty.", param="topic")
     if len(clean_topic) > MAX_TOPIC:
-        return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.")
+        return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.", param="topic")
     if depth not in DEPTH_CONFIG:
-        return _fail("bad_request", f"depth must be one of: {', '.join(DEPTH_CONFIG.keys())}")
+        return _fail("bad_request", f"depth must be one of: {', '.join(DEPTH_CONFIG.keys())}", param="depth")
     if sources not in {"any", "academic", "technical"}:
         return _fail(
             "bad_request",
             f"Invalid sources preference '{sources}'. Expected one of: any, academic, technical.",
+            param="sources",
         )
     if unverified not in {"flag", "drop"}:
-        return _fail("bad_request", f"unverified must be 'flag' or 'drop', got {unverified!r}.")
+        return _fail(
+            "bad_request", f"unverified must be 'flag' or 'drop', got {unverified!r}.", param="unverified"
+        )
     if synthesis not in {"server", "client"}:
-        return _fail("bad_request", f"synthesis must be 'server' or 'client', got {synthesis!r}.")
+        return _fail(
+            "bad_request", f"synthesis must be 'server' or 'client', got {synthesis!r}.", param="synthesis"
+        )
 
     settings = runtime.get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)

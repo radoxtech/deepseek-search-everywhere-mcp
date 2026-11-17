@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -258,3 +259,35 @@ def test_unknown_reason_keeps_the_internal_error_action(caplog: pytest.LogCaptur
     with caplog.at_level("WARNING"):
         error = _fail("no_such_reason", "msg")["error"]
     assert (error["code"], error["action"], error["reason"]) == ("internal_error", "retry", "internal_error")
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "kwargs", "param"),
+    [
+        ("deepseek_search", ("",), {}, "query"),
+        ("deepseek_search", ("q",), {"count": 0}, "count"),
+        ("deepseek_search", ("q",), {"lang": "polish"}, "lang"),
+        ("deepseek_search", ("q",), {"exclude_terms": ["two words"]}, "exclude_terms"),
+        ("deepseek_search", ("q",), {"exact_phrases": ['a"b']}, "exact_phrases"),
+        ("deepseek_search", ("q",), {"after": "invalid-date"}, "after"),
+        ("deepseek_search", ([],), {}, "query"),
+        ("deepseek_fetch", ("",), {}, "url"),
+        ("deepseek_fetch", ("ftp://example.com",), {}, "url"),
+        ("deepseek_fetch", ("https://example.com",), {"offset": -1}, "offset"),
+        ("deepseek_fetch", ([],), {}, "url"),
+        ("deepseek_extract", ("https://example.com",), {}, "fields"),
+        ("deepseek_research", ("",), {}, "topic"),
+        ("deepseek_research", ("topic",), {"depth": "huge"}, "depth"),
+        ("deepseek_check_research", ("",), {}, "job_id"),
+    ],
+)
+async def test_input_errors_name_the_offending_parameter(
+    tool: str, args: tuple[Any, ...], kwargs: dict[str, Any], param: str
+) -> None:
+    from deepseek_search_everywhere_mcp import server
+
+    res = await getattr(server, tool)(*args, **kwargs)
+    assert res["ok"] is False
+    assert res["error"]["code"] == "invalid_input"
+    assert res["error"]["action"] == "fix_input"
+    assert res["error"]["param"] == param

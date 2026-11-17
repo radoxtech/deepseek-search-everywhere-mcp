@@ -163,7 +163,7 @@ async def _fetch_list(
             "bad_request", f"a URL list must contain 1-{settings.batch_max_urls} entries.", param="url"
         )
     if max_chars_per_url < 1 or max_total_chars < 1:
-        return _fail("bad_request", "max_chars and max_total_chars must be at least 1.")
+        return _fail("bad_request", "max_chars and max_total_chars must be at least 1.", param="max_chars")
 
     items, duplicates = _dedupe_urls(urls)
     if not items:
