@@ -72,7 +72,9 @@ class ResearchJob:
     @property
     def awaiting_report(self) -> bool:
         """True while a client-synthesis job holds its sources and waits for the client's report."""
-        return bool(self.result and self.result.get("status") == "awaiting_report")
+        return bool(
+            self.result and self.result.get("status") == "needs_input" and self.result.get("step") == "report"
+        )
 
 
 class ResearchJobStore:

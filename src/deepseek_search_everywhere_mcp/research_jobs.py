@@ -2,7 +2,7 @@
 
 ``_ResearchRun`` carries one job through its pipeline phases (decompose, retrieve, round two,
 rank and fill, synthesize); ``_finalize_report`` is shared by server and client synthesis. Also
-holds the job envelopes (running, finished, awaiting a client report) and client report checks.
+holds the job envelopes (running, finished, waiting for a client report) and client report checks.
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def _finished_job_envelope(job: ResearchJob, delivery: Literal["inline", "polled
             return _awaiting_report_envelope(job, 1)  # the gathering cost was already reported
         job.client_charged = True
     if res.get("ok"):
-        if res.get("status") != "awaiting_report":
+        if res.get("status") != "needs_input":
             res["status"] = "done"
         res["delivery"] = delivery
         if delivery == "polled":
@@ -185,7 +185,7 @@ def _running_job_envelope(job: ResearchJob) -> dict[str, Any]:
 def _reuse_finished_result(stored: dict[str, Any]) -> dict[str, Any]:
     """Copy a stored finished research result, marked as served from the job store at zero cost."""
     res = copy.deepcopy(stored)
-    if res.get("status") != "awaiting_report":
+    if res.get("status") != "needs_input":
         res["status"] = "done"
     res["delivery"] = "inline"
     res["cached"] = True
@@ -780,7 +780,7 @@ MAX_CLIENT_REPORT_CHARS = 60_000
 
 
 def _awaiting_report_envelope(job: ResearchJob, page: int, *, charge: bool = False) -> dict[str, Any]:
-    """Return one page of a client-synthesis job's sources (``status: "awaiting_report"``).
+    """Return one page of a client-synthesis job's sources (``status: "needs_input"``, ``step: "report"``).
 
     Page 1 carries the synthesis instructions; only its first delivery (``charge``) reports the cost
     of gathering the sources, every other page or repeat costs nothing. ``next_action`` points to the
@@ -792,12 +792,12 @@ def _awaiting_report_envelope(job: ResearchJob, page: int, *, charge: bool = Fal
         next_action = (
             f"Read page {page + 1} of {pages} with deepseek_check_research(job_id, page={page + 1}), then "
             "write the report following synthesis_instructions and send it with "
-            "deepseek_check_research(job_id, report=...)."
+            "deepseek_check_research(job_id, answer=...)."
         )
     else:
         next_action = (
             "Write the report following synthesis_instructions (cite sources as [id]) and send it with "
-            "deepseek_check_research(job_id, report=...); the server verifies citations and numbers."
+            "deepseek_check_research(job_id, answer=...); the server verifies citations and numbers."
         )
     first = page == 1
     requests_used = run.requests_used if charge else 0
@@ -807,7 +807,8 @@ def _awaiting_report_envelope(job: ResearchJob, page: int, *, charge: bool = Fal
     total_cost = round(search_cost + fetch_cost + llm_cost, 6)
     envelope: dict[str, Any] = {
         "ok": True,
-        "status": "awaiting_report",
+        "status": "needs_input",
+        "step": "report",
         "job_id": job.job_id,
         "topic": run.topic,
         "depth": run.depth,
@@ -847,7 +848,7 @@ def _client_page(job: ResearchJob, page: int) -> dict[str, Any]:
     """
     _, pages = paginate_context(job.synthesis_context or [], page)
     if not 1 <= page <= pages:
-        return _fail("bad_request", f"page must be between 1 and {pages} for this job.")
+        return _fail("bad_request", f"page must be between 1 and {pages} for this job.", param="page")
     if page == 1 and not job.client_charged and job.client_sources_result is not None:
         job.client_charged = True
         res = dict(job.client_sources_result)
@@ -866,7 +867,8 @@ async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]
     if job.synthesis != "client":
         return _fail(
             "bad_request",
-            "This job was synthesized by the server; report= applies only to synthesis='client' jobs.",
+            "This job was synthesized by the server; answer= applies only to synthesis='client' jobs.",
+            param="answer",
         )
     if job.exception is not None:
         return _finished_job_envelope(job, "polled")
@@ -874,15 +876,17 @@ async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]
         return _fail(
             "bad_request",
             "The sources are not ready yet. Poll with deepseek_check_research(job_id) until status is "
-            "awaiting_report, then send the report.",
+            "needs_input, then send the report as answer=.",
         )
     if job.synthesis_context is None or job.client_run is None:
         return _fail("bad_request", "This job has no sources to verify a report against.")
     text = report.strip() if isinstance(report, str) else ""
     if not text:
-        return _fail("bad_request", "report must not be empty.")
+        return _fail("bad_request", "answer must not be empty.", param="answer")
     if len(text) > MAX_CLIENT_REPORT_CHARS:
-        return _fail("bad_request", f"report must be at most {MAX_CLIENT_REPORT_CHARS} characters.")
+        return _fail(
+            "bad_request", f"answer must be at most {MAX_CLIENT_REPORT_CHARS} characters.", param="answer"
+        )
 
     base: _ResearchRun = job.client_run
     run = dataclasses.replace(base, notes=list(base.notes))  # each submission starts from the same notes

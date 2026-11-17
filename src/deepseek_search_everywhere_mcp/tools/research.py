@@ -96,10 +96,10 @@ async def deepseek_research(
     and write the report yourself; the server then verifies its citations and numbers. At most 3
     jobs run at once.
 
-    When NOT to use: one fact or query (deepseek_search), several independent queries
-    (deepseek_search), known URLs (deepseek_fetch), or fields as JSON (deepseek_extract).
+    When NOT to use: one fact or a few independent queries (deepseek_search), known URLs
+    (deepseek_fetch), or fields as JSON (deepseek_extract).
 
-    Returns: {"ok": True, "status": "done"|"running"|"awaiting_report", "job_id"?, "report": str,
+    Returns: {"ok": True, "status": "done"|"running"|"needs_input", "job_id"?, "report": str,
     "sources": [{id, title, url, date, doi, pmid, pmcid, access, source_type, authors}],
     "unverified_numbers": [...], "cost_usd": float}.
     """
@@ -197,28 +197,27 @@ async def deepseek_check_research(
         int | None,
         Field(description="Page of sources to read for a synthesis='client' job (default None)"),
     ] = None,
-    report: Annotated[
-        str | None,
-        Field(
-            description="Report with [id] citations to verify (synthesis='client' jobs only, default None)"
-        ),
+    answer: Annotated[
+        str | dict[str, Any] | None,
+        Field(description="Input for a job with status needs_input; its step says what (default None)"),
     ] = None,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
-    """Continue a research job: poll it, read its sources for client synthesis, or submit your report.
+    """Continue a research job: poll it, read its sources, or answer when it needs input.
 
     Free ($0.00); waits up to 45 s per call. Returns the finished report (status "done"),
     progress while the job runs ("running": call again with the same job_id) or job_not_found
-    once it expired. For synthesis="client" jobs ("awaiting_report"), page= reads the next page of
-    sources and report= submits your report with [id] citations for verification.
+    once it expired. Status "needs_input" names a step: for step "report" (synthesis="client"),
+    page= reads the next page of sources and answer= submits your report with [id] citations for
+    verification. Sending the same answer again costs nothing.
 
     When NOT to use: to start research (deepseek_research). Never restart a running job; poll it.
 
-    Returns: {"ok": True, "status": "done"|"running"|"awaiting_report", "job_id": str, ...}.
+    Returns: {"ok": True, "status": "done"|"running"|"needs_input", "step"?: str, "job_id": str, ...}.
     """
     clean_id = job_id.strip() if isinstance(job_id, str) else ""
     if not clean_id:
-        return _fail("bad_request", "job_id must not be empty.")
+        return _fail("bad_request", "job_id must not be empty.", param="job_id")
 
     settings = runtime.get_settings()
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
@@ -230,10 +229,12 @@ async def deepseek_check_research(
             "job_not_found",
             "Research job not found or expired. Restart the research with deepseek_research.",
         )
-    if report is not None:
+    if answer is not None:
         if page is not None:
-            return _fail("bad_request", "Pass either page= or report=, not both.")
-        return await _verify_client_report(job, report)
+            return _fail("bad_request", "Pass either page= or answer=, not both.", param="page")
+        if not isinstance(answer, str):
+            return _fail("bad_request", "For step 'report', answer must be the report text.", param="answer")
+        return await _verify_client_report(job, answer)
     if job.has_client_sources and job.task is not None and job.task.done():
         job.completed_at = runtime._clock()  # a client still reading or writing keeps the job
         if page is not None:

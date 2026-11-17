@@ -171,7 +171,7 @@ def test_tool_annotations_are_truthful() -> None:
         assert ann.readOnlyHint is True
         assert ann.destructiveHint is False
         assert ann.idempotentHint is True
-        if name in ("deepseek_check_balance", "deepseek_check_research"):
+        if name == "deepseek_check_balance":
             assert ann.openWorldHint is False
         else:
             assert ann.openWorldHint is True
@@ -228,7 +228,7 @@ def test_research_description_explains_polling_and_client_synthesis() -> None:
     assert "deepseek_check_research" in research and '"running"' in research
     assert 'synthesis="client"' in research
     check = tools["deepseek_check_research"].description
-    assert "page=" in check and "report=" in check and "awaiting_report" in check
+    assert "page=" in check and "answer=" in check and "needs_input" in check
     assert 'synthesis="client"' in server.SERVER_INSTRUCTIONS
 
 

@@ -168,7 +168,7 @@ SERVER_INSTRUCTIONS: Final[str] = (
     " evidence, call\n"
     'deepseek_research with synthesis="client": the server still finds, ranks and cleans the sources'
     " and returns them\n"
-    "in pages; send your report back with deepseek_check_research(job_id, report=...) and the server"
+    "in pages; send your report back with deepseek_check_research(job_id, answer=...) and the server"
     " verifies its\n"
     "citations and numbers.\n\n"
     'If deepseek_research returns status "running", call deepseek_check_research with the job_id until'
@@ -234,7 +234,7 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
         readOnlyHint=True,
         destructiveHint=False,
         idempotentHint=True,
-        openWorldHint=False,
+        openWorldHint=True,
     ),
     "deepseek_extract": ToolAnnotations(
         title="Extract data from a page",
