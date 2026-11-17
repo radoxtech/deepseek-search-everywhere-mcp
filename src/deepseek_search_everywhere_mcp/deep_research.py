@@ -1683,7 +1683,9 @@ _MODEL_REF_HEADER_RE = re.compile(
 )
 _ADJACENT_BRACKET_RANGE_RE = re.compile(r"\[(\d+)\]\s*[\-–—]\s*\[(\d+)\]")
 _CITATION_BRACKET_RE = re.compile(r"\[(?:\^|citation:\s*)?([0-9\s,–—\-]+)\]")
-_PUNCT_SPACE_RE = re.compile(r"[ \t]+([.,;:!?])")
+# ``(?<![ \t])`` starts a match only at the beginning of a whitespace run (a match from inside a run implies
+# one from its start), so a long run without punctuation is scanned once instead of once per position.
+_PUNCT_SPACE_RE = re.compile(r"(?<![ \t])[ \t]+([.,;:!?])")
 
 
 def normalize_citations(text: str, max_id: int) -> str:
@@ -1844,7 +1846,9 @@ def _extract_numbers_and_ranges(text: str) -> list[tuple[str, str, str | None]]:
     return out
 
 
-_SENTENCE_END_RE = re.compile(r"([.!?]+)([\"'”’)\]]*)\s*$")
+# ``(?<![.!?])`` starts a match only at the beginning of a punctuation run (the leftmost match always does),
+# so a long run such as ``!!!!...x`` is scanned once instead of once per position.
+_SENTENCE_END_RE = re.compile(r"(?<![.!?])([.!?]+)([\"'”’)\]]*)\s*$")
 
 _ABBREVIATIONS: tuple[str, ...] = (
     "et al",

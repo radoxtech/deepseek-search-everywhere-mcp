@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import bisect
 import re
 import urllib.parse
+from collections.abc import Callable
 from typing import Any
 
 from .sanitize import (
@@ -77,15 +79,97 @@ def _cap_raw_content(text: str, max_chars: int) -> str:
     return text[:pre_cap]
 
 
-# One alternation, scanned left to right, so a backslash escape is consumed before any backtick
-# it escapes can open an inline code span. Code (fenced blocks, then inline spans) is matched
-# only to be skipped; a fence without a closing line runs to the end of the text.
-_MARKDOWN_TOKEN = re.compile(
-    r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
-    r"|(?P<span>(?P<ticks>`+)(?!`)(?:(?!\n[ \t]*\n).)+?(?<!`)(?P=ticks)(?!`))"
-    r"|\\(?P<char>[!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])",
+# Code (fenced blocks, then inline spans) is matched only to be skipped; a fence without a closing line runs
+# to the end of the text. Escapes and tags are matched outside code, scanned left to right, so a backslash
+# escape is consumed before any backtick it escapes can open an inline code span.
+_FENCE_RE = re.compile(
+    r"^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z)",
     re.DOTALL | re.MULTILINE,
 )
+_BACKTICK_RUN_RE = re.compile(r"`+")
+_BLANK_LINE_RE = re.compile(r"(?=\n[ \t]*\n)")
+
+
+class _CodeSpans:
+    """Finds inline code spans in O(log n) each, after one linear pass over ``text``.
+
+    An inline span is a backtick run of ``n`` backticks (not followed by another backtick), at least one
+    character, then the next run of exactly ``n`` backticks, with no blank line in between. The equivalent
+    regex rescans the rest of the text from every backtick of a long run, which is quadratic on a long run
+    of backticks followed by text without a matching closing run.
+    """
+
+    def __init__(self, text: str) -> None:
+        self._text_len = len(text)
+        self._starts: list[int] = []
+        self._ends: list[int] = []
+        self._by_length: dict[int, list[int]] = {}
+        for run in _BACKTICK_RUN_RE.finditer(text):
+            self._starts.append(run.start())
+            self._ends.append(run.end())
+            self._by_length.setdefault(run.end() - run.start(), []).append(run.start())
+        self._blanks = [blank.start() for blank in _BLANK_LINE_RE.finditer(text)]
+
+    def span_end(self, start: int) -> int | None:
+        """Return the end of the inline code span opened at backtick ``start``, or None."""
+        # The opener is the rest of its run, so a start inside a run opens a shorter span.
+        opener_end = self._ends[bisect.bisect_right(self._starts, start) - 1]
+        ticks = opener_end - start
+        blank = bisect.bisect_left(self._blanks, opener_end)
+        limit = self._blanks[blank] if blank < len(self._blanks) else self._text_len
+        closers = self._by_length.get(ticks, [])
+        index = bisect.bisect_left(closers, opener_end)
+        if index < len(closers) and closers[index] < limit:
+            return closers[index] + ticks
+        return None
+
+
+def _sub_outside_code(
+    text: str,
+    finder: re.Pattern[str],
+    other: re.Pattern[str],
+    repl: Callable[[re.Match[str]], str],
+) -> str:
+    """Replace ``other`` matches that sit outside fenced blocks and inline code spans.
+
+    Same result as ``re.sub`` over the alternation ``fence | span | other`` where fence and span matches
+    are kept verbatim, but linear: ``finder`` locates the next place where any of the three can start.
+    """
+    out: list[str] = []
+    copied = 0
+    pos = 0
+    spans: _CodeSpans | None = None
+    last_newline = text.rfind("\n")
+    while True:
+        found = finder.search(text, pos)
+        if found is None:
+            break
+        start = found.start()
+        # An opener line needs a newline after it; without one the fence cannot match, and trying anyway makes
+        # the regex give back its backtick run one by one, rescanning the line each time.
+        fence = _FENCE_RE.match(text, start) if last_newline > start else None
+        if fence is not None:
+            pos = fence.end()
+            continue
+        if text[start] == "`":
+            if spans is None:
+                spans = _CodeSpans(text)
+            end = spans.span_end(start)
+            pos = start + 1 if end is None else end
+            continue
+        match = other.match(text, start)
+        if match is None:
+            pos = start + 1
+            continue
+        out.append(text[copied:start])
+        out.append(repl(match))
+        copied = pos = match.end()
+    out.append(text[copied:])
+    return "".join(out)
+
+
+_MARKDOWN_ESCAPE_RE = re.compile(r"\\(?P<char>[!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])")
+_MARKDOWN_START_RE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})|`|\\", re.MULTILINE)
 
 
 def _unescape_markdown(text: str) -> str:
@@ -98,7 +182,7 @@ def _unescape_markdown(text: str) -> str:
     A ``\\#`` at the start of a line is unescaped like any other, so an escaped heading marker
     becomes a heading again.
     """
-    return _MARKDOWN_TOKEN.sub(lambda match: match["char"] or match[0], text)
+    return _sub_outside_code(text, _MARKDOWN_START_RE, _MARKDOWN_ESCAPE_RE, lambda match: match["char"])
 
 
 # Code first, so escapes inside fenced blocks and inline spans are matched as part of the code and kept.
@@ -147,12 +231,11 @@ def _decode_json_escapes(text: str) -> str:
 _HTML_TAG = re.compile(r"</?(?:p|br|h[1-6]|div|span|li|ul|ol|strong|em|b|i)\s*/?>", re.IGNORECASE)
 
 
-_TAG_TOKEN = re.compile(
-    r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
-    r"|(?P<span>(?P<ticks>`+)(?!`)(?:(?!\n[ \t]*\n).)+?(?<!`)(?P=ticks)(?!`))"
-    r"|(?P<tags>(?:[ \t]*" + _HTML_TAG.pattern + r"[ \t]*)+)",
-    re.DOTALL | re.MULTILINE | re.IGNORECASE,
-)
+# Runs of tags with the whitespace around them, written ``(ws tag)+ ws`` so a long whitespace run is split
+# one way only (``(ws tag ws)+`` can split it at every position and backtracks quadratically).
+_TAG_RUN_RE = re.compile(r"(?:[ \t]*" + _HTML_TAG.pattern + r")+[ \t]*", re.IGNORECASE)
+# A run can only start at the beginning of a whitespace run: starting inside one implies starting earlier.
+_TAG_START_RE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})|`|(?<![ \t])[ \t]*<", re.MULTILINE)
 
 
 def _strip_html_tags(text: str) -> str:
@@ -163,7 +246,7 @@ def _strip_html_tags(text: str) -> str:
     """
     if "<" not in text:
         return text
-    stripped = _TAG_TOKEN.sub(lambda match: " " if match["tags"] else match[0], text)
+    stripped = _sub_outside_code(text, _TAG_START_RE, _TAG_RUN_RE, lambda match: " ")
     return stripped.strip() if stripped != text else text
 
 
