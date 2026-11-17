@@ -186,14 +186,14 @@ def _unescape_markdown(text: str) -> str:
 
 
 # Code first, so escapes inside fenced blocks and inline spans are matched as part of the code and kept.
-_JSON_ESCAPE_TOKEN = re.compile(
-    r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
-    r"|(?P<span>(?P<ticks>`+)(?!`)(?:(?!\n[ \t]*\n).)+?(?<!`)(?P=ticks)(?!`))"
-    r"|\\u(?P<high>[dD][89abAB][0-9a-fA-F]{2})\\u(?P<low>[dD][c-fC-F][0-9a-fA-F]{2})"
+# JSON escapes outside code: a surrogate pair, a single unit, or an escaped slash. Code is skipped by
+# ``_sub_outside_code`` (one alternation with the code spans backtracked quadratically on backtick runs).
+_JSON_ESCAPE_RE = re.compile(
+    r"\\u(?P<high>[dD][89abAB][0-9a-fA-F]{2})\\u(?P<low>[dD][c-fC-F][0-9a-fA-F]{2})"
     r"|\\u(?P<unit>[0-9a-fA-F]{4})"
-    r"|(?P<slash>\\/)",
-    re.DOTALL | re.MULTILINE,
+    r"|(?P<slash>\\/)"
 )
+_JSON_ESCAPE_START_RE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})|`|\\", re.MULTILINE)
 
 
 _JSON_ESCAPE_HINT = re.compile(r"\\u[0-9a-fA-F]{4}|\\/")
@@ -224,7 +224,7 @@ def _decode_json_escapes(text: str) -> str:
     """
     if not _JSON_ESCAPE_HINT.search(text):
         return text
-    return _JSON_ESCAPE_TOKEN.sub(_decode_json_escape, text)
+    return _sub_outside_code(text, _JSON_ESCAPE_START_RE, _JSON_ESCAPE_RE, _decode_json_escape)
 
 
 # Simple attribute-less block and inline tags that leak into index content, snippets and summaries.

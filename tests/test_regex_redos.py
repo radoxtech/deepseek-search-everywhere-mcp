@@ -25,7 +25,7 @@ from deepseek_search_everywhere_mcp.deep_research import (
 from deepseek_search_everywhere_mcp.extract import normalize_for_evidence
 from deepseek_search_everywhere_mcp.sanitize import sanitize_markdown_links, sanitize_untrusted_text
 from deepseek_search_everywhere_mcp.server import _strip_html_tags, _unescape_markdown
-from deepseek_search_everywhere_mcp.text import _HTML_TAG
+from deepseek_search_everywhere_mcp.text import _HTML_TAG, _decode_json_escape, _decode_json_escapes
 
 pytestmark = pytest.mark.skipif(not hasattr(signal, "SIGALRM"), reason="needs SIGALRM (POSIX)")
 
@@ -119,6 +119,9 @@ LINEAR_CASES = [
     pytest.param(_unescape_markdown, _repeat("`"), id="markdown-token-backticks"),
     pytest.param(_strip_html_tags, _repeat(" \t", suffix="<"), id="tag-token-whitespace"),
     pytest.param(lambda t: normalize_citations(t, 10), _repeat(" \t"), id="citations-punct"),
+    pytest.param(_decode_json_escapes, _repeat("`", suffix="\\u00f3"), id="json-escape-backticks"),
+    pytest.param(deep_research._strip_md_links, _repeat("[1,"), id="title-md-link-openers"),
+    pytest.param(deep_research._strip_md_links, _repeat("![a]("), id="title-md-image-unclosed"),
     pytest.param(_mark_unverified, _repeat("!"), id="sentence-end"),
 ]
 
@@ -261,3 +264,36 @@ def test_sentence_end_regex_matches_like_the_old_pattern() -> None:
         old = _OLD_SENTENCE_END_RE.search(sample)
         new = deep_research._SENTENCE_END_RE.search(sample)
         assert (new and (new.span(), new.groups())) == (old and (old.span(), old.groups())), repr(sample)
+
+
+# The patterns before the fix; one alternation with code spans, and ``re.sub`` over every link opener.
+_OLD_JSON_ESCAPE_TOKEN = re.compile(
+    r"(?P<fence>^[ \t]*(?P<mark>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*(?P=mark)[ \t]*$|\Z))"
+    r"|(?P<span>(?P<ticks>`+)(?!`)(?:(?!\n[ \t]*\n).)+?(?<!`)(?P=ticks)(?!`))"
+    r"|\\u(?P<high>[dD][89abAB][0-9a-fA-F]{2})\\u(?P<low>[dD][c-fC-F][0-9a-fA-F]{2})"
+    r"|\\u(?P<unit>[0-9a-fA-F]{4})"
+    r"|(?P<slash>\\/)",
+    re.DOTALL | re.MULTILINE,
+)
+_OLD_TITLE_MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+
+
+def _old_decode_json_escapes(text: str) -> str:
+    return _OLD_JSON_ESCAPE_TOKEN.sub(
+        lambda m: m[0] if m["fence"] or m["span"] else _decode_json_escape(m), text
+    )
+
+
+@pytest.mark.parametrize(
+    "alphabet",
+    ["`~\\\nu0f3/ d8c", ["\\u00f3", "\\/", "`", "```", "\n", " ", "x", "\\ud83d\\ude00", "\\u0001"]],
+)
+def test_decode_json_escapes_matches_the_old_pattern(alphabet: Any) -> None:
+    for sample in _random_strings(4242, alphabet, 18):
+        assert _decode_json_escapes(sample) == _old_decode_json_escapes(sample), repr(sample)
+
+
+@pytest.mark.parametrize("alphabet", ["[]()!a \n", "[](!x", "!![[]](())a"])
+def test_strip_md_links_matches_the_old_pattern(alphabet: str) -> None:
+    for sample in _random_strings(99, alphabet, 22):
+        assert deep_research._strip_md_links(sample) == _OLD_TITLE_MD_LINK_RE.sub(r"\1", sample), repr(sample)

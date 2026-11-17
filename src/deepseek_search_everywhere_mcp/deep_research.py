@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
 
 from .extract import sanitize_json
 from .filters import fit_query
+from .sanitize import _sub_bracketed
 from .urls import _canonical_url, _url_etld1
 
 _TOPIC_EDGE_PUNCT_RE = re.compile(r"^[\W_]+|[\W_]+$")
@@ -1031,6 +1032,16 @@ _TITLE_BLOCK_MARKUP_STARTS = ("<", ">", "|")
 # operators in prose (p < .05, I² > 50%) and "a < b and c > d" must survive untouched.
 _HTML_TAG_PATTERN = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(\s[^<>\n]*)?/?>")
 _TITLE_MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_TITLE_MD_LINK_START_RE = re.compile(r"!?\[")
+
+
+def _strip_md_links(text: str) -> str:
+    """Replace ``[label](url)`` and ``![alt](url)`` with their label in linear time (``_sub_bracketed``)."""
+    return _sub_bracketed(
+        _TITLE_MD_LINK_RE, _TITLE_MD_LINK_START_RE, 1, lambda m: m.group(1), text, needs_close_paren=True
+    )
+
+
 _TITLE_MD_MARKERS_RE = re.compile(r"(?<!\w)(\*{1,3}|_{1,3})|(\*{1,3}|_{1,3})(?!\w)|`+|~~")
 _TITLE_LEADING_MD_RE = re.compile(r"^[\s>#|\-*+]+")
 
@@ -1183,7 +1194,7 @@ def source_authors(url: str, content: str = "") -> list[str] | None:
     match = _AUTHOR_LINE_RE.search(content[:_AUTHOR_WINDOW])
     if match is None:
         return None
-    line = _TITLE_MD_LINK_RE.sub(r"\1", match.group(1) or match.group(2) or "")
+    line = _strip_md_links(match.group(1) or match.group(2) or "")
     names: list[str] = []
     for part in _AUTHOR_SPLIT_RE.split(line):
         name = " ".join(_AUTHOR_NOISE_RE.sub(" ", part).replace("*", " ").split()).strip(" .")
@@ -1281,7 +1292,7 @@ def clean_source_title(title: Any, url: str = "") -> str:
         return host
     if title.lstrip().startswith(_TITLE_BLOCK_MARKUP_STARTS):
         return host
-    text = _TITLE_MD_LINK_RE.sub(r"\1", title)
+    text = _strip_md_links(title)
     text = _HTML_TAG_PATTERN.sub("", text)
     text = _TITLE_MD_MARKERS_RE.sub("", text)
     text = _TITLE_LEADING_MD_RE.sub("", " ".join(text.split()))
