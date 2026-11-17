@@ -66,7 +66,7 @@ def test_fetch_section_out_of_bounds(fake_upstream):
 
 def test_fetch_many_with_query(fake_upstream):
     _install_fetch(fake_upstream)
-    result = asyncio.run(server.deepseek_fetch_many(["https://example.com/quantum"], query="qubits"))
+    result = asyncio.run(server.deepseek_fetch(["https://example.com/quantum"], query="qubits"))
     assert result["ok"] is True
     assert len(result["results"]) == 1
     item = result["results"][0]
@@ -197,9 +197,7 @@ def test_fetch_query_without_matches_has_clear_note_and_empty_content(fake_upstr
 def test_fetch_many_query_returns_focused_excerpts(fake_upstream):
     _install_fetch(fake_upstream, _long_page())
     result = asyncio.run(
-        server.deepseek_fetch_many(
-            ["https://example.com/pg"], query="incremental backup", max_chars_per_url=20_000
-        )
+        server.deepseek_fetch(["https://example.com/pg"], query="incremental backup", max_chars=20_000)
     )
     item = result["results"][0]
     assert item["ok"] is True

@@ -139,7 +139,7 @@ async def test_fetch_many_keeps_order_and_dedupes(upstream_calls: list[str]) -> 
         "https://www.python.org/",
         "https://docs.python.org/3/library/asyncio.html#section",
     ]
-    envelope = await server.deepseek_fetch_many(urls, max_chars_per_url=2000, max_total_chars=4000)
+    envelope = await server.deepseek_fetch(urls, max_chars=2000, max_total_chars=4000)
     _assert_ok(envelope)
     assert envelope["count"] == 2
     assert [item["url"] for item in envelope["results"]] == urls[:2]

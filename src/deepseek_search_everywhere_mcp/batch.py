@@ -32,7 +32,7 @@ _LOCAL_ERROR_REASONS = frozenset({"rate_limited_local", "deadline_exceeded", "in
 
 
 def _batch_item(url: str, envelope: dict[str, Any]) -> dict[str, Any]:
-    """Reduce a ``deepseek_fetch`` envelope to one ``deepseek_fetch_many`` result."""
+    """Reduce a ``deepseek_fetch`` envelope to one result of a ``deepseek_fetch`` URL list."""
     if envelope.get("ok") is False:
         return {"url": url, "ok": False, "error": envelope["error"], "chars": 0, "cached": False}
     return {
@@ -213,7 +213,7 @@ def _assemble_batch(
     max_total_chars: int,
     deadline: float | None = None,
 ) -> dict[str, Any]:
-    """Build the ``deepseek_fetch_many`` envelope from the finished batch."""
+    """Build the ``deepseek_fetch`` URL-list envelope from the finished batch."""
     results, trimmed, requests_used = _batch_results(items, tasks, max_total_chars, deadline=deadline)
     notes: list[str] = []
     if duplicates:

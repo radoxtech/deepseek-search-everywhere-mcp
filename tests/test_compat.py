@@ -11,7 +11,6 @@ from deepseek_search_everywhere_mcp import search_core, server
 TOOL_NAMES = {
     "deepseek_search",
     "deepseek_fetch",
-    "deepseek_fetch_many",
     "deepseek_research",
     "deepseek_check_research",
     "deepseek_extract",
@@ -213,8 +212,7 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
     assert "20,000" in desc_search or "20000" in desc_search
     desc_fetch = tools["deepseek_fetch"].description
     assert "20,000" in desc_fetch or "20000" in desc_fetch
-    desc_fetch_many = tools["deepseek_fetch_many"].description
-    assert "20,000" in desc_fetch_many and "4,000" in desc_fetch_many
+    assert "4,000" in desc_fetch
     desc_research = tools["deepseek_research"].description
     assert "6-24 sources" in desc_research or "sources" in desc_research
 
@@ -239,9 +237,7 @@ def test_research_description_explains_polling_and_client_synthesis() -> None:
     ("tool", "param"),
     [
         ("deepseek_search", "max_total_chars"),
-        ("deepseek_fetch", "max_chars"),
-        ("deepseek_fetch_many", "max_chars_per_url"),
-        ("deepseek_fetch_many", "max_total_chars"),
+        ("deepseek_fetch", "max_total_chars"),
         ("deepseek_extract", "max_chars"),
         ("deepseek_extract_many", "max_chars_per_url"),
         ("deepseek_extract_many", "max_total_chars"),

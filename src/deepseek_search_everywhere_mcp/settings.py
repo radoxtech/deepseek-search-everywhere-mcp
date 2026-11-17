@@ -32,7 +32,7 @@ DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ()
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"
 
-# deepseek_fetch_many never runs more fetches than this at once.
+# A deepseek_fetch URL list never runs more fetches than this at once.
 MAX_BATCH_CONCURRENCY = 5
 
 

@@ -105,7 +105,7 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
         }
     )
     single = asyncio.run(server.deepseek_fetch(REDDIT_URL))
-    many = asyncio.run(server.deepseek_fetch_many([REDDIT_URL]))
+    many = asyncio.run(server.deepseek_fetch([REDDIT_URL]))
     raw = asyncio.run(fetch_core._fetch(REDDIT_URL, True, 20000, refresh=False, strip_boilerplate=False))
     for content in (single["content"], many["results"][0]["content"]):
         assert content == remove_boilerplate(THREAD, REDDIT_URL)
@@ -118,7 +118,6 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
     "name",
     [
         "deepseek_fetch",
-        "deepseek_fetch_many",
         "deepseek_research",
         "deepseek_extract",
         "deepseek_extract_many",

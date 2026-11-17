@@ -203,7 +203,7 @@ async def test_all_tools_validation_errors_return_error_envelopes() -> None:
     assert res["error"]["code"] in CLOSED_ERROR_CODES
 
     # deepseek_fetch_many with invalid arguments
-    res = await server.deepseek_fetch_many([])
+    res = await server.deepseek_fetch([])
     assert res["ok"] is False
     assert res["error"]["code"] in CLOSED_ERROR_CODES
 

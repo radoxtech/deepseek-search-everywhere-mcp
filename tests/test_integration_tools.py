@@ -60,7 +60,7 @@ def _result(url: str, content: str) -> dict[str, Any]:
 async def test_mixed_batch_makes_one_upstream_call_and_reports_two_errors(fake_upstream: Any) -> None:
     upstream = fake_upstream(Upstream())
     urls = [PUBLIC, INTERNAL, PUBLIC, "not a url", OTHER]
-    result = await server.deepseek_fetch_many(urls)
+    result = await server.deepseek_fetch(urls)
     assert result["ok"] is True
     assert [item["url"] for item in result["results"]][0] == PUBLIC
     errors = [(item["url"], item["error"]["reason"]) for item in result["results"] if not item["ok"]]
@@ -112,7 +112,7 @@ async def test_batch_of_ten_is_paced_by_the_limiter_without_blocking(
         runtime, "_rate_limiter", RateLimiter.from_settings(settings, clock=fake_clock.monotonic, sleep=sleep)
     )
     urls = [f"https://example.com/{i}" for i in range(10)]
-    result = await server.deepseek_fetch_many(urls)
+    result = await server.deepseek_fetch(urls)
     assert result["ok"] is True and all(item["ok"] for item in result["results"])
     assert len(upstream.fetches) == 10
     # A bucket of burst 5 refilled at 5/s never lets the n-th call start before (n - 5) / 5 s.

@@ -11,7 +11,6 @@ from deepseek_search_everywhere_mcp.server import (
     deepseek_extract,
     deepseek_extract_many,
     deepseek_fetch,
-    deepseek_fetch_many,
     deepseek_research,
     deepseek_search,
 )
@@ -144,7 +143,7 @@ async def test_fetch_many_path_sanitization(monkeypatch: pytest.MonkeyPatch, inj
         }
 
     monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._request", fake_request)
-    res = await deepseek_fetch_many(["https://example.com/page1"], refresh=True)
+    res = await deepseek_fetch(["https://example.com/page1"], refresh=True)
     assert res["ok"] is True
     first = res["results"][0]
     _assert_content_is_sanitized(first["content"])

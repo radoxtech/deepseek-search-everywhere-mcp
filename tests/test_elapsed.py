@@ -49,7 +49,7 @@ def clocked(monkeypatch, fake_clock, fake_upstream):
 CALLS = {
     "search": lambda: server.deepseek_search("q", count=1),
     "fetch": lambda: server.deepseek_fetch("https://example.com/x"),
-    "fetch_many": lambda: server.deepseek_fetch_many(["https://example.com/x"]),
+    "fetch_many": lambda: server.deepseek_fetch(["https://example.com/x"]),
     "balance": lambda: server.deepseek_check_balance(),
 }
 

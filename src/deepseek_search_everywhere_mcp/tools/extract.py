@@ -351,7 +351,7 @@ async def deepseek_extract_many(
     (max_chars_per_url 20,000). Returns data and evidence per URL in input order; values without a
     verbatim quote are null and a failed URL is reported in place. Output is sanitized.
 
-    When NOT to use: one URL (deepseek_extract), plain page text (deepseek_fetch_many), finding
+    When NOT to use: one URL (deepseek_extract), plain page text (deepseek_fetch), finding
     pages (deepseek_search), or a topic report (deepseek_research).
 
     Returns: {"ok": True, "results": [{"url": str, "ok": bool, "data": {...}, "evidence": {...}}],

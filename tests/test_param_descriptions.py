@@ -50,9 +50,9 @@ def test_fetch_max_snippets_description_matches_clamp() -> None:
     assert count == snippets.MAX_SNIPPETS
 
 
-def test_fetch_many_url_limit_matches_settings() -> None:
-    desc = _schema_description("deepseek_fetch_many", "urls")
-    assert _stated(r"max (\d+) URLs", desc) == get_settings().batch_max_urls
+def test_fetch_url_list_limit_matches_settings() -> None:
+    desc = _schema_description("deepseek_fetch", "url")
+    assert _stated(r"up to (\d+) URLs", desc) == get_settings().batch_max_urls
 
 
 def test_removed_shaping_flags_are_not_tool_parameters() -> None:
@@ -66,10 +66,8 @@ def test_every_described_default_matches_the_signature() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
     checks: list[tuple[str, str, Any]] = [
         ("deepseek_search", "max_total_chars", 20000),
-        ("deepseek_fetch", "max_chars", 20000),
         ("deepseek_fetch", "max_snippets", 3),
-        ("deepseek_fetch_many", "max_chars_per_url", 4000),
-        ("deepseek_fetch_many", "max_total_chars", 20000),
+        ("deepseek_fetch", "max_total_chars", 20000),
         ("deepseek_extract", "max_chars", 40000),
         ("deepseek_extract_many", "max_chars_per_url", 20000),
         ("deepseek_extract_many", "max_total_chars", 60000),
@@ -78,3 +76,8 @@ def test_every_described_default_matches_the_signature() -> None:
         prop = tools[tool_name].inputSchema["properties"][param]
         assert prop.get("default") == default, (tool_name, param)
         assert f"default {default}" in prop["description"], (tool_name, param, prop["description"])
+    # max_chars defaults differ for one URL and a list, so the schema default is None.
+    for tool_name, single, per_url in (("deepseek_fetch", 20000, 4000),):
+        prop = tools[tool_name].inputSchema["properties"]["max_chars"]
+        assert prop.get("default") is None, tool_name
+        assert f"default {single}" in prop["description"] and f"{per_url} per URL" in prop["description"]

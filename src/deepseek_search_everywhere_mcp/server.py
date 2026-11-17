@@ -71,7 +71,7 @@ from .text import (
 )
 from .tools.balance import deepseek_check_balance
 from .tools.extract import deepseek_extract, deepseek_extract_many
-from .tools.fetch import deepseek_fetch, deepseek_fetch_many
+from .tools.fetch import deepseek_fetch
 from .tools.research import deepseek_check_research, deepseek_research
 from .tools.search import MAX_QUERIES, deepseek_search
 from .transport import _base_url
@@ -135,7 +135,6 @@ __all__ = [
     "deepseek_extract",
     "deepseek_extract_many",
     "deepseek_fetch",
-    "deepseek_fetch_many",
     "deepseek_research",
     "deepseek_search",
     "fit_query",
@@ -207,7 +206,6 @@ SERVER_NAME = "deepseek-search-everywhere-mcp"
 TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_search,
     deepseek_fetch,
-    deepseek_fetch_many,
     deepseek_research,
     deepseek_check_research,
     deepseek_extract,
@@ -221,13 +219,6 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     ),
     "deepseek_fetch": ToolAnnotations(
         title="Read a web page",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    ),
-    "deepseek_fetch_many": ToolAnnotations(
-        title="Read web pages",
         readOnlyHint=True,
         destructiveHint=False,
         idempotentHint=True,
