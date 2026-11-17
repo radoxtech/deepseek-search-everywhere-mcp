@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "note": "12 evaluation topics for deepseek_research and deepseek_agent_deep_research: 4 IT, then one each for nutrition, medicine, sport, e-commerce, science, politics, law and business.",
+  "topics": [
+    {
+      "id": "it-pg-incremental-backup",
+      "domain": "it",
+      "topic": "How PostgreSQL 17 incremental backups work (pg_basebackup --incremental, WAL summarization, pg_combinebackup) and their limitations"
+    },
+    {
+      "id": "it-gateway-api",
+      "domain": "it",
+      "topic": "Kubernetes Gateway API versus Ingress: design differences, maturity of implementations and migration considerations"
+    },
+    {
+      "id": "it-rust-vs-go-network",
+      "domain": "it",
+      "topic": "Rust versus Go for high-throughput network services: performance, memory safety, concurrency model and ecosystem trade-offs"
+    },
+    {
+      "id": "it-passkeys",
+      "domain": "it",
+      "topic": "Passkeys (WebAuthn/FIDO2): how they work, security benefits over passwords and remaining limitations for adoption"
+    },
+    {
+      "id": "nutrition-time-restricted-eating",
+      "domain": "nutrition",
+      "topic": "Evidence on time-restricted eating (intermittent fasting) versus continuous calorie restriction for weight loss and metabolic health"
+    },
+    {
+      "id": "medicine-glp1",
+      "domain": "medicine",
+      "topic": "Semaglutide and tirzepatide for obesity: weight-loss efficacy in clinical trials and main safety concerns"
+    },
+    {
+      "id": "sport-zone2",
+      "domain": "sport",
+      "topic": "Zone 2 training for endurance athletes: physiological rationale, how intensity is defined and what the research evidence shows"
+    },
+    {
+      "id": "ecommerce-free-shipping",
+      "domain": "e-commerce",
+      "topic": "Effect of free-shipping thresholds on conversion rate, average order value and returns in online retail"
+    },
+    {
+      "id": "science-solid-state-batteries",
+      "domain": "science",
+      "topic": "Solid-state batteries for electric vehicles: technical challenges, leading electrolyte approaches and commercialization timeline"
+    },
+    {
+      "id": "politics-eu-cbam",
+      "domain": "politics",
+      "topic": "The EU Carbon Border Adjustment Mechanism (CBAM): how it works, implementation timeline and international political reactions"
+    },
+    {
+      "id": "law-eu-ai-act-gpai",
+      "domain": "law",
+      "topic": "EU AI Act obligations for providers of general-purpose AI models: requirements, systemic-risk models, code of practice and deadlines"
+    },
+    {
+      "id": "business-four-day-week",
+      "domain": "business",
+      "topic": "Four-day work week trials: reported effects on productivity, revenue, employee wellbeing and retention, and limits of the evidence"
+    }
+  ]
+}

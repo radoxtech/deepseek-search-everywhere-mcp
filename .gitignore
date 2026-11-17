@@ -31,3 +31,7 @@ plans/
 # OS and editors
 .DS_Store
 .idea/
+
+# Evaluation harness output
+evals/results/
+evals/dumps/
