@@ -241,12 +241,6 @@ async def deepseek_extract(
         str | None,
         Field(description="Optional natural-language guidance for extraction (default None)"),
     ] = None,
-    clean: Annotated[
-        bool,
-        Field(
-            description="Remove Markdown backslash escapes from page text before extraction (default True)"
-        ),
-    ] = True,
     max_chars: Annotated[
         int,
         Field(description="Max characters of page text to feed to the extractor LLM (default 40000)"),
@@ -255,10 +249,6 @@ async def deepseek_extract(
         bool,
         Field(description="Bypass local cache and fetch fresh page from upstream (default False)"),
     ] = False,
-    strip_boilerplate: Annotated[
-        bool,
-        Field(description="Remove cookie banners and site UI boilerplate before extraction (default True)"),
-    ] = True,
 ) -> dict[str, Any]:
     """Pull specific fields or a JSON schema out of one web page, each value backed by a quote.
 
@@ -284,10 +274,9 @@ async def deepseek_extract(
 
     fetch_res = await fetch_core._fetch(
         clean_url,
-        clean=clean,
+        clean=True,
         max_chars=max_chars,
         refresh=refresh,
-        strip_boilerplate=strip_boilerplate,
     )
     if fetch_res.get("ok") is False:
         return fetch_res
@@ -339,12 +328,6 @@ async def deepseek_extract_many(
         str | None,
         Field(description="Optional natural-language extraction guidance (default None)"),
     ] = None,
-    clean: Annotated[
-        bool,
-        Field(
-            description="Remove Markdown backslash escapes from page text before extraction (default True)"
-        ),
-    ] = True,
     max_chars_per_url: Annotated[
         int,
         Field(description="Max characters per page to feed to extraction LLM (default 20000)"),
@@ -357,10 +340,6 @@ async def deepseek_extract_many(
         bool,
         Field(description="Bypass local cache and fetch fresh pages from upstream (default False)"),
     ] = False,
-    strip_boilerplate: Annotated[
-        bool,
-        Field(description="Remove cookie banners and boilerplate before extraction (default True)"),
-    ] = True,
     deadline: Annotated[
         float | None,
         Field(description="Overall timeout deadline in seconds; partial results returned on expiry"),
@@ -393,7 +372,7 @@ async def deepseek_extract_many(
         return _fail("bad_request", "urls must contain at least one non-empty URL.")
 
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
-    fetch_tasks = await _run_batch(items, clean, per_url, refresh, strip_boilerplate, deadline=deadline)
+    fetch_tasks = await _run_batch(items, True, per_url, refresh, deadline=deadline)
 
     deadline_error = _batch_deadline_error(deadline)
 

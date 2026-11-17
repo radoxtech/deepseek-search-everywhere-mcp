@@ -63,10 +63,6 @@ async def deepseek_research(
         bool,
         Field(description="Bypass local cache and perform fresh research pipeline (default False)"),
     ] = False,
-    strip_boilerplate: Annotated[
-        bool,
-        Field(description="Remove boilerplate from fetched source pages before synthesis (default True)"),
-    ] = True,
     unverified: Annotated[
         Literal["flag", "drop"],
         Field(
@@ -170,7 +166,7 @@ async def deepseek_research(
                 sources_pref=sources,
                 lang=lang,
                 refresh=refresh,
-                strip_boilerplate=strip_boilerplate,
+                strip_boilerplate=True,
             )
         )
         store.add(job)

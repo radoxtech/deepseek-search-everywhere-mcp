@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import runtime, server
+from deepseek_search_everywhere_mcp import fetch_core, runtime, server
 from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
 from deepseek_search_everywhere_mcp.settings import Settings
@@ -76,7 +76,7 @@ async def test_second_identical_fetch_is_served_from_cache(upstream: Upstream) -
 async def test_shaping_options_share_one_upstream_call(upstream: Upstream) -> None:
     full = await server.deepseek_fetch(URL)
     short = await server.deepseek_fetch(URL, max_chars=20)
-    raw = await server.deepseek_fetch(URL, clean=False)
+    raw = await fetch_core._fetch(URL, False, 20000, refresh=False)
     assert len(upstream.calls) == 1
     assert short["cached"] is True and raw["cached"] is True
     assert short["truncated"] is True and full["truncated"] is False
@@ -87,7 +87,7 @@ async def test_shaping_options_share_one_upstream_call(upstream: Upstream) -> No
 
 async def test_cached_page_is_not_truncated_by_shaping(upstream: Upstream) -> None:
     await server.deepseek_fetch(URL, max_chars=10)
-    again = await server.deepseek_fetch(URL, clean=False)
+    again = await fetch_core._fetch(URL, False, 20000, refresh=False)
     assert again["cached"] is True
     assert again["content"] == PAGE["content"]
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import fetch_core, server
 from deepseek_search_everywhere_mcp.errors import _fail, _map_http_status_to_code
 
 
@@ -164,7 +164,7 @@ async def test_fetch_fallback_disabled(fake_upstream: Any) -> None:
     upstream = FallbackUpstream(fetch_status=404, search_results=[search_item])
     fake_upstream(upstream)
 
-    res = await server.deepseek_fetch(pdf_url, fallback_to_search=False)
+    res = await fetch_core._fetch(pdf_url, True, 20000, refresh=False, fallback_to_search=False)
     assert res["ok"] is False
     assert res["error"]["reason"] == "not_found"
     assert "deepseek_search" in res["error"]["message"]

@@ -31,10 +31,6 @@ async def deepseek_fetch(
         Field(description="HTTP or HTTPS URL to fetch (must be public, no private IP/intranet)"),
     ],
     *,
-    clean: Annotated[
-        bool,
-        Field(description="Remove Markdown backslash escapes from the page text (default True)"),
-    ] = True,
     max_chars: Annotated[
         int,
         Field(description="Max characters of page text to return (default 20000)"),
@@ -42,10 +38,6 @@ async def deepseek_fetch(
     offset: Annotated[
         int | None,
         Field(description="Character offset to start reading from (mutually exclusive with selectors)"),
-    ] = None,
-    limit: Annotated[
-        int | None,
-        Field(description="Max characters to return from offset (mutually exclusive with selectors)"),
     ] = None,
     find_text: Annotated[
         str | None,
@@ -67,21 +59,13 @@ async def deepseek_fetch(
         bool,
         Field(description="Bypass local cache and fetch fresh page from upstream (default False)"),
     ] = False,
-    strip_boilerplate: Annotated[
-        bool,
-        Field(description="Remove cookie banners, navigation and site UI boilerplate (default True)"),
-    ] = True,
-    fallback_to_search: Annotated[
-        bool,
-        Field(description="On 404, fall back to searching exact URL in index (default True)"),
-    ] = True,
 ) -> dict[str, Any]:
     """Read one web page as clean Markdown, or only the part of it you need.
 
     Use it when you already know the URL. Flat $0.00075 per call; up to 20,000 chars by default
     (max_chars). One optional selector narrows the text: section=, query= (relevant excerpts, no
-    LLM), offset=/limit= (paging) or find_text=. A 404 on a PDF or Reddit URL falls back to the
-    search index. Content is sanitized (images neutralized, hidden text stripped).
+    LLM), offset= (paging; max_chars sets the window) or find_text=. A 404 on a PDF or Reddit URL
+    falls back to the search index. Content is sanitized (images neutralized, hidden text stripped).
 
     When NOT to use: finding pages by topic (deepseek_search), several URLs (deepseek_fetch_many),
     fields as JSON (deepseek_extract), or a multi-source answer (deepseek_research).
@@ -96,26 +80,21 @@ async def deepseek_fetch(
     selectors = [
         section is not None,
         query is not None,
-        offset is not None or limit is not None,
+        offset is not None,
         find_text is not None,
     ]
     if sum(bool(s) for s in selectors) > 1:
-        return _fail(
-            "bad_request", "Selectors section, query, offset/limit, and find_text are mutually exclusive."
-        )
+        return _fail("bad_request", "Selectors section, query, offset and find_text are mutually exclusive.")
     return await fetch_core._fetch(
         url,
-        clean,
+        True,
         max_chars,
         offset=offset,
-        limit=limit,
         find_text=find_text,
         query=query,
         section=section,
         max_snippets=max_snippets,
         refresh=refresh,
-        strip_boilerplate=strip_boilerplate,
-        fallback_to_search=fallback_to_search,
     )
 
 
@@ -134,10 +113,6 @@ async def deepseek_fetch_many(
         int,
         Field(description="Max total characters across all fetched URLs (default 20000)"),
     ] = 20000,
-    clean: Annotated[
-        bool,
-        Field(description="Remove Markdown backslash escapes from the page text (default True)"),
-    ] = True,
     query: Annotated[
         str | None,
         Field(description="Optional query to extract relevant snippets from each page (default None)"),
@@ -146,18 +121,10 @@ async def deepseek_fetch_many(
         bool,
         Field(description="Bypass local cache and fetch fresh pages from upstream (default False)"),
     ] = False,
-    strip_boilerplate: Annotated[
-        bool,
-        Field(description="Remove cookie banners and site UI boilerplate from content (default True)"),
-    ] = True,
     deadline: Annotated[
         float | None,
         Field(description="Overall timeout deadline in seconds; partial results returned on expiry"),
     ] = None,
-    fallback_to_search: Annotated[
-        bool,
-        Field(description="On 404, fall back to searching exact URL in index (default True)"),
-    ] = True,
 ) -> dict[str, Any]:
     """Read up to 10 known web pages in parallel as clean Markdown in one call.
 
@@ -185,12 +152,10 @@ async def deepseek_fetch_many(
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
     tasks = await _run_batch(
         items,
-        clean,
+        True,
         per_url,
         refresh,
-        strip_boilerplate,
         query=query,
         deadline=deadline,
-        fallback_to_search=fallback_to_search,
     )
     return _assemble_batch(items, tasks, duplicates, max_total_chars, deadline=deadline)

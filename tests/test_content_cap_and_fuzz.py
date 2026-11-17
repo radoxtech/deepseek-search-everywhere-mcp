@@ -104,7 +104,7 @@ async def test_fetch_content_capped_and_windowing_notes(fake_upstream) -> None:
 
     # 2. Windowing with offset beyond the capped limit returns empty content and a clear note
     res_window = await server.deepseek_fetch(
-        "https://example.com/huge", offset=2_500_000, limit=1000, refresh=True
+        "https://example.com/huge", offset=2_500_000, max_chars=1000, refresh=True
     )
     assert res_window["ok"] is True
     assert res_window.get("content_capped") is True

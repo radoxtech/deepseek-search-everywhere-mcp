@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import fetch_core, server
 from deepseek_search_everywhere_mcp.boilerplate import remove_boilerplate, rules_for
 
 # A shortened, anonymised Reddit thread as DeepSeek returns it: English page, Chinese site UI.
@@ -106,7 +106,7 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
     )
     single = asyncio.run(server.deepseek_fetch(REDDIT_URL))
     many = asyncio.run(server.deepseek_fetch_many([REDDIT_URL]))
-    raw = asyncio.run(server.deepseek_fetch(REDDIT_URL, strip_boilerplate=False))
+    raw = asyncio.run(fetch_core._fetch(REDDIT_URL, True, 20000, refresh=False, strip_boilerplate=False))
     for content in (single["content"], many["results"][0]["content"]):
         assert content == remove_boilerplate(THREAD, REDDIT_URL)
     assert raw["content"] == THREAD
@@ -124,7 +124,5 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
         "deepseek_extract_many",
     ],
 )
-def test_flag_is_keyword_only_and_on_by_default(name):
-    parameter = inspect.signature(getattr(server, name)).parameters["strip_boilerplate"]
-    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
-    assert parameter.default is True
+def test_boilerplate_flag_is_gone_and_stripping_is_always_on(name):
+    assert "strip_boilerplate" not in inspect.signature(getattr(server, name)).parameters

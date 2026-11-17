@@ -77,7 +77,7 @@ def test_fetch_many_with_query(fake_upstream):
 def test_fetch_offset_limit_pagination(fake_upstream):
     _install_fetch(fake_upstream)
     # Fetch first 30 chars
-    p1 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=0, limit=30))
+    p1 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=0, max_chars=30))
     assert p1["ok"] is True
     assert p1["offset"] == 0
     assert p1["chars"] == 30
@@ -86,7 +86,7 @@ def test_fetch_offset_limit_pagination(fake_upstream):
     assert p1["content"] == SAMPLE_PAGE[:30]
 
     # Fetch next 30 chars
-    p2 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=30, limit=30))
+    p2 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", offset=30, max_chars=30))
     assert p2["ok"] is True
     assert p2["offset"] == 30
     assert p2["chars"] == 30
@@ -110,11 +110,6 @@ def test_fetch_offset_limit_rejections(fake_upstream):
     assert res1["ok"] is False
     assert res1["error"]["reason"] == "bad_request"
     assert "offset must be at least 0" in res1["error"]["message"]
-
-    res2 = asyncio.run(server.deepseek_fetch("https://example.com/quantum", limit=0))
-    assert res2["ok"] is False
-    assert res2["error"]["reason"] == "bad_request"
-    assert "limit must be greater than 0" in res2["error"]["message"]
 
 
 def test_fetch_find_text_success(fake_upstream):
@@ -141,13 +136,10 @@ def test_fetch_find_text_not_found(fake_upstream):
     [
         {"section": 1, "query": "test"},
         {"section": 1, "offset": 10},
-        {"section": 1, "limit": 50},
         {"section": 1, "find_text": "test"},
         {"query": "test", "offset": 10},
-        {"query": "test", "limit": 50},
         {"query": "test", "find_text": "test"},
         {"find_text": "test", "offset": 10},
-        {"find_text": "test", "limit": 50},
         {"section": 1, "query": "test", "find_text": "test"},
     ],
 )
@@ -157,8 +149,7 @@ def test_fetch_conflicting_selectors_rejected(fake_upstream, kwargs):
     assert result["ok"] is False
     assert result["error"]["reason"] == "bad_request"
     assert (
-        "Selectors section, query, offset/limit, and find_text are mutually exclusive."
-        in result["error"]["message"]
+        "Selectors section, query, offset and find_text are mutually exclusive." in result["error"]["message"]
     )
 
 

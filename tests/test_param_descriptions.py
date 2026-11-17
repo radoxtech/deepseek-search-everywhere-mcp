@@ -55,17 +55,11 @@ def test_fetch_many_url_limit_matches_settings() -> None:
     assert _stated(r"max (\d+) URLs", desc) == get_settings().batch_max_urls
 
 
-def test_clean_descriptions_describe_markdown_unescaping() -> None:
-    tools_params: list[tuple[str, str]] = [
-        ("deepseek_fetch", "clean"),
-        ("deepseek_fetch_many", "clean"),
-        ("deepseek_extract", "clean"),
-        ("deepseek_extract_many", "clean"),
-    ]
-    for tool, param in tools_params:
-        desc = _schema_description(tool, param)
-        assert "structured markdown" not in desc, (tool, desc)
-        assert "backslash" in desc.lower(), (tool, desc)
+def test_removed_shaping_flags_are_not_tool_parameters() -> None:
+    tools = asyncio.run(server.mcp.list_tools())
+    for tool in tools:
+        params = set(tool.inputSchema.get("properties", {}))
+        assert not params & {"clean", "strip_boilerplate", "fallback_to_search", "limit"}, tool.name
 
 
 def test_every_described_default_matches_the_signature() -> None:
