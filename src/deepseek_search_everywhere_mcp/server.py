@@ -5,7 +5,11 @@ Exposes web search, page fetch (single and batch), search-and-read, research and
 ``mcp`` serves stdio, and ``deepseek_search_everywhere_mcp.http_app`` builds fresh ones for HTTP.
 Requires DEEPSEEK_API_KEY; DEEPSEEK_BASE_URL overrides the endpoint.
 
-The command-line entry point lives in ``deepseek_search_everywhere_mcp.cli``.
+This module only registers the tools (``SERVER_INSTRUCTIONS``, ``TOOLS``, ``TOOL_ANNOTATIONS``,
+``create_server``). The tools live in ``tools/``; shared pieces in ``runtime`` (state and request
+gateway), ``envelope``, ``text``, ``dates``, ``search_core``, ``fetch_core``, ``batch``,
+``gap_fill`` and ``research_jobs``. The command-line entry point lives in
+``deepseek_search_everywhere_mcp.cli``.
 """
 
 from __future__ import annotations
@@ -20,274 +24,126 @@ from mcp.types import ToolAnnotations
 
 from . import runtime
 from ._version import __version__
-from .batch import (
-    _LOCAL_ERROR_CODES as _LOCAL_ERROR_CODES,
-)
-from .batch import (
-    _assemble_batch as _assemble_batch,
-)
-from .batch import (
-    _batch_deadline_error as _batch_deadline_error,
-)
-from .batch import (
-    _batch_envelope as _batch_envelope,
-)
-from .batch import (
-    _BatchItem as _BatchItem,
-)
-from .batch import (
-    _dedupe_urls as _dedupe_urls,
-)
-from .batch import (
-    _run_batch as _run_batch,
-)
-from .batch import (
-    _wait_or_cancel as _wait_or_cancel,
-)
-from .dates import (
-    CONTENT_DATE_WINDOW as CONTENT_DATE_WINDOW,
-)
-from .dates import (
-    _content_date as _content_date,
-)
-from .dates import (
-    _date_in as _date_in,
-)
-from .dates import (
-    _dated as _dated,
-)
-from .dates import (
-    _month_date_in as _month_date_in,
-)
-from .dates import (
-    _upstream_date as _upstream_date,
-)
-from .dates import (
-    _url_date as _url_date,
-)
-from .deep_research import DEPTH_CONFIG as DEPTH_CONFIG  # re-exported for callers and tests
-from .deep_research import ResearchJob as ResearchJob  # re-exported for callers and tests
-from .deep_research import get_job_store as get_job_store  # re-exported for callers and tests
-from .envelope import (
-    COST_PER_REQUEST as COST_PER_REQUEST,
-)
-from .envelope import (
-    TRUNCATED_NOTE as TRUNCATED_NOTE,
-)
-from .envelope import (
-    _all_cached as _all_cached,
-)
-from .envelope import (
-    _envelope_meta as _envelope_meta,
-)
-from .errors import _map_http_error as _map_http_error  # re-exported for callers and tests
-from .fetch_core import (
-    FETCH_PATH as FETCH_PATH,
-)
-from .fetch_core import (
-    _check_fetch_url as _check_fetch_url,
-)
-from .fetch_core import (
-    _fetch as _fetch,
-)
-from .fetch_core import (
-    _fetch_cache_key as _fetch_cache_key,
-)
-from .fetch_core import (
-    _reject_url as _reject_url,
-)
-from .filters import MAX_QUERY as MAX_QUERY  # re-exported for callers and tests
-from .filters import fit_query as fit_query  # re-exported for callers and tests
-from .gap_fill import (
-    _fill_gaps as _fill_gaps,
-)
+from .dates import CONTENT_DATE_WINDOW, _content_date, _date_in, _month_date_in, _upstream_date, _url_date
+from .deep_research import DEPTH_CONFIG, ResearchJob, get_job_store
+from .envelope import COST_PER_REQUEST, TRUNCATED_NOTE
+from .errors import _map_http_error
+from .fetch_core import FETCH_PATH, _fetch, _fetch_cache_key, _reject_url
+from .filters import MAX_QUERY, fit_query
 from .research_jobs import (
-    MAX_CLIENT_REPORT_CHARS as MAX_CLIENT_REPORT_CHARS,
-)
-from .research_jobs import (
-    _client_page as _client_page,
-)
-from .research_jobs import (
-    _finished_job_envelope as _finished_job_envelope,
-)
-from .research_jobs import (
-    _progress_view as _progress_view,
-)
-from .research_jobs import (
-    _report_job_progress as _report_job_progress,
-)
-from .research_jobs import (
-    _research_decompose as _research_decompose,
-)
-from .research_jobs import (
-    _ResearchRun as _ResearchRun,
-)
-from .research_jobs import (
-    _reuse_finished_result as _reuse_finished_result,
-)
-from .research_jobs import (
-    _run_research_job as _run_research_job,
-)
-from .research_jobs import (
-    _running_job_envelope as _running_job_envelope,
-)
-from .research_jobs import (
-    _verify_client_report as _verify_client_report,
-)
-from .research_jobs import (
-    _with_page_note as _with_page_note,
+    MAX_CLIENT_REPORT_CHARS,
+    _progress_view,
+    _report_job_progress,
+    _research_decompose,
+    _ResearchRun,
 )
 from .runtime import (
-    CHAT_TIMEOUT as CHAT_TIMEOUT,
-)
-from .runtime import (
-    REWRITE_MODEL as REWRITE_MODEL,
-)
-from .runtime import (
-    SessionMetrics as SessionMetrics,
-)
-from .runtime import (
-    _cached_call as _cached_call,
-)
-from .runtime import (
-    _canonical_json as _canonical_json,
-)
-from .runtime import (
-    _get_budget_tracker as _get_budget_tracker,
-)
-from .runtime import (
-    _get_cache_stats as _get_cache_stats,
-)
-from .runtime import (
-    _get_fetch_cache as _get_fetch_cache,
-)
-from .runtime import (
-    _get_fetch_flight as _get_fetch_flight,
-)
-from .runtime import (
-    _get_rewrite_cache as _get_rewrite_cache,
-)
-from .runtime import (
-    _get_rewrite_flight as _get_rewrite_flight,
-)
-from .runtime import (
-    _get_search_cache as _get_search_cache,
-)
-from .runtime import (
-    _get_search_flight as _get_search_flight,
-)
-from .runtime import (
-    _get_session_metrics as _get_session_metrics,
-)
-from .runtime import (
-    _limited_request as _limited_request,
-)
-from .runtime import (
-    _sha256 as _sha256,
-)
-from .runtime import (
-    _timed as _timed,
-)
-from .runtime import (
-    logger as logger,
-)
-from .runtime import (
-    reset_state as reset_state,
+    CHAT_TIMEOUT,
+    REWRITE_MODEL,
+    _get_fetch_cache,
+    _get_rewrite_flight,
+    _get_search_cache,
+    _get_search_flight,
+    _get_session_metrics,
+    reset_state,
 )
 from .search_core import (
-    MAX_COUNT as MAX_COUNT,
+    MAX_COUNT,
+    SEARCH_PATH,
+    SEARCH_SUMMARY_CHARS,
+    SYSTEM_PROMPT,
+    _dedupe_results,
+    _rewrite_query,
+    _search,
+    _search_cache_key,
+    _upstream_count,
 )
-from .search_core import (
-    SEARCH_PATH as SEARCH_PATH,
-)
-from .search_core import (
-    SEARCH_SUMMARY_CHARS as SEARCH_SUMMARY_CHARS,
-)
-from .search_core import (
-    SEARCH_TIMEOUT as SEARCH_TIMEOUT,
-)
-from .search_core import (
-    SYSTEM_PROMPT as SYSTEM_PROMPT,
-)
-from .search_core import (
-    _dedupe_results as _dedupe_results,
-)
-from .search_core import (
-    _rewrite_query as _rewrite_query,
-)
-from .search_core import (
-    _search as _search,
-)
-from .search_core import (
-    _search_cache_key as _search_cache_key,
-)
-from .search_core import (
-    _upstream_count as _upstream_count,
-)
-from .settings import (
-    DEFAULT_LOG_LEVEL,
-)
+from .settings import DEFAULT_LOG_LEVEL
 from .text import (
-    MAX_PRE_PROCESSING_CHARS as MAX_PRE_PROCESSING_CHARS,
+    MAX_PRE_PROCESSING_CHARS,
+    _cap_raw_content,
+    _clean_index_text,
+    _collapse_repeated_title,
+    _decode_json_escapes,
+    _strip_html_tags,
+    _truncate,
+    _unescape_markdown,
 )
-from .text import (
-    _cap_raw_content as _cap_raw_content,
-)
-from .text import (
-    _clean_index_text as _clean_index_text,
-)
-from .text import (
-    _collapse_repeated_title as _collapse_repeated_title,
-)
-from .text import (
-    _decode_json_escapes as _decode_json_escapes,
-)
-from .text import (
-    _strip_html_tags as _strip_html_tags,
-)
-from .text import (
-    _title_or_host as _title_or_host,
-)
-from .text import (
-    _truncate as _truncate,
-)
-from .text import (
-    _unescape_markdown as _unescape_markdown,
-)
-from .text import (
-    _url_host as _url_host,
-)
-from .tools.balance import (
-    deepseek_check_balance as deepseek_check_balance,
-)
-from .tools.extract import (
-    deepseek_extract as deepseek_extract,
-)
-from .tools.extract import (
-    deepseek_extract_many as deepseek_extract_many,
-)
-from .tools.fetch import (
-    deepseek_fetch as deepseek_fetch,
-)
-from .tools.fetch import (
-    deepseek_fetch_many as deepseek_fetch_many,
-)
-from .tools.research import (
-    deepseek_check_research as deepseek_check_research,
-)
-from .tools.research import (
-    deepseek_research as deepseek_research,
-)
-from .tools.search import (
-    MAX_QUERIES as MAX_QUERIES,
-)
-from .tools.search import (
-    deepseek_search as deepseek_search,
-)
-from .tools.search import (
-    deepseek_search_many as deepseek_search_many,
-)
-from .transport import _base_url as _base_url  # re-exported for the CLI
+from .tools.balance import deepseek_check_balance
+from .tools.extract import deepseek_extract, deepseek_extract_many
+from .tools.fetch import deepseek_fetch, deepseek_fetch_many
+from .tools.research import deepseek_check_research, deepseek_research
+from .tools.search import MAX_QUERIES, deepseek_search, deepseek_search_many
+from .transport import _base_url
+
+# Public names plus helpers re-exported for callers and tests (they read them as ``server.<name>``).
+__all__ = [
+    "CHAT_TIMEOUT",
+    "CONTENT_DATE_WINDOW",
+    "COST_PER_REQUEST",
+    "DEPTH_CONFIG",
+    "FETCH_PATH",
+    "MAX_CLIENT_REPORT_CHARS",
+    "MAX_COUNT",
+    "MAX_PRE_PROCESSING_CHARS",
+    "MAX_QUERIES",
+    "MAX_QUERY",
+    "REWRITE_MODEL",
+    "ResearchJob",
+    "SEARCH_PATH",
+    "SEARCH_SUMMARY_CHARS",
+    "SERVER_INSTRUCTIONS",
+    "SERVER_NAME",
+    "SYSTEM_PROMPT",
+    "TOOLS",
+    "TOOL_ANNOTATIONS",
+    "TRUNCATED_NOTE",
+    "_ResearchRun",
+    "_base_url",
+    "_cap_raw_content",
+    "_clean_index_text",
+    "_collapse_repeated_title",
+    "_content_date",
+    "_date_in",
+    "_decode_json_escapes",
+    "_dedupe_results",
+    "_fetch",
+    "_fetch_cache_key",
+    "_get_fetch_cache",
+    "_get_rewrite_flight",
+    "_get_search_cache",
+    "_get_search_flight",
+    "_get_session_metrics",
+    "_map_http_error",
+    "_month_date_in",
+    "_progress_view",
+    "_reject_url",
+    "_report_job_progress",
+    "_research_decompose",
+    "_rewrite_query",
+    "_search",
+    "_search_cache_key",
+    "_strip_html_tags",
+    "_truncate",
+    "_unescape_markdown",
+    "_upstream_count",
+    "_upstream_date",
+    "_url_date",
+    "create_server",
+    "deepseek_check_balance",
+    "deepseek_check_research",
+    "deepseek_extract",
+    "deepseek_extract_many",
+    "deepseek_fetch",
+    "deepseek_fetch_many",
+    "deepseek_research",
+    "deepseek_search",
+    "deepseek_search_many",
+    "fit_query",
+    "get_job_store",
+    "mcp",
+    "reset_state",
+]
 
 # FastMCP instructions sent to clients during MCP initialization to guide tool choice.
 SERVER_INSTRUCTIONS: Final[str] = (
