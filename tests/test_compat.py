@@ -14,7 +14,6 @@ TOOL_NAMES = {
     "deepseek_research",
     "deepseek_check_research",
     "deepseek_extract",
-    "deepseek_extract_many",
     "deepseek_check_balance",
 }
 
@@ -60,7 +59,7 @@ def test_dropped_parameters_not_in_search_tools(dropped_param: str) -> None:
 
 def test_refresh_is_a_keyword_only_parameter_of_cached_tools():
     names = ["_search", "deepseek_search", "deepseek_fetch"]
-    names += ["deepseek_research", "deepseek_extract", "deepseek_extract_many"]
+    names += ["deepseek_research", "deepseek_extract"]
     for name in names:
         refresh = inspect.signature(getattr(server, name)).parameters.get("refresh")
         assert refresh is not None and refresh.kind is inspect.Parameter.KEYWORD_ONLY, name
@@ -238,9 +237,7 @@ def test_research_description_explains_polling_and_client_synthesis() -> None:
     [
         ("deepseek_search", "max_total_chars"),
         ("deepseek_fetch", "max_total_chars"),
-        ("deepseek_extract", "max_chars"),
-        ("deepseek_extract_many", "max_chars_per_url"),
-        ("deepseek_extract_many", "max_total_chars"),
+        ("deepseek_extract", "max_total_chars"),
     ],
 )
 def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -> None:
@@ -259,3 +256,12 @@ def test_error_codes_named_in_server_instructions_exist() -> None:
     codes -= {"job_id", "cost_usd", "error_code", "synthesis_instructions"}
     codes -= set(CODE_ACTIONS.values())
     assert codes <= CLOSED_ERROR_CODES, codes - CLOSED_ERROR_CODES
+
+
+@pytest.mark.parametrize(
+    ("tool", "single", "per_url"), [("deepseek_fetch", 20000, 4000), ("deepseek_extract", 40000, 20000)]
+)
+def test_dual_max_chars_defaults_are_in_the_description(tool: str, single: int, per_url: int) -> None:
+    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+    description = tools[tool].description
+    assert f"{single:,}" in description and f"{per_url:,}" in description

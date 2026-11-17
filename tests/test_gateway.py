@@ -163,7 +163,7 @@ async def test_extract_many_bounds_llm_concurrency_to_at_most_four(
 
     monkeypatch.setattr(extract_tool, "_extract_page", mock_extract_page)
 
-    res = await server.deepseek_extract_many(urls, fields=["price"])
+    res = await server.deepseek_extract(urls, fields=["price"])
     assert res["ok"] is True
     assert res["count"] == 10
     assert max_seen_concurrent <= 4

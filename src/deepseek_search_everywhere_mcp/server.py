@@ -70,7 +70,7 @@ from .text import (
     _unescape_markdown,
 )
 from .tools.balance import deepseek_check_balance
-from .tools.extract import deepseek_extract, deepseek_extract_many
+from .tools.extract import deepseek_extract
 from .tools.fetch import deepseek_fetch
 from .tools.research import deepseek_check_research, deepseek_research
 from .tools.search import MAX_QUERIES, deepseek_search
@@ -133,7 +133,6 @@ __all__ = [
     "deepseek_check_balance",
     "deepseek_check_research",
     "deepseek_extract",
-    "deepseek_extract_many",
     "deepseek_fetch",
     "deepseek_research",
     "deepseek_search",
@@ -209,7 +208,6 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_research,
     deepseek_check_research,
     deepseek_extract,
-    deepseek_extract_many,
     deepseek_check_balance,
 )
 
@@ -240,13 +238,6 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     ),
     "deepseek_extract": ToolAnnotations(
         title="Extract data from a page",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    ),
-    "deepseek_extract_many": ToolAnnotations(
-        title="Extract data from pages",
         readOnlyHint=True,
         destructiveHint=False,
         idempotentHint=True,

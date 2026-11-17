@@ -1,6 +1,6 @@
-"""The deepseek_extract and deepseek_extract_many tools and the LLM extraction step behind them.
+"""The deepseek_extract tool (one URL or a list) and the LLM extraction step behind it.
 
-Callers patch ``tools.extract._extract_page``; both tools look it up in this module.
+Callers patch ``tools.extract._extract_page``; both branches look it up in this module.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ from ..sanitize import (
     sanitize_structure,
 )
 
-EXTRACT_CONCURRENCY = 4  # LLM extraction calls deepseek_extract_many runs at once
+EXTRACT_CONCURRENCY = 4  # LLM extraction calls a deepseek_extract URL list runs at once
 
 
 def _validate_extract_spec(fields: list[str] | None, schema: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -222,47 +222,16 @@ async def _extract_page(
     }, 1
 
 
-@_timed
-async def deepseek_extract(
-    url: Annotated[
-        str,
-        Field(description="HTTP/HTTPS URL of the page from which to extract structured data"),
-    ],
+async def _extract_one(
+    url: str,
     *,
-    fields: Annotated[
-        list[str] | None,
-        Field(description="List of field names to extract (mutually exclusive with schema)"),
-    ] = None,
-    schema: Annotated[
-        dict[str, Any] | None,
-        Field(description="JSON schema describing desired output structure (mutually exclusive with fields)"),
-    ] = None,
-    instruction: Annotated[
-        str | None,
-        Field(description="Optional natural-language guidance for extraction (default None)"),
-    ] = None,
-    max_chars: Annotated[
-        int,
-        Field(description="Max characters of page text to feed to the extractor LLM (default 40000)"),
-    ] = 40000,
-    refresh: Annotated[
-        bool,
-        Field(description="Bypass local cache and fetch fresh page from upstream (default False)"),
-    ] = False,
+    fields: list[str] | None,
+    schema: dict[str, Any] | None,
+    instruction: str | None,
+    max_chars: int,
+    refresh: bool,
 ) -> dict[str, Any]:
-    """Pull specific fields or a JSON schema out of one web page, each value backed by a quote.
-
-    Use it for structured data (prices, names, dates, specs) instead of prose. $0.00075 for the
-    fetch plus about $0.001-0.003 of LLM tokens; reads up to 40,000 chars (max_chars). Pass
-    fields= (names) or schema= (JSON schema), not both. A value whose verbatim evidence quote is
-    not in the page is returned as null with a note. Output is sanitized.
-
-    When NOT to use: reading prose (deepseek_fetch), finding pages (deepseek_search), several URLs
-    (deepseek_extract_many), or a topic report (deepseek_research).
-
-    Returns: {"ok": True, "data": {...}, "evidence": {...}, "extraction_truncated": bool,
-    "cost_usd": float}.
-    """
+    """Extract from one page: the single-URL branch of ``deepseek_extract``."""
     spec_err = _validate_extract_spec(fields, schema)
     if spec_err is not None:
         return spec_err
@@ -309,67 +278,33 @@ async def deepseek_extract(
     }
 
 
-@_timed
-async def deepseek_extract_many(
-    urls: Annotated[
-        list[str],
-        Field(description="List of HTTP/HTTPS URLs to extract structured data from concurrently"),
-    ],
+async def _extract_list(
+    urls: list[str],
     *,
-    fields: Annotated[
-        list[str] | None,
-        Field(description="List of field names to extract (mutually exclusive with schema)"),
-    ] = None,
-    schema: Annotated[
-        dict[str, Any] | None,
-        Field(description="JSON schema describing output structure (mutually exclusive with fields)"),
-    ] = None,
-    instruction: Annotated[
-        str | None,
-        Field(description="Optional natural-language extraction guidance (default None)"),
-    ] = None,
-    max_chars_per_url: Annotated[
-        int,
-        Field(description="Max characters per page to feed to extraction LLM (default 20000)"),
-    ] = 20000,
-    max_total_chars: Annotated[
-        int,
-        Field(description="Max total characters across all pages for extraction (default 60000)"),
-    ] = 60000,
-    refresh: Annotated[
-        bool,
-        Field(description="Bypass local cache and fetch fresh pages from upstream (default False)"),
-    ] = False,
-    deadline: Annotated[
-        float | None,
-        Field(description="Overall timeout deadline in seconds; partial results returned on expiry"),
-    ] = None,
+    fields: list[str] | None,
+    schema: dict[str, Any] | None,
+    instruction: str | None,
+    max_chars_per_url: int,
+    max_total_chars: int,
+    refresh: bool,
+    deadline: float | None,
 ) -> dict[str, Any]:
-    """Pull the same fields or JSON schema out of up to 10 web pages in parallel, with evidence quotes.
-
-    $0.00075 per URL plus LLM tokens; input across pages defaults to 60,000 chars
-    (max_chars_per_url 20,000). Returns data and evidence per URL in input order; values without a
-    verbatim quote are null and a failed URL is reported in place. Output is sanitized.
-
-    When NOT to use: one URL (deepseek_extract), plain page text (deepseek_fetch), finding
-    pages (deepseek_search), or a topic report (deepseek_research).
-
-    Returns: {"ok": True, "results": [{"url": str, "ok": bool, "data": {...}, "evidence": {...}}],
-    "partial": bool, "cost_usd": float}.
-    """
+    """Extract from several pages in parallel: the list branch of ``deepseek_extract``."""
     spec_err = _validate_extract_spec(fields, schema)
     if spec_err is not None:
         return spec_err
 
     settings = runtime.get_settings()
     if not urls or len(urls) > settings.batch_max_urls:
-        return _fail("bad_request", f"urls must contain 1-{settings.batch_max_urls} entries.")
+        return _fail(
+            "bad_request", f"a URL list must contain 1-{settings.batch_max_urls} entries.", param="url"
+        )
     if max_chars_per_url < 1 or max_total_chars < 1:
-        return _fail("bad_request", "max_chars_per_url and max_total_chars must be at least 1.")
+        return _fail("bad_request", "max_chars and max_total_chars must be at least 1.")
 
     items, duplicates = _dedupe_urls(urls)
     if not items:
-        return _fail("bad_request", "urls must contain at least one non-empty URL.")
+        return _fail("bad_request", "a URL list must contain at least one non-empty URL.", param="url")
 
     per_url = max(1, min(max_chars_per_url, max_total_chars // len(items)))
     fetch_tasks = await _run_batch(items, True, per_url, refresh, deadline=deadline)
@@ -452,3 +387,80 @@ async def deepseek_extract_many(
         "notes": notes,
         "_meta": _envelope_meta(total_cost, untrusted_content=True),
     }
+
+
+SINGLE_MAX_CHARS = 40000  # default max_chars for one URL
+LIST_MAX_CHARS = 20000  # default max_chars per URL for a list
+
+
+@_timed
+async def deepseek_extract(
+    url: Annotated[
+        str | list[str],
+        Field(description="Public HTTP(S) URL to extract from, or a list of up to 10 URLs done in parallel"),
+    ],
+    *,
+    fields: Annotated[
+        list[str] | None,
+        Field(description="List of field names to extract (mutually exclusive with schema)"),
+    ] = None,
+    schema: Annotated[
+        dict[str, Any] | None,
+        Field(description="JSON schema describing desired output structure (mutually exclusive with fields)"),
+    ] = None,
+    instruction: Annotated[
+        str | None,
+        Field(description="Optional natural-language guidance for extraction (default None)"),
+    ] = None,
+    max_chars: Annotated[
+        int | None,
+        Field(description="Max page characters for the extractor (default 40000; 20000 per URL for a list)"),
+    ] = None,
+    max_total_chars: Annotated[
+        int,
+        Field(description="Max total page characters across a list of URLs (default 60000)"),
+    ] = 60000,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and fetch fresh pages from upstream (default False)"),
+    ] = False,
+    deadline: Annotated[
+        float | None,
+        Field(description="Deadline in seconds for a list of URLs; finished results are returned"),
+    ] = None,
+) -> dict[str, Any]:
+    """Pull specific fields or a JSON schema out of web pages, each value backed by a verbatim quote.
+
+    Use it for structured data (prices, names, dates, specs) instead of prose, from one URL or the
+    same fields from up to 10 URLs in parallel. $0.00075 per URL for the fetch plus about
+    $0.001-0.003 of LLM tokens per page. One URL reads up to 40,000 chars (max_chars); a list reads
+    up to 20,000 per URL and 60,000 in total (max_total_chars), keeps input order and reports a
+    failed URL in place. Pass fields= (names) or schema= (JSON schema), not both. A value whose
+    evidence quote is not in the page is returned as null with a note. Output is sanitized.
+
+    When NOT to use: reading prose (deepseek_fetch), finding pages (deepseek_search), or a topic
+    report (deepseek_research).
+
+    Returns for one URL: {"ok": True, "data": {...}, "evidence": {...}, "extraction_truncated": bool,
+    "cost_usd": float}. For a list: {"ok": True, "results": [{"url": str, "ok": bool, "data": {...},
+    "evidence": {...}}], "partial": bool, "cost_usd": float}.
+    """
+    if isinstance(url, str):
+        return await _extract_one(
+            url,
+            fields=fields,
+            schema=schema,
+            instruction=instruction,
+            max_chars=SINGLE_MAX_CHARS if max_chars is None else max_chars,
+            refresh=refresh,
+        )
+    return await _extract_list(
+        url,
+        fields=fields,
+        schema=schema,
+        instruction=instruction,
+        max_chars_per_url=LIST_MAX_CHARS if max_chars is None else max_chars,
+        max_total_chars=max_total_chars,
+        refresh=refresh,
+        deadline=deadline,
+    )

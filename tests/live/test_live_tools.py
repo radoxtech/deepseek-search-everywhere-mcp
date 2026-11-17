@@ -212,7 +212,7 @@ async def test_extract_many_live() -> None:
         "https://docs.python.org/3/library/asyncio.html",
         "https://docs.python.org/3/library/json.html",
     ]
-    envelope = await server.deepseek_extract_many(
+    envelope = await server.deepseek_extract(
         urls,
         fields=["module_name", "primary_purpose"],
         instruction="Focus on python library details",

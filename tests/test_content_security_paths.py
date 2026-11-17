@@ -9,7 +9,6 @@ import pytest
 
 from deepseek_search_everywhere_mcp.server import (
     deepseek_extract,
-    deepseek_extract_many,
     deepseek_fetch,
     deepseek_research,
     deepseek_search,
@@ -206,7 +205,7 @@ async def test_extract_many_path_sanitization(
     monkeypatch.setattr("deepseek_search_everywhere_mcp.fetch_core._fetch", fake_fetch)
     monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._chat_request", fake_chat_request)
 
-    res = await deepseek_extract_many(["https://example.com/1"], fields=["field"])
+    res = await deepseek_extract(["https://example.com/1"], fields=["field"])
     assert res["ok"] is True
     data = res["results"][0]["data"]
     assert "\u200b" not in data["field"]

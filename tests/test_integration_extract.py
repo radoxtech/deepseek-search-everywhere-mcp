@@ -155,24 +155,22 @@ async def test_extract_many_parameter_validation(fake_upstream: Any) -> None:
     fake_upstream(ExtractUpstream())
 
     # Empty urls
-    res = await server.deepseek_extract_many([], fields=["item"])
+    res = await server.deepseek_extract([], fields=["item"])
     assert res["ok"] is False
     assert res["error"]["reason"] == "bad_request"
 
     # Too many urls (> 10)
-    res = await server.deepseek_extract_many([f"https://example.com/{i}" for i in range(11)], fields=["item"])
+    res = await server.deepseek_extract([f"https://example.com/{i}" for i in range(11)], fields=["item"])
     assert res["ok"] is False
     assert res["error"]["reason"] == "bad_request"
 
     # Neither fields nor schema
-    res = await server.deepseek_extract_many(["https://example.com/1"])
+    res = await server.deepseek_extract(["https://example.com/1"])
     assert res["ok"] is False
     assert res["error"]["reason"] == "bad_request"
 
     # Both fields and schema
-    res = await server.deepseek_extract_many(
-        ["https://example.com/1"], fields=["item"], schema={"type": "object"}
-    )
+    res = await server.deepseek_extract(["https://example.com/1"], fields=["item"], schema={"type": "object"})
     assert res["ok"] is False
     assert res["error"]["reason"] == "bad_request"
 
@@ -187,7 +185,7 @@ async def test_extract_many_success_with_fields(fake_upstream: Any) -> None:
         "https://example.com/p2",
         "https://example.com/p1",  # Duplicate URL
     ]
-    res = await server.deepseek_extract_many(
+    res = await server.deepseek_extract(
         urls,
         fields=["product", "price"],
         instruction="Extract product details",
@@ -244,7 +242,7 @@ async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
         "http://127.0.0.1/admin",  # SSRF blocked locally
         "https://example.com/empty",  # Empty page
     ]
-    res = await server.deepseek_extract_many(urls, fields=["name"])
+    res = await server.deepseek_extract(urls, fields=["name"])
     assert res["ok"] is True
     assert res["count"] == 3
     assert res["partial"] is True

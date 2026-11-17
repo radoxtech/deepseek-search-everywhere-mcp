@@ -120,7 +120,6 @@ def test_fetch_tools_and_research_strip_reddit_ui(fake_upstream):
         "deepseek_fetch",
         "deepseek_research",
         "deepseek_extract",
-        "deepseek_extract_many",
     ],
 )
 def test_boilerplate_flag_is_gone_and_stripping_is_always_on(name):

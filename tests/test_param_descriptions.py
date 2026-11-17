@@ -68,16 +68,14 @@ def test_every_described_default_matches_the_signature() -> None:
         ("deepseek_search", "max_total_chars", 20000),
         ("deepseek_fetch", "max_snippets", 3),
         ("deepseek_fetch", "max_total_chars", 20000),
-        ("deepseek_extract", "max_chars", 40000),
-        ("deepseek_extract_many", "max_chars_per_url", 20000),
-        ("deepseek_extract_many", "max_total_chars", 60000),
+        ("deepseek_extract", "max_total_chars", 60000),
     ]
     for tool_name, param, default in checks:
         prop = tools[tool_name].inputSchema["properties"][param]
         assert prop.get("default") == default, (tool_name, param)
         assert f"default {default}" in prop["description"], (tool_name, param, prop["description"])
     # max_chars defaults differ for one URL and a list, so the schema default is None.
-    for tool_name, single, per_url in (("deepseek_fetch", 20000, 4000),):
+    for tool_name, single, per_url in (("deepseek_fetch", 20000, 4000), ("deepseek_extract", 40000, 20000)):
         prop = tools[tool_name].inputSchema["properties"]["max_chars"]
         assert prop.get("default") is None, tool_name
         assert f"default {single}" in prop["description"] and f"{per_url} per URL" in prop["description"]
