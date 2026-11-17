@@ -15,7 +15,7 @@ import pytest
 from live_judge import assert_quality, judge_items
 from repeat_runner import repeat_llm
 
-from deepseek_search_everywhere_mcp import runtime, server
+from deepseek_search_everywhere_mcp import fetch_core, runtime, server
 from deepseek_search_everywhere_mcp.boilerplate import REDDIT, rules_for
 
 pytestmark = pytest.mark.live
@@ -91,7 +91,7 @@ async def test_reddit_threads_come_back_without_site_ui() -> None:
     for item in threads:
         assert _ui_labels(item["content"]) == [], item["url"]
     # Verify raw fetch retains UI labels that search stripped
-    raw = await server.deepseek_fetch(threads[0]["url"], strip_boilerplate=False)
+    raw = await fetch_core._fetch(threads[0]["url"], True, 20000, refresh=False, strip_boilerplate=False)
     if raw.get("ok") and _ui_labels(raw["content"]):
         assert len(threads[0]["content"]) < len(raw["content"])
 
