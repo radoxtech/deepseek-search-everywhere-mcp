@@ -34,9 +34,9 @@ def test_fetch_many_with_only_rejected_urls_is_not_cached():
 
 def test_search_many_cached_only_when_every_query_is_a_hit(fake_upstream):
     fake_upstream(responses={server.SEARCH_PATH: _search_answer(A)})
-    first = asyncio.run(server.deepseek_search_many(["q1"]))
-    mixed = asyncio.run(server.deepseek_search_many(["q1", "q2"]))
-    warm = asyncio.run(server.deepseek_search_many(["q1", "q2"]))
+    first = asyncio.run(server.deepseek_search(["q1"]))
+    mixed = asyncio.run(server.deepseek_search(["q1", "q2"]))
+    warm = asyncio.run(server.deepseek_search(["q1", "q2"]))
     assert (first["cached"], first["cached_count"]) == (False, 0)
     assert (mixed["cached"], mixed["cached_count"], mixed["requests_used"]) == (False, 1, 1)
     assert (warm["cached"], warm["cached_count"], warm["requests_used"]) == (True, 2, 0)

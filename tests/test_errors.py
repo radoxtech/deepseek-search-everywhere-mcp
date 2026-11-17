@@ -181,11 +181,11 @@ async def test_all_tools_validation_errors_return_error_envelopes() -> None:
     assert res["error"]["code"] in CLOSED_ERROR_CODES
 
     # deepseek_search_many with invalid arguments
-    res = await server.deepseek_search_many([])
+    res = await server.deepseek_search([])
     assert res["ok"] is False
     assert res["error"]["code"] in CLOSED_ERROR_CODES
 
-    res = await server.deepseek_search_many(["test"], count=999)
+    res = await server.deepseek_search(["test"], count=999)
     assert res["ok"] is False
     assert res["error"]["code"] in CLOSED_ERROR_CODES
 

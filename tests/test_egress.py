@@ -12,7 +12,6 @@ from deepseek_search_everywhere_mcp.server import (
     deepseek_fetch,
     deepseek_fetch_many,
     deepseek_search,
-    deepseek_search_many,
 )
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
@@ -116,7 +115,7 @@ async def test_batch_tools_egress_blocked(egress_secrets: dict[str, str]) -> Non
     secret = egress_secrets["sk_key"]
 
     # deepseek_search_many with one secret query
-    res_search = await deepseek_search_many([f"find {secret}", "normal query"])
+    res_search = await deepseek_search([f"find {secret}", "normal query"])
     assert res_search["ok"] is True
     assert res_search["results"][0]["ok"] is False
     assert res_search["results"][0]["error"]["reason"] == "egress_blocked"

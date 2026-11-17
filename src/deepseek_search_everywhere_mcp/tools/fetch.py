@@ -133,7 +133,7 @@ async def deepseek_fetch_many(
     together up to max_total_chars (default 20,000). Skips blanks, fetches duplicates once, keeps
     input order and reports a failed URL in place (partial: true). Content is sanitized.
 
-    When NOT to use: discovering pages (deepseek_search_many), one page with section or offset
+    When NOT to use: discovering pages (deepseek_search), one page with section or offset
     selectors (deepseek_fetch), fields as JSON (deepseek_extract_many), or a synthesized answer
     (deepseek_research).
 

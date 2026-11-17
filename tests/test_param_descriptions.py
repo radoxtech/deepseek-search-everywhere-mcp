@@ -22,7 +22,7 @@ def _stated(pattern: str, text: str) -> int:
 
 
 def test_search_count_description_matches_max_count() -> None:
-    for tool in ("deepseek_search", "deepseek_search_many"):
+    for tool in ("deepseek_search",):
         desc = _schema_description(tool, "count")
         assert _stated(r"\(1-(\d+), default \d+\)", desc) == server.MAX_COUNT
 
@@ -32,12 +32,12 @@ def test_search_count_limit_is_enforced_at_the_stated_maximum() -> None:
     assert res["ok"] is False and res["error"]["reason"] == "bad_count"
 
 
-def test_search_many_queries_description_matches_validation() -> None:
-    desc = _schema_description("deepseek_search_many", "queries")
-    stated = _stated(r"\(1-(\d+) queries", desc)
+def test_search_query_list_description_matches_validation() -> None:
+    desc = _schema_description("deepseek_search", "query")
+    stated = _stated(r"a list of up to (\d+)", desc)
     assert stated == server.MAX_QUERIES
     too_many = [f"query number {i}" for i in range(stated + 1)]
-    res = asyncio.run(server.deepseek_search_many(too_many))
+    res = asyncio.run(server.deepseek_search(too_many))
     assert res["count"] == stated
     assert res["skipped_queries"] == too_many[stated:]
 
@@ -66,7 +66,6 @@ def test_every_described_default_matches_the_signature() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
     checks: list[tuple[str, str, Any]] = [
         ("deepseek_search", "max_total_chars", 20000),
-        ("deepseek_search_many", "max_total_chars", 20000),
         ("deepseek_fetch", "max_chars", 20000),
         ("deepseek_fetch", "max_snippets", 3),
         ("deepseek_fetch_many", "max_chars_per_url", 4000),

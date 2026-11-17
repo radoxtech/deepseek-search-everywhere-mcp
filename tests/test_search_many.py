@@ -1,4 +1,4 @@
-"""Unit and integration tests for deepseek_search_many."""
+"""Unit and integration tests for deepseek_search with a list of queries."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _install_fake_search(fake_upstream: Any, results_map: dict[str, list[dict[st
     ],
 )
 def test_search_many_validation_errors(queries, expected_code):
-    result = asyncio.run(server.deepseek_search_many(queries))
+    result = asyncio.run(server.deepseek_search(queries))
     assert result["ok"] is False
     assert result["error"]["reason"] == expected_code
 
@@ -46,7 +46,7 @@ def test_search_many_validation_errors(queries, expected_code):
 def test_search_many_runs_the_first_five_and_reports_the_rest(fake_upstream):
     calls = _install_fake_search(fake_upstream, {})
     queries = ["q1", "q2", "q1", "q3", "q4", "q5", "q6", "q7"]
-    result = asyncio.run(server.deepseek_search_many(queries))
+    result = asyncio.run(server.deepseek_search(queries))
     assert result["ok"] is True
     assert [r["query"] for r in result["results"]] == ["q1", "q2", "q3", "q4", "q5"]
     assert result["skipped_queries"] == ["q6", "q7"]
@@ -56,13 +56,13 @@ def test_search_many_runs_the_first_five_and_reports_the_rest(fake_upstream):
 
 def test_search_many_has_no_skipped_queries_within_the_limit(fake_upstream):
     _install_fake_search(fake_upstream, {})
-    result = asyncio.run(server.deepseek_search_many(["q1", "q2"]))
+    result = asyncio.run(server.deepseek_search(["q1", "q2"]))
     assert "skipped_queries" not in result
 
 
 def test_search_many_deduplicates_queries_preserving_order(fake_upstream):
     _install_fake_search(fake_upstream, {"a": [{"title": "A", "url": "https://a.test"}]})
-    result = asyncio.run(server.deepseek_search_many(["a", "a", "a"]))
+    result = asyncio.run(server.deepseek_search(["a", "a", "a"]))
     assert result["ok"] is True
     assert result["count"] == 1
     assert any("deduped 2 duplicate query/queries" in note for note in result["notes"])
@@ -76,7 +76,7 @@ def test_search_many_concurrent_success(fake_upstream):
     }
     _install_fake_search(fake_upstream, results_map)
 
-    res = asyncio.run(server.deepseek_search_many(["python", "asyncio"], count=3))
+    res = asyncio.run(server.deepseek_search(["python", "asyncio"], count=3))
     assert res["ok"] is True
     assert res["count"] == 2
     assert res["total_results"] == 2
@@ -101,7 +101,7 @@ def test_search_many_partial_failure(fake_upstream):
     results_map = {"valid": [{"title": "Valid", "url": "https://valid.test"}]}
     _install_fake_search(fake_upstream, results_map)
 
-    res = asyncio.run(server.deepseek_search_many(["valid", long_q]))
+    res = asyncio.run(server.deepseek_search(["valid", long_q]))
     assert res["ok"] is True
     assert res["count"] == 2
     assert res["failed_count"] == 1
@@ -122,13 +122,13 @@ def test_search_many_cache_and_refresh(fake_upstream):
     _install_fake_search(fake_upstream, results_map)
 
     # 1st call -> upstream
-    r1 = asyncio.run(server.deepseek_search_many(["cached_q"]))
+    r1 = asyncio.run(server.deepseek_search(["cached_q"]))
     assert r1["ok"] is True
     assert r1["cached"] is False
     assert r1["requests_used"] == 1
 
     # 2nd call -> cached
-    r2 = asyncio.run(server.deepseek_search_many(["cached_q"]))
+    r2 = asyncio.run(server.deepseek_search(["cached_q"]))
     assert r2["ok"] is True
     assert r2["cached"] is True
     assert r2["cached_count"] == 1
@@ -136,7 +136,7 @@ def test_search_many_cache_and_refresh(fake_upstream):
     assert r2["cost_usd"] == 0.0
 
     # 3rd call with refresh=True -> upstream again
-    r3 = asyncio.run(server.deepseek_search_many(["cached_q"], refresh=True))
+    r3 = asyncio.run(server.deepseek_search(["cached_q"], refresh=True))
     assert r3["ok"] is True
     assert r3["cached"] is False
     assert r3["requests_used"] == 1
@@ -147,7 +147,7 @@ def test_search_many_exception_redacts_secrets(monkeypatch):
         raise RuntimeError("failed with secret sk-ant-api03-verysecretkey123456")
 
     monkeypatch.setattr(search_core, "_search", mock_search)
-    res = asyncio.run(server.deepseek_search_many(["test"]))
+    res = asyncio.run(server.deepseek_search(["test"]))
     assert res["ok"] is True
     assert res["failed_count"] == 1
     err_msg = res["results"][0]["error"]["message"]
@@ -164,7 +164,7 @@ def test_search_many_exception_redacts_secrets(monkeypatch):
     ],
 )
 def test_search_many_invalid_count_and_caps(kwargs, expected_code):
-    res = asyncio.run(server.deepseek_search_many(["q"], **kwargs))
+    res = asyncio.run(server.deepseek_search(["q"], **kwargs))
     assert res["ok"] is False
     assert res["error"]["reason"] == expected_code
 
@@ -173,7 +173,7 @@ def test_search_many_content_full(fake_upstream):
     results_map = {"full": [{"title": "Full", "url": "https://f.test", "content": "Full markdown body"}]}
     _install_fake_search(fake_upstream, results_map)
 
-    res = asyncio.run(server.deepseek_search_many(["full"], content="full"))
+    res = asyncio.run(server.deepseek_search(["full"], content="full"))
     assert res["ok"] is True
     assert res["results"][0]["results"][0]["content"] == "Full markdown body"
 
@@ -184,7 +184,7 @@ def test_search_many_deadline_timeout(fake_upstream):
         return {"ok": True, "data": {"results": []}}
 
     fake_upstream(slow_request)
-    res = asyncio.run(server.deepseek_search_many(["slow_q"], deadline=0.01))
+    res = asyncio.run(server.deepseek_search(["slow_q"], deadline=0.01))
     assert res["ok"] is True
     assert res["partial"] is True
     assert res["failed_count"] == 1
@@ -202,7 +202,7 @@ def test_search_many_partial_on_slow_query(fake_upstream):
         return {"ok": True, "data": {"results": [{"title": "Fast", "url": "https://fast.test"}]}}
 
     fake_upstream(mixed_request)
-    res = asyncio.run(server.deepseek_search_many(["fast_q", "slow_q"], deadline=0.05))
+    res = asyncio.run(server.deepseek_search(["fast_q", "slow_q"], deadline=0.05))
     assert res["ok"] is True
     assert res["partial"] is True
     assert res["count"] == 2
@@ -229,7 +229,7 @@ def test_search_many_enforces_payload_budget_without_duplicate_searches(fake_ups
     _install_fake_search(fake_upstream, results_map)
 
     result = asyncio.run(
-        server.deepseek_search_many(["alpha", "beta", "gamma"], count=6, content="full", max_total_chars=2000)
+        server.deepseek_search(["alpha", "beta", "gamma"], count=6, content="full", max_total_chars=2000)
     )
     assert result["ok"] is True
     assert "searches" not in result

@@ -153,7 +153,7 @@ def test_no_domain_filter_note_when_nothing_dropped(fake_upstream):
 def test_search_many_enforces_domain_filters(fake_upstream):
     _install_search(fake_upstream, MUENCHEN_RESULTS)
     result = asyncio.run(
-        server.deepseek_search_many(["Zugspitze Wetter", "Zugspitze Schnee"], include_domains=["münchen.de"])
+        server.deepseek_search(["Zugspitze Wetter", "Zugspitze Schnee"], include_domains=["münchen.de"])
     )
     assert result["ok"] is True
     for item in result["results"]:

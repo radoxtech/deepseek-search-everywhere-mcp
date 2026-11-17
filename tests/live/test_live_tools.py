@@ -239,7 +239,7 @@ async def test_fetch_pdf_live() -> None:
 
 async def test_search_many_live() -> None:
     queries = ["python asyncio best practices", "fastmcp schema design"]
-    envelope = await server.deepseek_search_many(queries, count=2)
+    envelope = await server.deepseek_search(queries, count=2)
     _assert_ok(envelope)
     assert envelope["count"] == 2
     assert envelope["partial"] is False

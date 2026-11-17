@@ -10,7 +10,6 @@ from deepseek_search_everywhere_mcp import search_core, server
 
 TOOL_NAMES = {
     "deepseek_search",
-    "deepseek_search_many",
     "deepseek_fetch",
     "deepseek_fetch_many",
     "deepseek_research",
@@ -58,11 +57,10 @@ def test_ori_question_dropped_from_public_search() -> None:
 )
 def test_dropped_parameters_not_in_search_tools(dropped_param: str) -> None:
     assert dropped_param not in inspect.signature(server.deepseek_search).parameters
-    assert dropped_param not in inspect.signature(server.deepseek_search_many).parameters
 
 
 def test_refresh_is_a_keyword_only_parameter_of_cached_tools():
-    names = ["_search", "deepseek_search", "deepseek_search_many", "deepseek_fetch"]
+    names = ["_search", "deepseek_search", "deepseek_fetch"]
     names += ["deepseek_research", "deepseek_extract", "deepseek_extract_many"]
     for name in names:
         refresh = inspect.signature(getattr(server, name)).parameters.get("refresh")
@@ -211,8 +209,8 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
             f"Tool {name} description must mention cost facts: {desc}"
         )
     assert "128" in tools["deepseek_search"].description
-    desc_search_many = tools["deepseek_search_many"].description
-    assert "20,000" in desc_search_many or "20000" in desc_search_many
+    desc_search = tools["deepseek_search"].description
+    assert "20,000" in desc_search or "20000" in desc_search
     desc_fetch = tools["deepseek_fetch"].description
     assert "20,000" in desc_fetch or "20000" in desc_fetch
     desc_fetch_many = tools["deepseek_fetch_many"].description
@@ -241,7 +239,6 @@ def test_research_description_explains_polling_and_client_synthesis() -> None:
     ("tool", "param"),
     [
         ("deepseek_search", "max_total_chars"),
-        ("deepseek_search_many", "max_total_chars"),
         ("deepseek_fetch", "max_chars"),
         ("deepseek_fetch_many", "max_chars_per_url"),
         ("deepseek_fetch_many", "max_total_chars"),

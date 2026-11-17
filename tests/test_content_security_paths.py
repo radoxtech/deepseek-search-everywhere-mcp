@@ -14,7 +14,6 @@ from deepseek_search_everywhere_mcp.server import (
     deepseek_fetch_many,
     deepseek_research,
     deepseek_search,
-    deepseek_search_many,
 )
 
 FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures" / "injection"
@@ -103,7 +102,7 @@ async def test_search_many_path_sanitization(monkeypatch: pytest.MonkeyPatch, in
         }
 
     monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._request", fake_request)
-    res = await deepseek_search_many(["test query 1"], content="full", refresh=True)
+    res = await deepseek_search(["test query 1"], content="full", refresh=True)
     assert res["ok"] is True
     first = res["results"][0]["results"][0]
     _assert_content_is_sanitized(first["content"])

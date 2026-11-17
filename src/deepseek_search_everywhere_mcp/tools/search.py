@@ -1,4 +1,4 @@
-"""The deepseek_search and deepseek_search_many tools."""
+"""The deepseek_search tool: one query or a list of queries run in parallel."""
 
 from __future__ import annotations
 
@@ -33,15 +33,11 @@ from ..search_core import (
     SEARCH_TIMEOUT,
 )
 
-MAX_QUERIES = 5  # most queries accepted by deepseek_search_many
+MAX_QUERIES = 5  # most queries one deepseek_search call runs
 
 
-@_timed
-async def deepseek_search(
-    query: Annotated[
-        str,
-        Field(description="Search terms or question; operators like site: or lang: supported (<= 128 chars)"),
-    ],
+async def _search_one(
+    query: str,
     *,
     count: Annotated[
         int, Field(description=f"Number of ranked results to return (1-{MAX_COUNT}, default 5)")
@@ -98,20 +94,7 @@ async def deepseek_search(
         Field(description="Bypass local cache and fetch fresh results from API (default False)"),
     ] = False,
 ) -> dict[str, Any]:
-    """Search the live web and get ranked results with snippets or full page text in one cheap call.
-
-    Primary search and retrieval tool: use it for current facts, news, docs and sources for one
-    query (<= 128 chars, operators and filters included). $0.00075 per call. Snippets by default;
-    content="full" returns page text up to max_total_chars (default 20,000) and adds $0.00075 for
-    each page whose text it has to fetch. Results are
-    deduplicated, dated (date, date_source) and sanitized as untrusted content.
-
-    When NOT to use: several queries at once (deepseek_search_many), a known URL (deepseek_fetch),
-    fields as JSON (deepseek_extract), or a question that needs several sources (deepseek_research).
-
-    Returns: {"ok": True, "results": [{title, url, date, snippet, content?}], "count": int,
-    "cost_usd": float, "notes": [...]}.
-    """
+    """Run one query: the single-query branch of ``deepseek_search``."""
     if max_total_chars < 1:
         return _fail("bad_request", "max_total_chars must be at least 1.")
     per_result = max(500, max_total_chars // max(1, count))
@@ -183,12 +166,12 @@ def _fit_payload_budget(envelope: dict[str, Any], budget: int) -> bool:
 
 
 @_timed
-async def deepseek_search_many(
-    queries: Annotated[
-        list[str],
+async def deepseek_search(
+    query: Annotated[
+        str | list[str],
         Field(
-            description=f"Search queries to run concurrently (1-{MAX_QUERIES} queries run, extras skipped; "
-            "each <= 128 chars)"
+            description="One query (<= 128 chars; operators like site: allowed) or a list of up to "
+            f"{MAX_QUERIES} run in parallel"
         ),
     ],
     *,
@@ -208,7 +191,7 @@ async def deepseek_search_many(
     ] = None,
     max_total_chars: Annotated[
         int,
-        Field(description="Max total characters of page text across all queries (default 20000)"),
+        Field(description="Max total characters of page text, shared by all queries (default 20000)"),
     ] = 20000,
     rewrite: Annotated[
         bool,
@@ -248,30 +231,50 @@ async def deepseek_search_many(
     ] = False,
     deadline: Annotated[
         float | None,
-        Field(description="Overall timeout deadline in seconds; completed results returned if reached"),
+        Field(description="Deadline in seconds for a list of queries; finished results are returned"),
     ] = None,
 ) -> dict[str, Any]:
-    """Run up to 5 web searches in parallel and get ranked results per query in one call.
+    """Search the live web: ranked results with snippets or full page text, for one query or up to 5.
 
-    Use it to cover several angles, phrasings or sub-topics at once. Each query <= 128 chars;
-    $0.00075 per query; page text across all queries defaults to 20,000 chars. Keeps input order,
-    dedupes repeated queries, runs the first 5 unique ones and lists the rest in skipped_queries.
-    Untrusted content is sanitized.
+    Primary search and retrieval tool for current facts, news, docs and sources. query is one string (<=
+    128 chars, operators and filters included) or a list of up to 5 run in parallel to cover several
+    angles (duplicates run once, extras listed in skipped_queries). $0.00075 per query. Snippets by
+    default; content="full" returns page text up to max_total_chars (default 20,000, shared by a list)
+    and adds $0.00075 for each page whose text it has to fetch. Results are deduplicated, dated (date,
+    date_source) and sanitized as untrusted content.
 
-    When NOT to use: one query (deepseek_search), known URLs (deepseek_fetch_many), fields as JSON
-    (deepseek_extract_many), or a synthesized answer (deepseek_research).
+    When NOT to use: a known URL (deepseek_fetch), fields as JSON (deepseek_extract), or a question
+    that needs several sources (deepseek_research).
 
-    Returns: {"ok": True, "results": [{"query": str, "results": [...]}], "partial": bool,
-    "cost_usd": float}.
+    Returns for one query: {"ok": True, "results": [{title, url, date, snippet, content?}], "count": int,
+    "cost_usd": float, "notes": [...]}. For a list: {"ok": True, "results": [{"query": str, "ok": bool,
+    "results": [...]}], "partial": bool, "cost_usd": float}.
     """
+    if isinstance(query, str):
+        return await _search_one(
+            query,
+            count=count,
+            content=content,
+            lang=lang,
+            max_total_chars=max_total_chars,
+            rewrite=rewrite,
+            exclude_terms=exclude_terms,
+            exact_phrases=exact_phrases,
+            after=after,
+            before=before,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            refresh=refresh,
+        )
+    queries = query
     if isinstance(content, bool):
         content = "full" if content else "snippets"
     if content not in ("snippets", "full"):
         return _fail("bad_request", "content must be 'snippets' or 'full'.")
     if not isinstance(queries, list) or not queries:
-        return _fail("bad_request", "queries must be a non-empty list of strings.")
+        return _fail("bad_request", "query must be a string or a non-empty list of strings.", param="query")
     if not all(isinstance(q, str) for q in queries):
-        return _fail("bad_request", "all items in queries must be strings.")
+        return _fail("bad_request", "every item of a query list must be a string.", param="query")
     if count < 1 or count > MAX_COUNT:
         return _fail("bad_count", f"count must be between 1 and {MAX_COUNT}.")
     if max_total_chars < 1:
@@ -291,14 +294,14 @@ async def deepseek_search_many(
         unique_queries.append(trimmed)
 
     if not unique_queries:
-        return _fail("bad_request", "queries must contain at least one non-empty query.")
+        return _fail("bad_request", "a query list must contain at least one non-empty query.", param="query")
     skipped_queries = unique_queries[MAX_QUERIES:]
     unique_queries = unique_queries[:MAX_QUERIES]
 
     per_query_chars = max(1000, max_total_chars // len(unique_queries))
 
     async def _run_one(q: str) -> dict[str, Any]:
-        return await deepseek_search(
+        return await _search_one(
             q,
             count=count,
             content=content,

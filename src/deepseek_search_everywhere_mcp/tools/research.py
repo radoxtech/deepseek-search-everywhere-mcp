@@ -97,7 +97,7 @@ async def deepseek_research(
     jobs run at once.
 
     When NOT to use: one fact or query (deepseek_search), several independent queries
-    (deepseek_search_many), known URLs (deepseek_fetch), or fields as JSON (deepseek_extract).
+    (deepseek_search), known URLs (deepseek_fetch), or fields as JSON (deepseek_extract).
 
     Returns: {"ok": True, "status": "done"|"running"|"awaiting_report", "job_id"?, "report": str,
     "sources": [{id, title, url, date, doi, pmid, pmcid, access, source_type, authors}],

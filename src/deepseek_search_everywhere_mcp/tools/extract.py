@@ -352,7 +352,7 @@ async def deepseek_extract_many(
     verbatim quote are null and a failed URL is reported in place. Output is sanitized.
 
     When NOT to use: one URL (deepseek_extract), plain page text (deepseek_fetch_many), finding
-    pages (deepseek_search_many), or a topic report (deepseek_research).
+    pages (deepseek_search), or a topic report (deepseek_research).
 
     Returns: {"ok": True, "results": [{"url": str, "ok": bool, "data": {...}, "evidence": {...}}],
     "partial": bool, "cost_usd": float}.

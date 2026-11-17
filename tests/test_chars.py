@@ -37,7 +37,7 @@ def test_every_tool_uses_chars(fake_upstream):
     single = asyncio.run(server.deepseek_fetch(URL))
     many = asyncio.run(server.deepseek_fetch_many([URL]))
     search = asyncio.run(server.deepseek_search("q", count=1, content="full"))
-    search_many = asyncio.run(server.deepseek_search_many(["q"], count=1, content="full"))
+    search_many = asyncio.run(server.deepseek_search(["q"], count=1, content="full"))
     for entry in (single, many["results"][0], search["results"][0], search_many["results"][0]["results"][0]):
         assert entry["chars"] == len(entry["content"])
         assert "content_chars" not in entry

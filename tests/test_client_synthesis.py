@@ -298,7 +298,7 @@ async def test_tool_surface_stays_at_nine_tools() -> None:
     import asyncio as _asyncio
 
     tools = await server.mcp.list_tools()
-    assert len(tools) == 9
+    assert len(tools) == 8
     names = {t.name: t for t in tools}
     research_params = names["deepseek_research"].inputSchema["properties"]
     check_params = names["deepseek_check_research"].inputSchema["properties"]

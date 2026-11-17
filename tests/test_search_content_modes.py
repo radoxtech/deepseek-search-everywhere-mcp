@@ -155,7 +155,7 @@ def test_search_many_snippets_are_lean(fake_upstream: Any) -> None:
             },
         }
     )
-    res = asyncio.run(server.deepseek_search_many(["python one", "python two"], content="snippets"))
+    res = asyncio.run(server.deepseek_search(["python one", "python two"], content="snippets"))
     assert res["ok"] is True
     for block in res["results"]:
         for item in block["results"]:

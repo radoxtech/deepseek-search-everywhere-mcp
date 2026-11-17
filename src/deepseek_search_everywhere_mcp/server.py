@@ -73,7 +73,7 @@ from .tools.balance import deepseek_check_balance
 from .tools.extract import deepseek_extract, deepseek_extract_many
 from .tools.fetch import deepseek_fetch, deepseek_fetch_many
 from .tools.research import deepseek_check_research, deepseek_research
-from .tools.search import MAX_QUERIES, deepseek_search, deepseek_search_many
+from .tools.search import MAX_QUERIES, deepseek_search
 from .transport import _base_url
 
 # Public names plus helpers re-exported for callers and tests (they read them as ``server.<name>``).
@@ -138,7 +138,6 @@ __all__ = [
     "deepseek_fetch_many",
     "deepseek_research",
     "deepseek_search",
-    "deepseek_search_many",
     "fit_query",
     "get_job_store",
     "mcp",
@@ -207,7 +206,6 @@ SERVER_NAME = "deepseek-search-everywhere-mcp"
 
 TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_search,
-    deepseek_search_many,
     deepseek_fetch,
     deepseek_fetch_many,
     deepseek_research,
@@ -220,13 +218,6 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
 TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     "deepseek_search": ToolAnnotations(
         title="Web search", readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
-    ),
-    "deepseek_search_many": ToolAnnotations(
-        title="Parallel web search",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
     ),
     "deepseek_fetch": ToolAnnotations(
         title="Read a web page",
