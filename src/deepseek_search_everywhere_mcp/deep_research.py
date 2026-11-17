@@ -1802,16 +1802,84 @@ _GROUNDING_DATE_RES: tuple[re.Pattern[str], ...] = (
 )
 
 
-def _normalize_for_numbers(text: str) -> str:
-    """Normalize whitespace, minus signs, dashes, commas and strip non-factual numbers.
+_DIGIT_GROUP_SEP = "[ \u00a0\u202f\u2009]"
+# "34 367", "1 234 567": groups of exactly three digits after a lead of one to three; a four-digit lead
+# ("2024 123") is a year followed by another number, not a thousands group.
+_SPACE_THOUSANDS_RE = re.compile(r"(?<![\d.,])\d{1,3}(?:" + _DIGIT_GROUP_SEP + r"\d{3})+(?![\d]|[.,]\d)")
+# Powers of ten: "10^25", "10**25", "10²⁵", "10<sup>25</sup>". Written out as digits so both sides compare.
+_SUPERSCRIPT_DIGITS = str.maketrans(
+    "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079", "0123456789"
+)
+_POWER_OF_TEN_RE = re.compile(
+    r"(?<![\d.])10(?:[ \t]?(?:\^|\*\*)[ \t]?(\d{1,2})|<sup>(\d{1,2})</sup>"
+    r"|([\u2070\u00b9\u00b2\u00b3\u2074-\u2079]{1,2}))"
+)
+
+
+def _expand_power_of_ten(m: re.Match[str]) -> str:
+    exponent = int((m.group(1) or m.group(2) or m.group(3)).translate(_SUPERSCRIPT_DIGITS))
+    return "1" + "0" * exponent
+
+
+# Numbers that name a thing rather than measure it: "Article 53", "Table 2", "§ 4", "phase 3",
+# "version 17", and dotted versions such as "3.12.1".
+_IDENTIFIER_NUM_RE = re.compile(
+    r"(?i)\b(?:articles?|art\.|sections?|sec\.|chapters?|annex(?:es)?|appendix|appendices|recitals?|tables?|"
+    r"figures?|fig\.|paragraphs?|para\.|versions?|phases?|steps?|no\.)\s*\d+(?:\.\d+)*(?:\(\w{1,4}\))*"
+    r"|§+\s*\d+(?:\.\d+)*"
+    r"|(?<![\w.])\d+\.\d+\.\d+(?:\.\d+)*(?![\w.])"
+)
+# A numbered-list marker at the start of a line.
+_LIST_MARKER_RE = re.compile(r"(?m)^[ \t]*\d{1,2}[.)][ \t]+")
+# Percentage points read as percent: the value is what has to match.
+_PP_RE = re.compile(
+    r"(?i)(?<=\d)[ \t]?(?:pp\b|p\.[ \t]?p\.|percentage[- ]points?\b|punkt(?:y|ów)?[ \t]+procentow\w*)"
+)
+# Words after a number that scale it: "1.2 million", "3,4 mld", "5bn".
+_MAGNITUDE_RE = re.compile(
+    r"[ \t]?(million|mln|mio|billion|bn|mld|trillion|thousand|tys)\b\.?", re.IGNORECASE
+)
+_MAGNITUDES = {
+    "thousand": 1e3,
+    "tys": 1e3,
+    "million": 1e6,
+    "mln": 1e6,
+    "mio": 1e6,
+    "billion": 1e9,
+    "bn": 1e9,
+    "mld": 1e9,
+    "trillion": 1e12,
+}
+# Words that make an unsigned number in a source a negative change ("weight fell by 15.4%").
+_DECLINE_RE = re.compile(
+    r"(?i)\b(?:reduc\w*|decreas\w*|declin\w*|fell|fall\w*|drop\w*|loss\w*|lost|lower\w*|less|minus|down\w*|"
+    r"shr[iu]nk\w*|cut\w*|spad\w*|obniż\w*|zmniejsz\w*|redukc\w*|mniej)\b"
+)
+
+
+def _normalize_for_numbers(text: str, *, drop_identifiers: bool = False) -> str:
+    """Normalize whitespace, minus signs, dashes, separators and strip non-factual numbers.
 
     An em dash is punctuation ("results — 90% of"), never a minus; between two digits it is a range.
-    A dash or hyphen separated from the digits by a space is not a sign either. Calendar dates,
-    DOIs, PMIDs, citation markers, URLs and R²/I² labels are removed.
+    A dash or hyphen separated from the digits by a space is not a sign either. A middle dot between
+    digits is a decimal point ("7·2 mg"); space-grouped thousands are joined ("34 367"); percentage
+    points become "%". Calendar dates, DOIs, PMIDs, citation markers, URLs and R²/I² labels are removed.
+    With ``drop_identifiers`` (report sentences, not sources) list markers and numbers that name a thing
+    ("Article 53", "Table 2", "STEP 1", "3.12.1") are removed too; a source keeps them, so a report
+    number that a source names that way ("PostgreSQL 17" for "version 17") still matches.
     """
-    t = text.replace("\u2212", "-").replace("\xa0", " ")
-    t = re.sub(r"(?<=\d)\s*\u2014\s*(?=\d)", "-", t)
-    t = t.replace("\u2014", " ").replace("\u2013", "-")
+    t = text
+    for minus in ("\u2212", "\u2012", "\ufe63", "\uff0d"):
+        t = t.replace(minus, "-")
+    t = re.sub(r"(?<=\d)[\u00b7\u2219](?=\d)", ".", t)
+    t = _POWER_OF_TEN_RE.sub(_expand_power_of_ten, t)
+    t = _SPACE_THOUSANDS_RE.sub(lambda m: re.sub(_DIGIT_GROUP_SEP, "", m.group(0)), t)
+    if drop_identifiers:
+        t = _LIST_MARKER_RE.sub(" ", t)
+        t = _IDENTIFIER_NUM_RE.sub(" ", t)
+    t = t.replace("\xa0", " ").replace("\u202f", " ").replace("\u2009", " ")
+    t = re.sub(r"(?<=\d)\s*—\s*(?=\d)", "-", t)
+    t = t.replace("—", " ").replace("–", "-")
     t = re.sub(r"10\.\d{4,9}/[^\s\"<>]+", " ", t)
     t = re.sub(r"(?i)\bpmid\s*[:\s]?\s*\d+\b", " ", t)
     t = re.sub(r"\[\^?\d+\]", " ", t)
@@ -1819,6 +1887,7 @@ def _normalize_for_numbers(text: str) -> str:
     for date_re in _GROUNDING_DATE_RES:
         t = date_re.sub(" ", t)
     t = re.sub(r"\b[IR][²2]\b", " ", t)
+    t = _PP_RE.sub("%", t)
     t = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", t)
     t = re.sub(r"(?<=\d),(?=\d)", ".", t)
     t = re.sub(r"(?<=\d)\s*-\s*(?=\d)", "-", t)
@@ -1843,20 +1912,50 @@ def _to_canon_number(s: str) -> str:
         return clean
 
 
-def _extract_numbers_and_ranges(text: str) -> list[tuple[str, str, str | None]]:
-    """Extract numbers and ranges from text as list of (raw_token, canon_a, canon_b|None)."""
-    clean = _normalize_for_numbers(text)
-    out: list[tuple[str, str, str | None]] = []
+@dataclass(frozen=True)
+class _NumberFact:
+    """One number or range read from text, after normalization."""
+
+    raw: str
+    canon_a: str
+    canon_b: str | None
+    pct: bool
+    decimals: int
+    scale: float
+
+
+def _decimals(part: str) -> int:
+    digits = part.rstrip("%")
+    return len(digits.split(".", 1)[1]) if "." in digits else 0
+
+
+def _number_facts(clean: str) -> list[_NumberFact]:
+    """Read numbers and ranges from already normalized text."""
+    out: list[_NumberFact] = []
     for m in _GROUNDING_NUM_RE.finditer(clean):
-        raw_token = m.group(0).strip()
-        part_a = m.group(1)
-        part_b = m.group(2)
+        part_a, part_b = m.group(1), m.group(2)
         canon_a = _to_canon_number(part_a)
-        canon_b = _to_canon_number(part_b) if part_b else None
         if not canon_a:
             continue
-        out.append((raw_token, canon_a, canon_b))
+        canon_b = _to_canon_number(part_b) if part_b else None
+        mag = _MAGNITUDE_RE.match(clean, m.end())
+        scale = _MAGNITUDES[mag.group(1).lower()] if mag else 1.0
+        out.append(
+            _NumberFact(
+                raw=m.group(0).strip(),
+                canon_a=canon_a,
+                canon_b=canon_b,
+                pct=m.group(0).rstrip().endswith("%") or part_a.endswith("%"),
+                decimals=_decimals(part_b or part_a),
+                scale=scale,
+            )
+        )
     return out
+
+
+def _extract_numbers_and_ranges(text: str) -> list[tuple[str, str, str | None]]:
+    """Extract numbers and ranges from text as list of (raw_token, canon_a, canon_b|None)."""
+    return [(f.raw, f.canon_a, f.canon_b) for f in _number_facts(_normalize_for_numbers(text))]
 
 
 # ``(?<![.!?])`` starts a match only at the beginning of a punctuation run (the leftmost match always does),
@@ -1966,6 +2065,124 @@ def _mark_unverified(sentence: str) -> str:
     return f"{sentence[: match.start()].rstrip()} [unverified]{match.group(1)}{match.group(2)}"
 
 
+@dataclass
+class _SourceNumbers:
+    """The numbers of one source, indexed for grounding."""
+
+    nums: set[str]
+    ranges: set[tuple[str, str]]
+    text: str
+    # (value, is_percent, written decimals), with scaled copies for "1.2 million".
+    values: list[tuple[float, bool, int]]
+
+
+def _index_source_numbers(source: dict[str, Any]) -> _SourceNumbers:
+    full_text = f"{source.get('title', '')} {source.get('date', '')} {source.get('content', '')}"
+    clean = _normalize_for_numbers(full_text)
+    nums: set[str] = set()
+    ranges: set[tuple[str, str]] = set()
+    values: list[tuple[float, bool, int]] = []
+    for fact in _number_facts(clean):
+        nums.add(fact.canon_a)
+        if fact.canon_b is not None:
+            nums.add(fact.canon_b)
+            ranges.add((fact.canon_a, fact.canon_b))
+        for canon in (fact.canon_a, fact.canon_b):
+            if canon is None:
+                continue
+            value = float(canon)
+            values.append((value, fact.pct, fact.decimals))
+            if fact.scale != 1.0:
+                values.append((value * fact.scale, False, 0))
+    return _SourceNumbers(nums, ranges, clean, values)
+
+
+def _bounded_in(token: str, text: str) -> bool:
+    """Whether a number token occurs in text as a whole number, not inside a longer one ("22" in "2022")."""
+    return bool(token) and re.search(r"(?<![\d.])" + re.escape(token) + r"(?!\d|\.\d)", text) is not None
+
+
+def _value_in_source(
+    canon: str, raw: str, pct: bool, decimals: int, scale: float, src: _SourceNumbers
+) -> bool:
+    """Whether one report number appears in a source: verbatim, scaled, rounded or as an unsigned decline."""
+    if canon in src.nums or _bounded_in(raw, src.text) or _bounded_in(canon, src.text):
+        return True
+    target = float(canon)
+    if any(abs(v - target) <= 1e-9 * max(1.0, abs(target)) for v, _, _ in src.values):
+        return True
+    if scale != 1.0 and any(abs(v - target * scale) <= 1e-9 * abs(target * scale) for v, _, _ in src.values):
+        return True
+    # Rounded to the precision the report wrote: "34%" for "34.4%", "4.6" for "4.61", "1.2 million"
+    # for "1,234,567". Whole numbers without a percent sign are too common to round.
+    half_unit = 0.5 * 10**-decimals
+    for value, src_pct, src_decimals in src.values:
+        if src_decimals <= decimals and scale == 1.0:
+            continue
+        scaled = value / scale
+        if scale == 1.0 and not (decimals > 0 or (pct and src_pct)):
+            continue
+        if abs(scaled - target) < half_unit - 1e-12 and (scaled < 0) == (target < 0):
+            return True
+    if target < 0:
+        magnitude = canon.lstrip("-")
+        if re.search(r"(?:[-−–—]\s*|\bminus\s*)" + re.escape(magnitude) + r"(?![\d])", src.text):
+            return True
+        # A source that states a decline in words gives the number without a sign.
+        for m in re.finditer(r"(?<![\d.])" + re.escape(magnitude) + r"(?![\d]|\.\d)", src.text):
+            if _DECLINE_RE.search(src.text, max(0, m.start() - 80), m.end() + 40):
+                return True
+    return False
+
+
+def _fact_in_sources(fact: _NumberFact, sources: Sequence[_SourceNumbers]) -> bool:
+    raw = fact.raw.lstrip("+")
+    if re.fullmatch(r"10{4,30}", raw):
+        # A power of ten whose superscript the page extraction flattened: "10^25" read as "1025".
+        flattened = f"10{len(raw) - 1}"
+        if any(_bounded_in(flattened, s.text) for s in sources):
+            return True
+    if fact.canon_b is None:
+        return any(
+            _value_in_source(fact.canon_a, raw, fact.pct, fact.decimals, fact.scale, s) for s in sources
+        )
+    if any((fact.canon_a, fact.canon_b) in s.ranges or _bounded_in(raw, s.text) for s in sources):
+        return True
+    return all(
+        any(_value_in_source(canon, canon, fact.pct, fact.decimals, fact.scale, s) for s in sources)
+        for canon in (fact.canon_a, fact.canon_b)
+    )
+
+
+def _is_derived(fact: _NumberFact, operands: Sequence[float]) -> bool:
+    """Whether a single number is a difference, sum, ratio or percent change of two other numbers."""
+    if fact.canon_b is not None or len(operands) < 2:
+        return False
+    target = abs(float(fact.canon_a))
+    half_unit = 0.5 * 10**-fact.decimals + 1e-9
+    for i, a in enumerate(operands):
+        for b in operands[i + 1 :]:
+            candidates = [abs(a - b), a + b]
+            for x, y in ((a, b), (b, a)):
+                if y:
+                    candidates += [abs(x / y), abs(x / y * 100), abs((x - y) / y * 100)]
+            if any(abs(c - target) < half_unit for c in candidates):
+                return True
+    return False
+
+
+def _display_number(raw: str) -> str:
+    """The number as the unverified list shows it; an expanded power of ten goes back to "10^25"."""
+    raw = raw.lstrip("+")
+    return f"10^{len(raw) - 1}" if re.fullmatch(r"10{4,30}", raw) else raw
+
+
+def _distinctive(fact: _NumberFact) -> bool:
+    """A number specific enough to point to the source that holds it (not a small whole number)."""
+    value = abs(float(fact.canon_a))
+    return fact.canon_b is not None or fact.decimals > 0 or fact.pct or value >= 100
+
+
 def ground_report_numbers(
     report: str,
     synthesis_context: Sequence[dict[str, Any]],
@@ -1976,30 +2193,25 @@ def ground_report_numbers(
     """Verify that factual numbers in cited sentences appear in the cited source content.
 
     Splits the report into sentences. For sentences with [n] citations, extracts numbers
-    (normalized for decimal comma/dot, en-dash ranges, %, unicode minus and thousands separators)
-    and verifies that each number appears in the content of at least one cited source.
-    Sentences with unverified numbers receive an ' [unverified]' marker before the final punctuation,
-    or with ``drop`` are removed from the report (they stay listed in the unverified numbers).
+    (normalized for decimal comma, dot and middle dot, ranges, %, percentage points, unicode minus,
+    comma and space thousands separators, and magnitude words) and verifies that each number appears
+    in at least one cited source: verbatim, scaled ("1.2 million"), rounded to the precision the report
+    wrote ("34%" for "34.4%"), or without its sign where the source states a decline in words. A number
+    that is a difference, sum, ratio or percent change of two grounded numbers of the same sentence is
+    derived and passes. Sentences with unverified numbers receive an ' [unverified]' marker before the
+    final punctuation, or with ``drop`` are removed from the report (they stay listed in the unverified
+    numbers). An unverified number found in exactly one uncited source names it in ``found_in``.
     Returns (cleaned_report, unverified_numbers, total_unverified_count, notes).
     """
     if not report:
         return report, [], 0, []
 
-    source_index: dict[int, tuple[set[str], set[tuple[str, str]], str]] = {}
-    for idx, s in enumerate(synthesis_context, start=1):
-        full_text = f"{s.get('title', '')} {s.get('date', '')} {s.get('content', '')}"
-        clean_norm = _normalize_for_numbers(full_text)
-        nums: set[str] = set()
-        ranges: set[tuple[str, str]] = set()
-        for _, canon_a, canon_b in _extract_numbers_and_ranges(full_text):
-            nums.add(canon_a)
-            if canon_b is not None:
-                nums.add(canon_b)
-                ranges.add((canon_a, canon_b))
-        source_index[idx] = (nums, ranges, clean_norm)
+    source_index = {idx: _index_source_numbers(s) for idx, s in enumerate(synthesis_context, start=1)}
 
     unverified_list: list[dict[str, str]] = []
     dropped = 0
+    derived = 0
+    misattributed = 0
 
     paragraphs = report.split("\n\n")
     cleaned_paragraphs: list[str] = []
@@ -2021,71 +2233,44 @@ def ground_report_numbers(
                 new_sentences.append(sent)
                 continue
 
-            nums_in_sent = _extract_numbers_and_ranges(sent)
-            if not nums_in_sent:
+            facts = _number_facts(_normalize_for_numbers(sent, drop_identifiers=True))
+            if not facts:
                 new_sentences.append(sent)
                 continue
 
-            union_nums: set[str] = set()
-            union_ranges: set[tuple[str, str]] = set()
-            combined_texts: list[str] = []
-            for cid in cite_matches:
-                if cid in source_index:
-                    s_nums, s_ranges, s_text = source_index[cid]
-                    union_nums |= s_nums
-                    union_ranges |= s_ranges
-                    combined_texts.append(s_text)
-
-            has_unverified = False
+            cited = [source_index[cid] for cid in dict.fromkeys(cite_matches) if cid in source_index]
             citation_str = "".join(f"[{c}]" for c in cite_matches)
             seen_tokens: set[str] = set()
-
-            for raw_token, canon_a, canon_b in nums_in_sent:
-                if _is_bare_year(raw_token, canon_a, canon_b):
+            checked: list[tuple[_NumberFact, bool]] = []
+            for fact in facts:
+                if _is_bare_year(fact.raw, fact.canon_a, fact.canon_b):
                     continue
-                clean_raw = raw_token.lstrip("+")
+                clean_raw = fact.raw.lstrip("+")
                 if clean_raw in seen_tokens:
                     continue
                 seen_tokens.add(clean_raw)
+                checked.append((fact, _fact_in_sources(fact, cited)))
 
-                if canon_b is None:
-                    grounded = (
-                        canon_a in union_nums
-                        or any(clean_raw in text for text in combined_texts)
-                        or any(canon_a in text for text in combined_texts)
-                    )
-                    if not grounded and canon_a.startswith("-"):
-                        abs_val = canon_a.lstrip("-")
-                        minus_re = re.compile(r"(?:[-−–—]\s*|\bminus\s*)" + re.escape(abs_val))
-                        if any(minus_re.search(text) for text in combined_texts):
-                            grounded = True
-                else:
-                    grounded = (
-                        (canon_a, canon_b) in union_ranges
-                        or (canon_a in union_nums and canon_b in union_nums)
-                        or any(clean_raw in text for text in combined_texts)
-                    )
-                    if not grounded and (canon_a.startswith("-") or canon_b.startswith("-")):
-                        match_a = canon_a in union_nums or any(
-                            re.search(r"(?:[-−–—]\s*|\bminus\s*)" + re.escape(canon_a.lstrip("-")), text)
-                            for text in combined_texts
-                        )
-                        match_b = canon_b in union_nums or any(
-                            re.search(r"(?:[-−–—]\s*|\bminus\s*)" + re.escape(canon_b.lstrip("-")), text)
-                            for text in combined_texts
-                        )
-                        if match_a and match_b:
-                            grounded = True
-
-                if not grounded:
-                    has_unverified = True
-                    unverified_list.append(
-                        {
-                            "number": clean_raw,
-                            "citation": citation_str,
-                            "sentence": sent,
-                        }
-                    )
+            operands = [float(f.canon_a) * f.scale for f, ok in checked if ok and f.canon_b is None]
+            has_unverified = False
+            for fact, grounded in checked:
+                if grounded:
+                    continue
+                if _is_derived(fact, operands):
+                    derived += 1
+                    continue
+                has_unverified = True
+                entry = {"number": _display_number(fact.raw), "citation": citation_str, "sentence": sent}
+                if _distinctive(fact):
+                    holders = [
+                        idx
+                        for idx, src in source_index.items()
+                        if idx not in cite_matches and _fact_in_sources(fact, [src])
+                    ]
+                    if len(holders) == 1:
+                        entry["found_in"] = f"[{holders[0]}]"
+                        misattributed += 1
+                unverified_list.append(entry)
 
             if has_unverified and drop:
                 dropped += 1
@@ -2101,9 +2286,15 @@ def ground_report_numbers(
     total_count = len(unverified_list)
     notes: list[str] = []
     if total_count > 0:
-        notes.append(
-            f"Flagged {total_count} unverified number(s) in report not found in cited source content."
-        )
+        note = f"Flagged {total_count} unverified number(s) in report not found in cited source content."
+        if misattributed:
+            note += (
+                f" {misattributed} of them appear in exactly one other source, named in found_in;"
+                " that citation is likely wrong."
+            )
+        notes.append(note)
+    if derived:
+        notes.append(f"Accepted {derived} number(s) computed from other cited numbers in the same sentence.")
     if dropped:
         notes.append(f"Removed {dropped} sentence(s) with unverified numbers from the report.")
 

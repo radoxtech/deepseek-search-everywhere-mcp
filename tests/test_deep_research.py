@@ -1385,3 +1385,84 @@ def test_academic_mode_strict_exclusion_and_fallback_notes() -> None:
     assert all(s["source_type"] == "blog" for s in selected_2[2:])
     assert len(notes_2) > 0
     assert any("Retained non-scholarly" in n for n in notes_2)
+
+
+# --- Number grounding: formatting, rounding, signs and derived values ---------------------------------------
+
+
+def _ground(sentence: str, *contents: str) -> tuple[str, list[dict[str, str]], int, list[str]]:
+    sources = [{"title": f"S{i}", "content": c} for i, c in enumerate(contents, start=1)]
+    return deep_research.ground_report_numbers(sentence, sources)
+
+
+@pytest.mark.parametrize(
+    ("sentence", "content"),
+    [
+        ("The dose was 7.2 mg [1].", "patients took semaglutide 7·2 mg weekly"),
+        ("The review covered 34,367 participants [1].", "comprising 34 367 participants"),
+        ("The review covered 34,367 participants [1].", "comprising 34 367 participants"),
+        ("The cohort had 1,234,567 people [1].", "a cohort of 1 234 567 people"),
+        ("The cohort had 92 078 people [1].", "92,078 participants were included"),
+        ("Models above 10^25 FLOP are covered [1].", "trained with more than 10²⁵ FLOPs"),
+        ("Models above 10²³ FLOP are covered [1].", "compute greater than 10^23 FLOP"),
+        ("Models above 10^25 FLOP are covered [1].", "compute greater than 1025 FLOP (floating point)"),
+        ("Providers follow Articles 53 and 55 [1].", "Article 55: Obligations of providers"),
+        ("Version 17 added incremental backups [1].", "PostgreSQL 17 adds incremental backup"),
+        ("It reports STEP 1—86.4% reached 5% loss [1].", "86.4% reached at least 5% loss"),
+        ("Weight fell −15.4% [1].", "Weight reductions were 15.4% at week 176"),
+        ("About 34% responded [1].", "a response rate of 34.4%"),
+        ("The mean difference was 4.6 points [1].", "MD 4.61 (95% CI 3.2 to 6.0)"),
+        ("Revenue reached 1.2 million euros [1].", "revenue of 1,200,000 euros"),
+        ("Revenue reached 1.2 million euros [1].", "revenue of 1,234,567 euros"),
+        ("Revenue reached 1,200,000 euros [1].", "revenue of 1.2 million euros"),
+        ("Tirzepatide added 4.6 percentage points [1].", "an extra 4.6% weight loss"),
+        ("GI events hit 70.8% vs 61.2%, a 9.6-point gap [1].", "70.8% with 7.2 mg and 61.2% with 2.4 mg"),
+    ],
+)
+def test_grounding_accepts_formatting_rounding_and_derived(sentence: str, content: str) -> None:
+    report, unverified, count, _ = _ground(sentence, content)
+    assert (unverified, count) == ([], 0), unverified
+    assert "[unverified]" not in report
+
+
+@pytest.mark.parametrize(
+    ("sentence", "content", "flagged"),
+    [
+        ("About 35% responded [1].", "a response rate of 34.4%", "35%"),
+        ("They enrolled 12 people [1].", "they enrolled 12.3 thousand people", "12"),
+        ("They enrolled 22 people [1].", "updated in 2022 with new people", "22"),
+        ("Weight rose −15.4% [1].", "Weight was 15.4% higher at week 176", "-15.4%"),
+        ("Models above 10^24 FLOP are covered [1].", "trained with more than 10²⁵ FLOPs", "10^24"),
+        (
+            "GI events hit 70.8% vs 61.2%, a 9.9-point gap [1].",
+            "70.8% with 7.2 mg and 61.2% with 2.4 mg",
+            "9.9",
+        ),
+    ],
+)
+def test_grounding_still_flags_near_misses(sentence: str, content: str, flagged: str) -> None:
+    _, unverified, count, _ = _ground(sentence, content)
+    assert count == 1
+    assert unverified[0]["number"] == flagged
+
+
+def test_grounding_names_the_one_other_source_holding_a_number() -> None:
+    _, unverified, count, notes = _ground(
+        "The trial reported −18.7% weight change [1].", "no numbers here", "achieved −18.7% at week 72"
+    )
+    assert count == 1
+    assert unverified[0]["found_in"] == "[2]"
+    assert "exactly one other source" in notes[0]
+
+
+def test_grounding_names_no_source_for_a_common_small_number() -> None:
+    _, unverified, _, _ = _ground("There were 12 studies [1].", "no numbers here", "12 studies were included")
+    assert "found_in" not in unverified[0]
+
+
+def test_grounding_notes_derived_numbers() -> None:
+    _, _, count, notes = _ground(
+        "GI events hit 70.8% vs 61.2%, a 9.6-point gap [1].", "70.8% with 7.2 mg and 61.2% with 2.4 mg"
+    )
+    assert count == 0
+    assert any("computed from other cited numbers" in note for note in notes)
