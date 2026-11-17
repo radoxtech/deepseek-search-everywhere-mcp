@@ -1,0 +1,122 @@
+{
+ "id": "business-four-day-week",
+ "topic": "Four-day work week trials: reported effects on productivity, revenue, employee wellbeing and retention, and limits of the evidence",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "The 2022 UK pilot covered 61 companies and about 2,900 employees for six months on a 100-80-100 model (full pay, 80% of hours, maintained output).",
+   "importance": "core",
+   "sources": [
+    "https://weforum.org/agenda/2023/03/four-day-work-week-uk-trial",
+    "https://www.ukri.org/who-we-are/how-we-are-doing/research-outcomes-and-impact/esrc/making-the-case-for-a-four-day-working-week"
+   ],
+   "as_of": "2023-03"
+  },
+  {
+   "id": "k2",
+   "point": "In the UK pilot revenue was roughly flat (average +1.4% for the 23 firms reporting) and staff turnover fell 57% with sick days down 65%.",
+   "importance": "core",
+   "sources": [
+    "https://www.ukri.org/who-we-are/how-we-are-doing/research-outcomes-and-impact/esrc/making-the-case-for-a-four-day-working-week"
+   ],
+   "as_of": "2023-03"
+  },
+  {
+   "id": "k3",
+   "point": "In the UK pilot 71% of employees reported less burnout, and 56 of 61 organisations were still on a four-day week a year later.",
+   "importance": "core",
+   "sources": [
+    "https://weforum.org/agenda/2023/03/four-day-work-week-uk-trial",
+    "https://www.ukri.org/who-we-are/how-we-are-doing/research-outcomes-and-impact/esrc/making-the-case-for-a-four-day-working-week"
+   ],
+   "as_of": "2023-03"
+  },
+  {
+   "id": "k4",
+   "point": "A 2025 Nature Human Behaviour study (141 organisations, 2,896 employees, six countries) found lower burnout and better job satisfaction, mental and physical health versus 12 control firms, persisting at 12 months.",
+   "importance": "core",
+   "sources": [
+    "https://www.psypost.org/large-scale-trial-finds-four-day-workweek-improves-employee-well-being-and-physical-health/",
+    "https://www.scientificamerican.com/article/biggest-trial-of-four-day-workweek-finds-workers-are-happier-and-feel-just/"
+   ],
+   "as_of": "2025-07"
+  },
+  {
+   "id": "k5",
+   "point": "The study attributes wellbeing gains to better sleep, less fatigue and higher self-assessed work ability, with larger hour cuts linked to larger gains; trial staff cut about five hours a week.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.psypost.org/large-scale-trial-finds-four-day-workweek-improves-employee-well-being-and-physical-health/"
+   ],
+   "as_of": "2025-07"
+  },
+  {
+   "id": "k6",
+   "point": "Iceland's 2015-2019 trials (about 2,500 workers) reported unchanged or improved output and better wellbeing, per think tank Autonomy, which says 86% of workers now have shorter hours or the right to them.",
+   "importance": "secondary",
+   "sources": [
+    "https://autonomy.work/portfolio/icelandsww/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k7",
+   "point": "Germany's 2024 pilot (45 organisations, six months, Münster evaluation) found perceived productivity stable or up and better life satisfaction, but revenue and sick-day changes were not statistically significant.",
+   "importance": "core",
+   "sources": [
+    "https://www.uni-muenster.de/news/view.php?cmdid=14338"
+   ],
+   "as_of": "2024-11"
+  },
+  {
+   "id": "k8",
+   "point": "Productivity evidence is thin: the Nature study did not analyse company-level productivity, and UK and German productivity claims rest largely on self-report, revenue from a subset, or managers' perceptions.",
+   "importance": "core",
+   "sources": [
+    "https://www.scientificamerican.com/article/biggest-trial-of-four-day-workweek-finds-workers-are-happier-and-feel-just/",
+    "https://www.uni-muenster.de/news/view.php?cmdid=14338"
+   ],
+   "as_of": "2025-07"
+  },
+  {
+   "id": "k9",
+   "point": "Participants self-selected into trials and were mostly small, office-based or professional-services firms in English-speaking countries, so results may overstate effects and may not generalise to retail, healthcare or manufacturing.",
+   "importance": "core",
+   "sources": [
+    "https://www.psypost.org/large-scale-trial-finds-four-day-workweek-improves-employee-well-being-and-physical-health/",
+    "https://weforum.org/agenda/2023/03/four-day-work-week-uk-trial"
+   ],
+   "as_of": "2025-07"
+  },
+  {
+   "id": "k10",
+   "point": "Trials were short (six months, one 12-month follow-up), mostly lacked randomised controls, and were organised by advocacy groups; the Nature study's authors call for randomised or government-sponsored trials.",
+   "importance": "core",
+   "sources": [
+    "https://www.psypost.org/large-scale-trial-finds-four-day-workweek-improves-employee-well-being-and-physical-health/",
+    "https://www.ukri.org/who-we-are/how-we-are-doing/research-outcomes-and-impact/esrc/making-the-case-for-a-four-day-working-week"
+   ],
+   "as_of": "2025-07"
+  },
+  {
+   "id": "k11",
+   "point": "Proponents reply that some pilots (Portugal, Germany) had controls and that a single productivity metric is infeasible across industries, so they use revenue, sickness data, managerial interviews and organisational indicators.",
+   "importance": "secondary",
+   "sources": [
+    "https://autonomy.work/2025/07/21/critics-of-shorter-working-week-trials-consistently-miss-the-mark/"
+   ],
+   "as_of": "2025-07"
+  },
+  {
+   "id": "k12",
+   "point": "Critics note the model is hard to apply where cover is needed, such as emergency services, transport, logistics and healthcare, where costs may rise.",
+   "importance": "secondary",
+   "sources": [
+    "https://weforum.org/agenda/2023/03/four-day-work-week-uk-trial"
+   ],
+   "as_of": "2023-03"
+  }
+ ]
+}

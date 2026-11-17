@@ -1,0 +1,126 @@
+{
+ "id": "it-passkeys",
+ "topic": "Passkeys (WebAuthn/FIDO2): how they work, security benefits over passwords and remaining limitations for adoption",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "A passkey is a public/private key pair: the site stores only the public key, and the device or provider holds the private key and signs a server challenge after local user verification.",
+   "importance": "core",
+   "sources": [
+    "https://web.dev/articles/passkey-registration",
+    "https://fidoalliance.org/passkeys/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k2",
+   "point": "Passkeys build on FIDO2: the W3C WebAuthn browser/API and CTAP for authenticator communication; WebAuthn Level 3 is shown as a W3C Recommendation dated 2026-08-25.",
+   "importance": "core",
+   "sources": [
+    "https://fidoalliance.org/passkeys/",
+    "https://www.w3.org/TR/webauthn-3/"
+   ],
+   "as_of": "2026-08"
+  },
+  {
+   "id": "k3",
+   "point": "Phishing resistance comes from origin binding: credentials are scoped to an RP ID (the domain or registrable suffix) and assertions are signed over the origin, so lookalike sites cannot obtain usable signatures.",
+   "importance": "core",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://web.dev/articles/passkey-registration"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k4",
+   "point": "No shared secret on the server means a breach leaks no reusable credentials; passkeys can also replace SMS/OTP codes.",
+   "importance": "core",
+   "sources": [
+    "https://developers.google.com/identity/passkeys",
+    "https://web.dev/articles/passkey-registration"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k5",
+   "point": "Passkeys are either synced (multi-device, backup-eligible, replicated via a provider such as iCloud Keychain or Google Password Manager) or device-bound (e.g., hardware keys); BE flag is fixed at creation and BS flag can change.",
+   "importance": "core",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://web.dev/articles/passkey-registration"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k6",
+   "point": "FIDO's Passkey Index (Oct 2025, nine member organisations) reports passkey sign-in success of 93% vs 63% for other methods and about 8.5 s vs 31.2 s versus traditional MFA; self-reported, with 36% of accounts enrolled.",
+   "importance": "core",
+   "sources": [
+    "https://fidoalliance.org/wp-content/uploads/2025/10/FIDO-Passkey-Index-October-2025.pdf"
+   ],
+   "as_of": "2025-10"
+  },
+  {
+   "id": "k7",
+   "point": "Synced passkeys can be exported or shared, so NIST SP 800-63B allows them at AAL2 with conditions but not AAL3, which needs non-exportable keys; verifiers must check User Verified.",
+   "importance": "core",
+   "sources": [
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k8",
+   "point": "Account recovery is left to the relying party and is a weak point: losing all devices or switching ecosystems without a cross-platform manager may force fallback recovery flows, and sync-fabric compromise is a risk.",
+   "importance": "core",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/",
+    "https://fidoalliance.org/passkeys/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k9",
+   "point": "Cross-device sign-in uses the hybrid transport (QR code plus Bluetooth Low Energy proximity check), so the phone must be physically near the laptop.",
+   "importance": "secondary",
+   "sources": [
+    "https://fidoalliance.org/passkeys/",
+    "https://developers.google.com/identity/passkeys"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k10",
+   "point": "Adoption hurdles: device-bound passkeys do not move to new devices, some regulatory regimes do not yet recognise passkeys as MFA, and users need UX reassurance (e.g., that biometrics are not sent to the server).",
+   "importance": "secondary",
+   "sources": [
+    "https://fidoalliance.org/passkeys/",
+    "https://developers.google.com/identity/passkeys"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k11",
+   "point": "Revocation is hard: RP-specific keys cannot be centrally revoked like PKI certificates; NIST suggests central identity accounts, SSO and periodic key review as mitigations.",
+   "importance": "secondary",
+   "sources": [
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k12",
+   "point": "Attestation lets RPs verify authenticator properties at registration, but NIST says its absence should not block public-facing use.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/"
+   ],
+   "as_of": null
+  }
+ ]
+}

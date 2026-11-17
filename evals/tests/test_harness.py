@@ -29,8 +29,8 @@ def test_cited_sentences_and_lexical_support() -> None:
     report = "# Title\n\nSurface codes reached 97% fidelity in 2024 [1]. Another claim without data [2].\n"
     sentences = metrics.cited_sentences(report)
     assert sentences == [
-        ("Surface codes reached 97% fidelity in 2024 .", [1]),
-        ("Another claim without data .", [2]),
+        ("Surface codes reached 97% fidelity in 2024.", [1]),
+        ("Another claim without data.", [2]),
     ]
     source = "In 2024 the team showed surface codes reached 97% gate fidelity."
     assert metrics.supports(sentences[0][0], source)

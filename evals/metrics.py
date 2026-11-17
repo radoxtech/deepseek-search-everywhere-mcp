@@ -36,6 +36,7 @@ _CITATION = re.compile(r"\[(\d+)\]")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\[(\"'])")
 _WORD = re.compile(r"[a-z][a-z\-]{3,}")
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,;:!?])")
 _STOP = frozenset(
     "this that with from have been were which their there these those than then also into more most such "
     "only other some what when where while will would could should about after before between both each "
@@ -60,7 +61,7 @@ def cited_sentences(report: str) -> list[tuple[str, list[int]]]:
         for sentence in _SENTENCE.split(line):
             ids = [int(i) for i in _CITATION.findall(sentence)]
             if ids:
-                out.append((_CITATION.sub("", sentence).strip(), ids))
+                out.append((_SPACE_BEFORE_PUNCT.sub(r"\1", _CITATION.sub("", sentence)).strip(), ids))
     return out
 
 

@@ -1,0 +1,111 @@
+{
+  "id": "nutrition-time-restricted-eating",
+  "topic": "Evidence on time-restricted eating (intermittent fasting) versus continuous calorie restriction for weight loss and metabolic health",
+  "status": "draft",
+  "prepared": "2026-11-17",
+  "key_points": [
+    {
+      "id": "k1",
+      "point": "A 2026 Cochrane review (22 RCTs, 1,995 adults) found intermittent fasting no better than regular dietary advice such as continuous restriction: weight difference -0.33% (95% CI -0.92 to 0.26), low certainty.",
+      "importance": "core",
+      "sources": [
+        "https://www.news-medical.net/news/20260217/Does-intermittent-fasting-help-you-lose-more-weight-Evidence-review-finds-no-clear-advantage.aspx"
+      ],
+      "as_of": "2026-02"
+    },
+    {
+      "id": "k2",
+      "point": "The 12-month NEJM trial (139 adults) found calorie restriction plus 8am-4pm eating gave -8.0 kg versus -6.3 kg with calorie restriction alone, a non-significant difference; calorie deficit drove most benefit.",
+      "importance": "core",
+      "sources": [
+        "https://www.hcplive.com/view/trial-examines-time-restricted-eating-vs-calorie-restriction-over-12-months-for-weight-loss"
+      ],
+      "as_of": "2022-04"
+    },
+    {
+      "id": "k3",
+      "point": "Lowe et al. (JAMA Intern Med 2020, 116 adults, 12 weeks) found 16:8 TRE did not beat consistent three-meal timing for weight (between-group -0.26 kg, P=.63) or most metabolic markers.",
+      "importance": "core",
+      "sources": [
+        "https://pubmed.ncbi.nlm.nih.gov/32986097/"
+      ],
+      "as_of": "2020-09"
+    },
+    {
+      "id": "k4",
+      "point": "An umbrella review/network meta-analysis (BMC Med 2024; 153 studies, 9,846 people) found direct TRE vs continuous energy restriction weight difference -2.41 kg (CI -5.14 to 0.33), non-significant; most direct evidence was low or very low quality.",
+      "importance": "core",
+      "sources": [
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC11559166/"
+      ],
+      "as_of": "2024-11"
+    },
+    {
+      "id": "k5",
+      "point": "A JAMA Netw Open 2024 meta-analysis (29 RCTs, 2,485 adults, 12+ weeks) found TRE lowered weight by 1.37 kg (CI -1.99 to -0.75) versus controls; authors called this small, of uncertain clinical importance, and low certainty.",
+      "importance": "core",
+      "sources": [
+        "https://jamanetwork.com/journals/jamanetworkopen/article-abstract/2825747"
+      ],
+      "as_of": "2024-11"
+    },
+    {
+      "id": "k6",
+      "point": "Energy intake reduction is the main driver: TRE trials show about 164 kcal/day lower intake, and a Nutrition Reviews meta-analysis found larger weight effects vs non-isocaloric controls (-2.82 kg) than isocaloric ones (-1.46 kg).",
+      "importance": "core",
+      "sources": [
+        "https://jamanetwork.com/journals/jamanetworkopen/article-abstract/2825747",
+        "https://pubmed.ncbi.nlm.nih.gov/40298934/"
+      ],
+      "as_of": "2026-01"
+    },
+    {
+      "id": "k7",
+      "point": "Metabolic benefits of TRE are modest: fasting glucose about -1.15 mg/dL and HbA1c -0.08% vs controls, with no significant change in LDL or blood pressure; TRE added to calorie restriction gave no extra BP, glucose or lipid benefit.",
+      "importance": "core",
+      "sources": [
+        "https://jamanetwork.com/journals/jamanetworkopen/article-abstract/2825747",
+        "https://www.nature.com/articles/s41430-023-01311-w.pdf"
+      ],
+      "as_of": "2024-11"
+    },
+    {
+      "id": "k8",
+      "point": "Adding TRE to calorie restriction gave a small extra weight reduction of about 1.4 kg (WMD -1.40, 95% CI -1.81 to -1.00; 8 trials, 579 adults) with low or very low certainty.",
+      "importance": "secondary",
+      "sources": [
+        "https://www.nature.com/articles/s41430-023-01311-w.pdf"
+      ],
+      "as_of": "2023-01"
+    },
+    {
+      "id": "k9",
+      "point": "Lean mass is a concern: pooled TRE trials show about 0.42 kg lean mass loss, and Lowe et al. found a greater appendicular lean mass index decrease with TRE than with regular meal timing.",
+      "importance": "secondary",
+      "sources": [
+        "https://jamanetwork.com/journals/jamanetworkopen/article-abstract/2825747",
+        "https://pubmed.ncbi.nlm.nih.gov/32986097/"
+      ],
+      "as_of": "2024-11"
+    },
+    {
+      "id": "k10",
+      "point": "Versus no intervention, intermittent fasting gave -3.42% weight change (moderate certainty), but Cochrane authors judged this unlikely to be clinically meaningful; safety and quality-of-life data were sparse and inconsistently reported.",
+      "importance": "secondary",
+      "sources": [
+        "https://www.news-medical.net/news/20260217/Does-intermittent-fasting-help-you-lose-more-weight-Evidence-review-finds-no-clear-advantage.aspx"
+      ],
+      "as_of": "2026-02"
+    },
+    {
+      "id": "k11",
+      "point": "Evidence limits: trials are short (mostly under 12-16 months), small, heterogeneous in eating windows, often high risk of bias, and unrepresentative (NEJM trial mean age about 32); long-term sustainability and hard outcomes are unproven.",
+      "importance": "secondary",
+      "sources": [
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC11559166/",
+        "https://jamanetwork.com/journals/jamanetworkopen/article-abstract/2825747"
+      ],
+      "as_of": "2024-11"
+    }
+  ]
+}

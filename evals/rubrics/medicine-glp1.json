@@ -1,0 +1,121 @@
+{
+  "id": "medicine-glp1",
+  "topic": "Semaglutide and tirzepatide for obesity: weight-loss efficacy in clinical trials and main safety concerns",
+  "status": "draft",
+  "prepared": "2026-11-17",
+  "key_points": [
+    {
+      "id": "k1",
+      "point": "In the Wegovy label's 68-week obesity trial (STEP 1 per published literature; label calls it Study 2), semaglutide 2.4 mg gave -14.9% vs -2.4% placebo; 83.5% lost at least 5% and 47.9% at least 15%.",
+      "importance": "core",
+      "sources": [
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+      ],
+      "as_of": "2026-11"
+    },
+    {
+      "id": "k2",
+      "point": "SURMOUNT-1 (2,539 adults without diabetes, 72 weeks): tirzepatide 5/10/15 mg gave mean -16.0/-21.4/-22.5% vs -2.4% placebo; 89-96% lost at least 5% weight versus 27.9% on placebo.",
+      "importance": "core",
+      "sources": [
+        "https://www.lilly.com/hcp/medical-information/answers/how-did-zepbound-tirzepatide-compare-with-placebo-for-weight-reduction-in-people-without-diabetes-163853",
+        "https://blogs.the-hospitalist.org/content/tirzepatide-powers-unprecedented-weight-loss-surmount-1"
+      ],
+      "as_of": "2022-06"
+    },
+    {
+      "id": "k3",
+      "point": "Head-to-head SURMOUNT-5 (751 adults with obesity, no diabetes, 72 weeks): tirzepatide produced 20.2% mean weight loss versus 13.7% with semaglutide, with similar GI-dominated safety profiles.",
+      "importance": "core",
+      "sources": [
+        "https://healthmanagement.org/c/cardio/news/tirzepatide-vs-semaglutide-for-treatment-of-obesity"
+      ],
+      "as_of": "2025-05"
+    },
+    {
+      "id": "k4",
+      "point": "Gastrointestinal events are the most common adverse reactions: with semaglutide 2.4 mg nausea 44% (placebo 16%), diarrhea 30%, vomiting 24%, constipation 24%; mostly during dose escalation.",
+      "importance": "core",
+      "sources": [
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf",
+        "https://www.mdedge.com/fedprac/article/255207/obesity/tirzepatide-powers-unprecedented-weight-loss-surmount-1/page/0/1"
+      ],
+      "as_of": "2026-11"
+    },
+    {
+      "id": "k5",
+      "point": "Discontinuation for adverse events in SURMOUNT-1 was 4.3% (5 mg), 7.1% (10 mg), 6.2% (15 mg) versus 2.6% on placebo.",
+      "importance": "secondary",
+      "sources": [
+        "https://www.lilly.com/hcp/medical-information/answers/how-did-zepbound-tirzepatide-compare-with-placebo-for-weight-reduction-in-people-without-diabetes-163853"
+      ],
+      "as_of": "2022-06"
+    },
+    {
+      "id": "k6",
+      "point": "Both Wegovy and Zepbound carry a boxed warning for thyroid C-cell tumors (seen in rodents; human relevance unknown) and are contraindicated with personal or family history of medullary thyroid carcinoma or MEN 2.",
+      "importance": "core",
+      "sources": [
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf",
+        "https://www.drugs.com/clinical_trials/fda-approves-zepbound-chronic-weight-management-new-obesity-overweight-weight-related-medical-21167.html"
+      ],
+      "as_of": "2026-11"
+    },
+    {
+      "id": "k7",
+      "point": "Wegovy label warnings include acute pancreatitis, acute gallbladder disease, acute kidney injury from volume depletion, hypoglycemia, diabetic retinopathy complications, and pulmonary aspiration during anesthesia or deep sedation.",
+      "importance": "core",
+      "sources": [
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+      ],
+      "as_of": "2026-11"
+    },
+    {
+      "id": "k8",
+      "point": "Stopping treatment leads to weight regain: after switching to placebo, SURMOUNT-4 patients regained about 14% by week 88 and STEP 1 extension patients 11.6% by week 120, with cardiometabolic gains reversing.",
+      "importance": "core",
+      "sources": [
+        "https://www.clinicaltrialsarena.com/analyst-comment/weight-regain-cardiometabolic-effects-after-withdrawal-glp-1r-agonists/"
+      ],
+      "as_of": "2023-12"
+    },
+    {
+      "id": "k9",
+      "point": "EMA's PRAC concluded in June 2025 that non-arteritic anterior ischaemic optic neuropathy (NAION) is a very rare side effect of semaglutide (up to 1 in 10,000 users); stop if confirmed.",
+      "importance": "secondary",
+      "sources": [
+        "https://pharmaceutical-journal.com/article/news/eye-disorder-is-a-very-rare-side-effect-of-weight-loss-drugs-concludes-ema-review",
+        "https://www.who.int/news/item/27-06-2025-27-06-2025-semaglutide-medicines-naion"
+      ],
+      "as_of": "2025-06"
+    },
+    {
+      "id": "k10",
+      "point": "Efficacy is lower in type 2 diabetes: the semaglutide 2.4 mg label trial in diabetes with obesity gave -9.6% vs -3.4% placebo; Wegovy also carries a MACE risk-reduction indication (HR 0.80, CI 0.72-0.90).",
+      "importance": "secondary",
+      "sources": [
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+      ],
+      "as_of": "2026-11"
+    },
+    {
+      "id": "k11",
+      "point": "Tirzepatide acts on both GIP and GLP-1 receptors (commentators credit this for greater loss than semaglutide); Zepbound was FDA-approved for chronic weight management on 8 Nov 2023.",
+      "importance": "secondary",
+      "sources": [
+        "https://blogs.the-hospitalist.org/content/tirzepatide-powers-unprecedented-weight-loss-surmount-1",
+        "https://www.drugs.com/clinical_trials/fda-approves-zepbound-chronic-weight-management-new-obesity-overweight-weight-related-medical-21167.html"
+      ],
+      "as_of": "2023-11"
+    },
+    {
+      "id": "k12",
+      "point": "Pivotal trials were manufacturer-sponsored, ran 68-72 weeks with lifestyle support, and show wide individual variability; commentators note treatment likely needs to be long-term.",
+      "importance": "secondary",
+      "sources": [
+        "https://blogs.the-hospitalist.org/content/tirzepatide-powers-unprecedented-weight-loss-surmount-1"
+      ],
+      "as_of": "2022-06"
+    }
+  ]
+}

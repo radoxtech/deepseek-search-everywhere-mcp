@@ -1,0 +1,120 @@
+{
+ "id": "it-pg-incremental-backup",
+ "topic": "How PostgreSQL 17 incremental backups work (pg_basebackup --incremental, WAL summarization, pg_combinebackup) and their limitations",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "PostgreSQL 17 (released 2024-09-26) added incremental file-system backups via pg_basebackup --incremental plus the new pg_combinebackup tool and WAL summarization.",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/release-17.html"
+   ],
+   "as_of": "2024-09"
+  },
+  {
+   "id": "k2",
+   "point": "The server tracks changed blocks through WAL summary files, which record block numbers modified within an LSN range; they are produced by the WAL summarizer and kept under pg_wal/summaries.",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/continuous-archiving.html",
+    "https://www.postgresql.org/docs/17/release-17.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k3",
+   "point": "summarize_wal is off by default and must be enabled (it cannot run with wal_level=minimal); without it incremental backups cannot be taken.",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/runtime-config-wal.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k4",
+   "point": "wal_summary_keep_time defaults to 10 days; summaries must cover the whole LSN range since the prior backup or the incremental fails, so set it above the gap between dependent backups.",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/runtime-config-wal.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k5",
+   "point": "pg_basebackup --incremental takes the backup_manifest of a prior backup from the same server; it uploads it, and the server sends only blocks changed since then (server version 17+ only).",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/app-pgbasebackup.html",
+    "https://www.postgresql.org/docs/17/continuous-archiving.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k6",
+   "point": "Incremental backups replace some relation files with incremental files holding only changed blocks plus reconstruction metadata; non-relation files are copied in full.",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/continuous-archiving.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k7",
+   "point": "An incremental backup cannot be restored directly: pg_combinebackup must merge the full backup and all intermediate incrementals, listed oldest to newest, into a synthetic full backup with -o, then normal recovery follows.",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/app-pgcombinebackup.html",
+    "https://www.postgresql.org/docs/17/continuous-archiving.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k8",
+   "point": "PostgreSQL does not track backup dependencies; deleting any backup in the chain makes later incrementals unrestorable, and pg_combinebackup validates chain relationships but not data integrity (use pg_verifybackup).",
+   "importance": "core",
+   "sources": [
+    "https://www.postgresql.org/docs/17/app-pgcombinebackup.html",
+    "https://www.postgresql.org/docs/17/continuous-archiving.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k9",
+   "point": "pg_combinebackup does not recompute page checksums: if checksum state changed between backups in the chain, output may hold invalid checksums; take a new full backup after changing checksums.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.postgresql.org/docs/17/app-pgcombinebackup.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k10",
+   "point": "pg_combinebackup copy modes: default --copy; --clone (reflinks, Linux Btrfs/XFS, macOS APFS) and --copy-file-range can speed up reconstruction and save space where the filesystem supports them.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.postgresql.org/docs/17/app-pgcombinebackup.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k11",
+   "point": "Incremental backups from a standby can fail with little activity since the previous backup (replay starts at the last restartpoint); the prior backup must also be on a compatible timeline.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.postgresql.org/docs/17/continuous-archiving.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k12",
+   "point": "Incremental backups mainly benefit large databases with mostly unchanged data; WAL archiving and recovery are still required, and for small or heavily modified databases full backups are simpler and similarly sized.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.postgresql.org/docs/17/continuous-archiving.html"
+   ],
+   "as_of": null
+  }
+ ]
+}

@@ -1,0 +1,124 @@
+{
+ "id": "law-eu-ai-act-gpai",
+ "topic": "EU AI Act obligations for providers of general-purpose AI models: requirements, systemic-risk models, code of practice and deadlines",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "GPAI provider obligations began applying on 2 August 2025: technical documentation, information for downstream providers, an EU copyright policy, and a public summary of training content.",
+   "importance": "core",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/factpages/general-purpose-ai-obligations-under-ai-act",
+    "https://www.houthoff.com/insights/news/obligations-for-gpai-model-providers-and-penalties/"
+   ],
+   "as_of": "2025-08"
+  },
+  {
+   "id": "k2",
+   "point": "A model trained with more than 10^25 FLOP is presumed to have high-impact capabilities and thus systemic risk; the Commission can also designate models and amend thresholds by delegated act.",
+   "importance": "core",
+   "sources": [
+    "https://artificialintelligenceact.eu/article/51/",
+    "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers"
+   ],
+   "as_of": "2025-08"
+  },
+  {
+   "id": "k3",
+   "point": "Systemic-risk providers must additionally evaluate models (including adversarial testing), assess and mitigate systemic risks, report serious incidents to the AI Office, and ensure cybersecurity (Article 55).",
+   "importance": "core",
+   "sources": [
+    "https://artificialintelligenceact.eu/article/55/"
+   ],
+   "as_of": "2025-08"
+  },
+  {
+   "id": "k4",
+   "point": "Providers must notify the Commission without delay and within two weeks of meeting or foreseeing the 10^25 FLOP threshold, and may argue the model is not systemic-risk.",
+   "importance": "secondary",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers"
+   ],
+   "as_of": "2025-08"
+  },
+  {
+   "id": "k5",
+   "point": "Commission guidelines treat models above about 10^23 FLOP generating language, image or video as indicatively general-purpose; downstream modifiers become providers only above one-third of original training compute.",
+   "importance": "secondary",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers"
+   ],
+   "as_of": "2025-08"
+  },
+  {
+   "id": "k6",
+   "point": "Free and open-source models are exempt from some documentation and EU-representative duties, but not from copyright policy and training-summary duties, and the exemption never applies to systemic-risk models.",
+   "importance": "core",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers",
+    "https://www.houthoff.com/insights/news/obligations-for-gpai-model-providers-and-penalties/"
+   ],
+   "as_of": "2025-08"
+  },
+  {
+   "id": "k7",
+   "point": "The GPAI Code of Practice, published 10 July 2025, has Transparency, Copyright and Safety and Security chapters; the last applies only to systemic-risk providers.",
+   "importance": "core",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai"
+   ],
+   "as_of": "2026-10"
+  },
+  {
+   "id": "k8",
+   "point": "The Commission and AI Board deemed the Code an adequate voluntary tool; signing brings reduced burden and more legal certainty, while non-signers must show compliance by other adequate means.",
+   "importance": "core",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai",
+    "https://digital-strategy.ec.europa.eu/en/factpages/general-purpose-ai-obligations-under-ai-act"
+   ],
+   "as_of": "2026-10"
+  },
+  {
+   "id": "k9",
+   "point": "The Commission's signatory list has 22 names including OpenAI, Anthropic, Google, Microsoft, Amazon and Mistral; xAI signed only the Safety and Security chapter; Meta declined in 2025.",
+   "importance": "core",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai",
+    "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/08/CSA_research_note_eu_ai_act_gpai_enforcement_20260803-csa-styled.pdf"
+   ],
+   "as_of": "2026-10"
+  },
+  {
+   "id": "k10",
+   "point": "The Commission's enforcement powers, including fines, began 2 August 2026; fines reach 3% of worldwide turnover or EUR 15 million, whichever is higher.",
+   "importance": "core",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers",
+    "https://artificialintelligenceact.eu/article/101/"
+   ],
+   "as_of": "2026-08"
+  },
+  {
+   "id": "k11",
+   "point": "Models placed on the EU market before 2 August 2025 have until 2 August 2027 to comply.",
+   "importance": "core",
+   "sources": [
+    "https://digital-strategy.ec.europa.eu/en/news/eu-rules-general-purpose-ai-models-start-apply-bringing-more-transparency-safety-and-accountability",
+    "https://artificialintelligenceact.eu/implementation-timeline/"
+   ],
+   "as_of": "2025-08"
+  },
+  {
+   "id": "k12",
+   "point": "The digital omnibus delayed Annex III high-risk obligations to 2 December 2027 but, per a secondary analysis, left GPAI obligations and their enforcement timing unchanged.",
+   "importance": "secondary",
+   "sources": [
+    "https://artificialintelligenceact.eu/implementation-timeline/",
+    "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/08/CSA_research_note_eu_ai_act_gpai_enforcement_20260803-csa-styled.pdf"
+   ],
+   "as_of": "2026-08"
+  }
+ ]
+}
