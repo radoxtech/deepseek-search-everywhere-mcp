@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import runtime, server
+from deepseek_search_everywhere_mcp import research_jobs, runtime, server
 from deepseek_search_everywhere_mcp.deep_research import (
     CONTEXT_PAGE_CHARS,
     build_synthesis_system_prompt,
@@ -206,7 +206,7 @@ async def test_client_mode_drops_the_synthesis_time_reserve(fake_upstream: Any) 
 
     fake_upstream(Upstream())
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(server, "_research_decompose", recording)
+        mp.setattr(research_jobs, "_research_decompose", recording)
         await server.deepseek_research("reserve topic", depth="low")
         await server.deepseek_research("reserve topic", depth="low", synthesis="client")
     server_run, client_run = runs
@@ -384,7 +384,7 @@ async def test_report_for_a_failed_client_job_returns_the_failure(
     async def broken(**kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("pipeline broke")
 
-    monkeypatch.setattr(server, "_execute_research_pipeline", broken)
+    monkeypatch.setattr(research_jobs, "_execute_research_pipeline", broken)
     fake_upstream(Upstream())
     res = await server.deepseek_research("broken topic", depth="low", synthesis="client")
     job_id = next(iter(server.get_job_store()._jobs))

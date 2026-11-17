@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from deepseek_search_everywhere_mcp import runtime, server
+from deepseek_search_everywhere_mcp import research_jobs, runtime, server
 from deepseek_search_everywhere_mcp.deep_research import get_job_store
 from deepseek_search_everywhere_mcp.settings import LLMPricing, LLMRates, Settings
 
@@ -997,7 +997,7 @@ def _install_counting_pipeline(monkeypatch: pytest.MonkeyPatch) -> list[dict[str
             "_meta": {"cost_usd": 0.0123, "untrusted_content": True},
         }
 
-    monkeypatch.setattr(server, "_execute_research_pipeline", fake_pipeline)
+    monkeypatch.setattr(research_jobs, "_execute_research_pipeline", fake_pipeline)
     monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=5.0))
     return calls
 
@@ -1122,7 +1122,7 @@ async def test_research_job_error_is_redacted(monkeypatch: pytest.MonkeyPatch) -
     async def failing_pipeline(**kwargs: Any) -> dict[str, Any]:
         raise RuntimeError(f"upstream rejected key {secret}")
 
-    monkeypatch.setattr(server, "_execute_research_pipeline", failing_pipeline)
+    monkeypatch.setattr(research_jobs, "_execute_research_pipeline", failing_pipeline)
     res = await server.deepseek_research("redaction topic", depth="low")
     assert res["ok"] is False
     assert secret not in json.dumps(res)
@@ -1330,7 +1330,7 @@ async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: 
             "_meta": {"cost_usd": 0.0, "untrusted_content": True},
         }
 
-    monkeypatch.setattr(server, "_execute_research_pipeline", gated_pipeline)
+    monkeypatch.setattr(research_jobs, "_execute_research_pipeline", gated_pipeline)
     monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.01))
 
     started = await server.deepseek_research("Elapsed polled topic", depth="low")
