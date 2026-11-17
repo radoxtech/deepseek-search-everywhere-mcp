@@ -54,6 +54,7 @@ from .errors import (
     _fail,  # re-exported for callers and tests
 )
 from .filters import (
+    MAX_QUERY,
     fit_query,
 )
 from .gap_fill import (
@@ -482,7 +483,7 @@ def _research_search_calls(run: _ResearchRun, queries: list[str], timeout: float
             search_core._search(
                 query,
                 cfg.count,
-                None,
+                run.topic[:MAX_QUERY],
                 "full",
                 run.lang,
                 cfg.per_page_char_cap,
