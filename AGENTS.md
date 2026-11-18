@@ -90,6 +90,11 @@ measured by the harness in `evals/`; "feels better" is not a result.
   implement a quality change that has no entry and no criterion.
 - **Verdicts:** `keep`, `revert`, `reject`, `inconclusive`. Only `keep` lands in `src/`. A change that
   loses is reverted in its own commit and its numbers stay in the register, so nobody retries it.
+- **Both arms, same session:** an experiment compares a baseline measured in the same batch with the
+  variant, never a number stored from an earlier session. The upstream model, its pricing and the
+  judge drift between sessions, so a stale baseline turns drift into an apparent gain. Run the
+  baseline arm again next to the variant (same topics, repeats, depth and judge protocol) and record
+  both; a before/after pair from one day is the unit of evidence.
 - **Number discipline:** compare only runs judged by the same protocol; use at least two repeats and the
   three control topics before a `keep`; record what each run cost in the ledger. A single repeat has
   already produced +3.5 pp and −1.3 pp for the same change.
