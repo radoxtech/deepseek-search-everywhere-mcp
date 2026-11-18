@@ -1230,6 +1230,8 @@ def rank_and_diversify_sources(
     k_sources: int,
     denylist: Sequence[str] = (),
     sources: str = "any",
+    *,
+    stats: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Round-robin interleave across subqueries, deduplicate canonically, cap per eTLD+1, take top K.
 
@@ -1241,7 +1243,11 @@ def rank_and_diversify_sources(
     3. Apply domain cap of at most 2 sources per eTLD+1.
     4. If the capped pool has fewer than ``k_sources`` and overflow exists, relax the domain cap
        to meet the target source count and add a note.
+
+    ``stats``, when given, receives this stage's counters for the debug dump: pool size, drops,
+    canonical duplicates, domain-cap overflow and relaxation, and the selected count.
     """
+    in_pages = sum(len(r) for r in subquery_results)
     skipped_non_content = 0
     filtered_content: list[list[dict[str, Any]]] = []
     for r in subquery_results:
@@ -1281,6 +1287,7 @@ def rank_and_diversify_sources(
         if canon not in seen_canons:
             seen_canons.add(canon)
             deduped.append(item)
+    canonical_duplicates = len(interleaved) - len(deduped)
 
     domain_counts: dict[str, int] = {}
     capped: list[dict[str, Any]] = []
@@ -1297,6 +1304,7 @@ def rank_and_diversify_sources(
             overflow.append(item)
 
     notes: list[str] = []
+    relaxed = 0
     if len(capped) >= k_sources:
         selected = capped[:k_sources]
     else:
@@ -1304,8 +1312,11 @@ def rank_and_diversify_sources(
         needed = k_sources - len(selected)
         if overflow and needed > 0:
             overflow.sort(key=lambda it: _authority_key(it, sources), reverse=True)
-            selected.extend(overflow[:needed])
+            added = overflow[:needed]
+            selected.extend(added)
+            relaxed = len(added)
             notes.append("Relaxed domain cap to meet target source count.")
+    swapped = 0
     if sources == "any":
         selected, swapped = apply_primary_quota(selected, capped + overflow, k_sources)
         if swapped:
@@ -1317,6 +1328,20 @@ def rank_and_diversify_sources(
     if denied:
         notes.append(f"Skipped {denied} result(s) from denylisted source hosts (aggregators and proxies).")
 
+    if stats is not None:
+        stats.update(
+            {
+                "pool_pages": in_pages,
+                "non_content": skipped_non_content,
+                "denylisted": denied,
+                "canonical_duplicates": canonical_duplicates,
+                "cap_overflow": len(overflow),
+                "cap_relaxed": relaxed,
+                "primary_swapped": swapped,
+                "selected": len(selected),
+                "k_sources": k_sources,
+            }
+        )
     return selected, notes
 
 
@@ -1849,14 +1874,21 @@ def select_synthesis_context(
     *,
     lang: str | None = None,
     topic: str = "",
+    stats: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Select up to tier K non-empty sources and cap per-page and total characters.
 
     Translations and reprints of a kept source are dropped, and sources in a language other than
     ``lang`` (or the topic's language, else English) go behind the rest.
+
+    ``stats``, when given, receives this stage's counters for the debug dump: input and output
+    counts, sources dropped for empty content, duplicates, the K cut, truncations and total chars.
     """
     cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
+    in_sources = len(sources)
+    excluded = 0
     valid_sources = [s for s in sources if s.get("content")]
+    empty_content = in_sources - len(valid_sources)
 
     if sources_pref == "academic":
         threshold = max(4, cfg.k_sources // 2)
@@ -1864,6 +1896,7 @@ def select_synthesis_context(
         non_scholarly_candidates = [s for s in valid_sources if not is_scholarly_candidate(s)]
 
         if len(scholarly_candidates) >= threshold:
+            excluded = len(non_scholarly_candidates)
             if non_scholarly_candidates and notes is not None:
                 notes.append(
                     f"Excluded {len(non_scholarly_candidates)} non-scholarly candidate(s) "
@@ -1904,13 +1937,18 @@ def select_synthesis_context(
         notes.append(f"Ranked {moved} source(s) in another language than {target_lang!r} last.")
     selected: list[dict[str, Any]] = []
     total_chars = 0
+    truncated = 0
+    early_break = False
     for idx, s in enumerate(valid_sources[: cfg.k_sources], 1):
         content = s.get("content") or ""
         page_content = content[: cfg.per_page_char_cap]
         remaining = cfg.total_source_chars - total_chars
         if remaining <= 0:
+            early_break = True
             break
         cut_content = page_content[:remaining]
+        if len(cut_content) < len(content):
+            truncated += 1
         total_chars += len(cut_content)
         selected.append(
             {
@@ -1925,6 +1963,21 @@ def select_synthesis_context(
                 "source_type": s.get("source_type")
                 or classify_source_type(s.get("url") or "", s.get("title") or "", cut_content),
                 "content": cut_content,
+            }
+        )
+    if stats is not None:
+        stats.update(
+            {
+                "in_sources": in_sources,
+                "empty_content": empty_content,
+                "duplicates": duplicates,
+                "moved": moved,
+                "academic_excluded": excluded,
+                "k_cut": max(0, len(valid_sources) - cfg.k_sources),
+                "out_sources": len(selected),
+                "total_chars": total_chars,
+                "truncated_pages": truncated,
+                "early_break": early_break,
             }
         )
     return selected
@@ -2762,11 +2815,20 @@ def ground_report_numbers(
         if not para.strip():
             cleaned_paragraphs.append(para)
             continue
+        heading = ""
+        body = para
         if para.lstrip().startswith("#"):
-            cleaned_paragraphs.append(para)
-            continue
+            lines = para.split("\n")
+            first = 0
+            while first < len(lines) and lines[first].lstrip().startswith("#"):
+                first += 1
+            heading = "\n".join(lines[:first])
+            body = "\n".join(lines[first:])
+            if not body.strip():
+                cleaned_paragraphs.append(para)
+                continue
 
-        sentences = split_grounding_sentences(para)
+        sentences = split_grounding_sentences(body)
         new_sentences: list[str] = []
 
         for sent in sentences:
@@ -2822,7 +2884,8 @@ def ground_report_numbers(
                 new_sentences.append(sent)
 
         if new_sentences:
-            cleaned_paragraphs.append(" ".join(new_sentences))
+            joined = " ".join(new_sentences)
+            cleaned_paragraphs.append(f"{heading}\n{joined}" if heading else joined)
 
     cleaned_report = "\n\n".join(cleaned_paragraphs)
     total_count = len(unverified_list)

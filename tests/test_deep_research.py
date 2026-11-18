@@ -1745,3 +1745,61 @@ def test_research_plan_cleans_aspect_queries() -> None:
 def test_prompts_steer_to_findings_not_publications() -> None:
     assert "never its publication details" in deep_research.DECOMPOSE_SYSTEM_PROMPT
     assert "never list publications, authors or journals" in build_synthesis_system_prompt("medium")
+
+
+def test_rank_stats_count_drops_duplicates_and_overflow() -> None:
+    stats: dict[str, Any] = {}
+    subq_results = [
+        [
+            {"url": "https://example.com/a?utm_source=x", "title": "A"},
+            {"url": "https://example.com/b", "title": "B"},
+            {"url": "https://example.com/c", "title": "C"},
+        ],
+        [
+            {"url": "https://example.com/a", "title": "A again"},
+            {"url": "https://other.org/d", "title": "D"},
+        ],
+    ]
+    selected, _ = deep_research.rank_and_diversify_sources(subq_results, 3, stats=stats)
+    assert stats["pool_pages"] == 5
+    assert stats["canonical_duplicates"] == 1
+    assert stats["cap_overflow"] == 1
+    assert stats["selected"] == len(selected) == 3
+    assert stats["k_sources"] == 3
+
+
+def test_select_stats_count_empty_k_cut_and_chars() -> None:
+    stats: dict[str, Any] = {}
+    sources = [
+        {"id": 1, "url": "https://a.test/1", "content": "x" * 5000},
+        {"id": 2, "url": "https://a.test/2", "content": ""},
+        {"id": 3, "url": "https://a.test/3", "content": "y" * 5000},
+    ]
+    selected = select_synthesis_context(sources, depth="low", stats=stats)
+    assert stats["in_sources"] == 3
+    assert stats["empty_content"] == 1
+    assert stats["out_sources"] == len(selected) == 2
+    assert stats["total_chars"] == sum(len(s["content"]) for s in selected)
+    assert stats["k_cut"] == 0
+    assert stats["truncated_pages"] == 0
+
+
+def test_grounding_checks_a_paragraph_that_starts_with_a_heading() -> None:
+    context = [{"id": 1, "url": "https://a.test", "title": "A", "content": "The cost was 12 USD per kWh."}]
+    report = "## Cost\nIt costs 320 USD per kWh [1]."
+
+    cleaned, unverified, count, _notes = deep_research.ground_report_numbers(report, context)
+
+    assert count == 1
+    assert cleaned.startswith("## Cost")
+    assert "[unverified]" in cleaned
+
+
+def test_grounding_keeps_a_heading_paragraph_without_cited_numbers() -> None:
+    context = [{"id": 1, "url": "https://a.test", "title": "A", "content": "Text."}]
+    report = "## Cost\nThe report has no numbers here."
+
+    cleaned, unverified, count, _notes = deep_research.ground_report_numbers(report, context)
+
+    assert count == 0
+    assert cleaned == report

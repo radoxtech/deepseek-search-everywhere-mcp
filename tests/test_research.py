@@ -1498,6 +1498,34 @@ async def test_research_debug_dump_hook(
     assert "report" in dump_data
     assert "raw_report" in dump_data or "raw_model_report" in dump_data
     assert "unverified_numbers" in dump_data
+    assert dump_data["subqueries"] and isinstance(dump_data["aspects"], list)
+    trace = dump_data["stage_trace"]
+    assert [entry["stage"] for entry in trace] == [
+        "decompose",
+        "retrieve",
+        "rank",
+        "gap_fill",
+        "select",
+        "synthesize",
+        "finalize",
+    ]
+    entered = [entry["entered_ms"] for entry in trace]
+    assert entered == sorted(entered)
+    for entry in trace:
+        assert isinstance(entry["duration_ms"], int) and entry["duration_ms"] >= 0
+        assert isinstance(entry["counters"], dict)
+    counters = {entry["stage"]: entry["counters"] for entry in trace}
+    assert counters["decompose"]["queries"] >= 1
+    assert counters["decompose"]["fallback"] is False
+    assert counters["retrieve"]["searches_ok"] >= 1
+    assert counters["retrieve"]["results"] >= 1
+    assert counters["rank"]["selected"] == len(dump_data["sources"])
+    assert counters["select"]["out_sources"] == len(dump_data["synthesis_context"])
+    assert counters["select"]["context_chars"] > 0
+    assert counters["synthesize"]["retry"] is False
+    assert isinstance(counters["synthesize"]["prompt_tokens"], int)
+    assert counters["finalize"]["words_out"] > 0
+    assert "stage_trace" not in res2 and "trace" not in res2
 
     # 3. When dump write fails: job still succeeds (failure tolerated)
     blocking_file = tmp_path / "not_a_dir"
@@ -1582,3 +1610,60 @@ async def test_round_two_with_no_missing_aspects_searches_nothing_more(fake_upst
     assert res["synthesized"] is True
     assert "Round 2 found no missing aspects; proceeding with Round 1 sources." in res["notes"]
     assert "no gap topic" not in res["subqueries"][1:]
+
+
+class FlakySearchUpstream(DeepResearchUpstream):
+    """Raise a timeout on the second search, as a slow upstream query would."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.search_calls = 0
+
+    async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        if path == server.SEARCH_PATH:
+            self.search_calls += 1
+            if self.search_calls == 2:
+                raise TimeoutError("slow query")
+        return await super().__call__(method, path, **kwargs)
+
+
+async def test_research_continues_when_one_search_times_out(fake_upstream: Any) -> None:
+    upstream = FlakySearchUpstream()
+    fake_upstream(upstream)
+
+    res = await server.deepseek_research("one slow query", depth="low")
+
+    assert res["ok"] is True
+    assert res["synthesized"] is True
+    assert any("failed or timed out" in note for note in res["notes"])
+
+
+async def test_failed_research_job_leaves_a_debug_dump(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_upstream(DeepResearchUpstream())
+    monkeypatch.setenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", str(tmp_path / "dumps"))
+
+    def explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("rank exploded")
+
+    monkeypatch.setattr(research_jobs, "rank_and_diversify_sources", explode)
+
+    res = await server.deepseek_research("failing topic", depth="low")
+
+    assert res["ok"] is False
+    assert res["error"]["code"] == "internal_error"
+    dumps = list((tmp_path / "dumps").glob("*.json"))
+    assert len(dumps) == 1
+    data = json.loads(dumps[0].read_text(encoding="utf-8"))
+    assert data["status"] == "failed"
+    assert "rank exploded" in data["error"]
+    assert [entry["stage"] for entry in data["stage_trace"]] == ["decompose", "retrieve", "rank"]
+    assert data["stage_trace"][-1]["counters"]["error"] == "rank exploded"
+
+
+def test_research_source_reports_content_length() -> None:
+    source = research_jobs._research_source(
+        1, {"url": "https://a.test", "title": "T", "content": "abcd"}, False
+    )
+    assert source["chars"] == 4

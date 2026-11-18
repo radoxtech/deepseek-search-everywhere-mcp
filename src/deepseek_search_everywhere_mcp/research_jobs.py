@@ -13,7 +13,8 @@ import dataclasses
 import json
 import os
 import uuid
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
@@ -136,7 +137,7 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
         "authority": item.get("authority"),
         "rerank_score": item.get("rerank_score"),
         "content": content,
-        "chars": 0,
+        "chars": len(content),
         "origin": "search",
         "error": None,
         "cached": cached,
@@ -150,6 +151,43 @@ def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str
 def _job_elapsed_ms(job: ResearchJob) -> int:
     """Milliseconds since ``job`` was created."""
     return max(0, int((runtime._clock() - job.created_at) * 1000))
+
+
+def _ms_since(started_at: float) -> int:
+    """Milliseconds elapsed since ``started_at``."""
+    return max(0, int((runtime._clock() - started_at) * 1000))
+
+
+def _stage_start(run: _ResearchRun) -> tuple[float, int]:
+    """Mark the start of a pipeline stage: its wall clock and its offset from the run start."""
+    return runtime._clock(), _ms_since(run.started_at)
+
+
+def _stage_end(run: _ResearchRun, name: str, start: tuple[float, int], counters: dict[str, Any]) -> None:
+    """Append one finished stage to the run trace (debug dump only; never part of the envelope)."""
+    started, entered_ms = start
+    run.trace.append(
+        {
+            "stage": name,
+            "entered_ms": entered_ms,
+            "duration_ms": _ms_since(started),
+            "counters": counters,
+        }
+    )
+
+
+@contextmanager
+def _stage(run: _ResearchRun, name: str) -> Iterator[dict[str, Any]]:
+    """Time one pipeline stage; the yielded dict collects its counters."""
+    counters: dict[str, Any] = {}
+    start = _stage_start(run)
+    try:
+        yield counters
+    except Exception as exc:
+        counters["error"] = redact(str(exc))
+        raise
+    finally:
+        _stage_end(run, name, start, counters)
 
 
 def _finished_job_envelope(job: ResearchJob, delivery: Literal["inline", "polled"]) -> dict[str, Any]:
@@ -267,6 +305,8 @@ async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
         job.exception = exc
         job.completed_at = runtime._clock()
         job.result = _fail("internal_error", redact(str(exc)))
+        if job.run is not None:
+            _maybe_dump_research_job(run=job.run, error=redact(str(exc)))
         return job.result
 
 
@@ -326,22 +366,22 @@ async def _condense_report(
 
 def _maybe_dump_research_job(
     *,
-    job_id: str,
-    topic: str,
-    depth: str,
-    synthesis_context: list[dict[str, Any]],
-    raw_model_report: str,
-    final_report: str,
-    unverified_numbers: list[dict[str, str]],
+    run: _ResearchRun,
+    synthesis_context: list[dict[str, Any]] | None = None,
+    raw_model_report: str = "",
+    final_report: str = "",
+    unverified_numbers: list[dict[str, str]] | None = None,
+    requests_used: int = 0,
+    error: str | None = None,
 ) -> None:
-    """Optionally dump research job synthesis inputs and outputs for offline debugging/audits."""
+    """Optionally dump research job inputs, per-stage trace and outputs for offline debugging/audits."""
     dump_dir = runtime.get_settings().debug_dump_dir or os.environ.get(ENV_DEBUG_DUMP_DIR, "").strip()
     if not dump_dir:
         return
     try:
         p = Path(dump_dir)
         p.mkdir(parents=True, exist_ok=True)
-        dump_file = p / f"{job_id}.json"
+        dump_file = p / f"{run.job.job_id}.json"
         synthesis_context_dump = [
             {
                 "id": s.get("id"),
@@ -354,23 +394,35 @@ def _maybe_dump_research_job(
                 "access": s.get("access"),
                 "source_type": s.get("source_type"),
             }
-            for s in synthesis_context
+            for s in synthesis_context or []
         ]
         dump_payload = {
-            "job_id": job_id,
-            "topic": topic,
-            "depth": depth,
-            "sources": _format_public_sources(synthesis_context, include_snippet=False),
+            "job_id": run.job.job_id,
+            "topic": run.topic,
+            "depth": run.depth,
+            "subqueries": list(run.subqueries),
+            "aspects": [
+                {"aspect": a.aspect, "kind": a.kind, "looking_for": a.looking_for, "query": a.query}
+                for a in run.aspects
+            ],
+            "sources": _format_public_sources(synthesis_context or [], include_snippet=False),
             "synthesis_context": synthesis_context_dump,
             "raw_model_report": raw_model_report,
             "raw_report": raw_model_report,
             "final_report": final_report,
             "report": final_report,
-            "unverified_numbers": unverified_numbers,
+            "unverified_numbers": unverified_numbers or [],
+            "requests_used": requests_used,
+            "notes": list(run.notes),
+            "stage_trace": list(run.trace),
+            "status": "failed" if error else "done",
+            "error": error,
         }
         dump_file.write_text(json.dumps(dump_payload, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:
-        logger.warning("Failed to write research debug dump for job %s to %s: %s", job_id, dump_dir, exc)
+        logger.warning(
+            "Failed to write research debug dump for job %s to %s: %s", run.job.job_id, dump_dir, exc
+        )
 
 
 # Seconds of the depth deadline kept free for the synthesis call while the earlier phases run.
@@ -403,6 +455,8 @@ class _ResearchRun:
     requests_used: int = 0
     cached_count: int = 0
     fetch_failed: int = 0
+    started_at: float = field(default_factory=runtime._clock)
+    trace: list[dict[str, Any]] = field(default_factory=list)
 
     def remaining(self) -> float:
         """Seconds left before the job deadline."""
@@ -508,40 +562,64 @@ async def _research_decompose(run: _ResearchRun) -> None:
     await _report_job_progress(
         run.job, "decomposition", 1, run.total_steps, "Decomposing topic into subqueries"
     )
-    timeout = run.phase_timeout(20.0)
-    res = await runtime._chat_request(
-        messages=build_decomposition_messages(
-            run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref, lang=run.lang
-        ),
-        thinking={"type": "disabled"},
-        model=REWRITE_MODEL,
-        temperature=0.0,
-        max_tokens=1024,
-        response_format={"type": "json_object"},
-        timeout=timeout,
-        deadline=timeout,
-        attempts=2,
-    )
-    if res.get("ok"):
-        run.llm_cost += res.get("cost_usd", 0.0)
-    if res.get("ok") and res.get("content"):
-        run.subqueries, run.aspects = parse_research_plan(
-            res["content"], run.topic, max_queries=run.cfg.subqueries
+    with _stage(run, "decompose") as counters:
+        timeout = run.phase_timeout(20.0)
+        res = await runtime._chat_request(
+            messages=build_decomposition_messages(
+                run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref, lang=run.lang
+            ),
+            thinking={"type": "disabled"},
+            model=REWRITE_MODEL,
+            temperature=0.0,
+            max_tokens=1024,
+            response_format={"type": "json_object"},
+            timeout=timeout,
+            deadline=timeout,
+            attempts=2,
         )
-    else:
-        fallback, _ = fit_query(run.topic)
-        run.subqueries = [fallback]
+        if res.get("ok"):
+            run.llm_cost += res.get("cost_usd", 0.0)
+        counters["model_ok"] = bool(res.get("ok"))
+        counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
+        if res.get("ok") and res.get("content"):
+            run.subqueries, run.aspects = parse_research_plan(
+                res["content"], run.topic, max_queries=run.cfg.subqueries
+            )
+            counters["fallback"] = False
+        else:
+            fallback, _ = fit_query(run.topic)
+            run.subqueries = [fallback]
+            counters["fallback"] = True
+        counters["queries"] = len(run.subqueries)
+        counters["aspects"] = len(run.aspects)
 
 
 async def _research_retrieve(run: _ResearchRun) -> dict[str, Any] | None:
     """Phase 2: search every subquery; return the first error envelope when all of them fail."""
     await _report_job_progress(run.job, "retrieval", 2, run.total_steps, "Searching across subqueries")
-    results = await asyncio.gather(*_research_search_calls(run, run.subqueries, run.phase_timeout(30.0)))
-    successful = [r for r in results if r.get("ok")]
-    if not successful:
-        return results[0]
-    run.result_lists = [r.get("results", []) for r in successful]
-    run.add_searches(successful)
+    with _stage(run, "retrieve") as counters:
+        counters["queries"] = len(run.subqueries)
+        raw = await asyncio.gather(
+            *_research_search_calls(run, run.subqueries, run.phase_timeout(30.0)), return_exceptions=True
+        )
+        results = [
+            item if isinstance(item, dict) else _fail("timeout", redact(f"Search failed: {item}"))
+            for item in raw
+        ]
+        successful = [r for r in results if r.get("ok")]
+        failed = len(results) - len(successful)
+        counters["searches_ok"] = len(successful)
+        counters["searches_failed"] = failed
+        counters["results"] = sum(len(r.get("results") or []) for r in successful)
+        counters["deduped"] = sum(int(r.get("deduped") or 0) for r in successful)
+        counters["requested"] = sum(int(r.get("count") or 0) for r in successful)
+        counters["cached_searches"] = sum(1 for r in successful if r.get("cached"))
+        if failed:
+            run.notes.append(f"{failed} search(es) failed or timed out; continuing with the rest.")
+        if not successful:
+            return results[0]
+        run.result_lists = [r.get("results", []) for r in successful]
+        run.add_searches(successful)
     return None
 
 
@@ -556,90 +634,124 @@ async def _research_round_two(run: _ResearchRun) -> None:
     await _report_job_progress(
         run.job, "round_2_retrieval", 3, run.total_steps, "Analyzing gaps and searching additional angles"
     )
-    budget = run.remaining() - run.synthesis_reserve
-    if budget < 10.0:
-        run.notes.append("Round 2 skipped due to deadline budget.")
-        return
-    r1_items = [item for results in run.result_lists for item in results]
-    r1_domains = {d for item in r1_items if (d := _url_etld1(item.get("url") or ""))}
-    timeout = min(25.0, max(5.0, budget / 2))
-    try:
-        res = await runtime._chat_request(
-            messages=build_r2_gap_messages(run.topic, r1_items, run.subqueries, run.aspects, lang=run.lang),
-            thinking={"type": "disabled"},
-            model=REWRITE_MODEL,
-            temperature=0.0,
-            max_tokens=1024,
-            response_format={"type": "json_object"},
-            timeout=timeout,
-            deadline=timeout,
-            attempts=1,
-        )
-        if not (res.get("ok") and res.get("content")):
+    with _stage(run, "round_two") as counters:
+        counters["ran"] = False
+        budget = run.remaining() - run.synthesis_reserve
+        if budget < 10.0:
+            counters["skipped"] = "deadline"
+            run.notes.append("Round 2 skipped due to deadline budget.")
+            return
+        r1_items = [item for results in run.result_lists for item in results]
+        r1_domains = {d for item in r1_items if (d := _url_etld1(item.get("url") or ""))}
+        timeout = min(25.0, max(5.0, budget / 2))
+        try:
+            res = await runtime._chat_request(
+                messages=build_r2_gap_messages(
+                    run.topic, r1_items, run.subqueries, run.aspects, lang=run.lang
+                ),
+                thinking={"type": "disabled"},
+                model=REWRITE_MODEL,
+                temperature=0.0,
+                max_tokens=1024,
+                response_format={"type": "json_object"},
+                timeout=timeout,
+                deadline=timeout,
+                attempts=1,
+            )
+            if not (res.get("ok") and res.get("content")):
+                counters["skipped"] = "gap_analysis_failed"
+                run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
+                return
+            run.llm_cost += res.get("cost_usd", 0.0)
+            counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
+            if _no_gaps(res["content"]):
+                counters["skipped"] = "no_gaps"
+                run.notes.append("Round 2 found no missing aspects; proceeding with Round 1 sources.")
+                return
+            parsed = parse_subqueries(res["content"], run.topic, max_queries=3)
+            queries = validate_r2_queries(parsed, run.topic, run.subqueries, r1_domains, lang=run.lang)
+            counters["queries_generated"] = len(parsed)
+            counters["queries_valid"] = len(queries)
+            if not queries:
+                counters["skipped"] = "validation_failed"
+                run.notes.append("Round 2 gap query validation failed; proceeding with Round 1 sources.")
+                return
+            search_timeout = min(20.0, max(5.0, run.remaining() - run.synthesis_reserve))
+            results = await asyncio.gather(
+                *_research_search_calls(run, queries, search_timeout), return_exceptions=True
+            )
+            successful = [r for r in results if isinstance(r, dict) and r.get("ok")]
+            if not successful:
+                counters["skipped"] = "no_results"
+                run.notes.append("Round 2 search produced no results; proceeding with Round 1 sources.")
+                return
+            for query, res_dict in zip(queries, results, strict=True):
+                if isinstance(res_dict, dict) and res_dict.get("ok"):
+                    run.subqueries.append(query)
+                    run.result_lists.append(res_dict.get("results", []))
+            run.add_searches(successful)
+            counters["ran"] = True
+            counters["searches_ok"] = len(successful)
+            counters["searches_failed"] = len(results) - len(successful)
+            counters["results_added"] = sum(len(r.get("results") or []) for r in successful)
+        except Exception as exc:
+            counters["skipped"] = "exception"
+            logger.debug("Round 2 gap analysis exception: %s", exc)
             run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
-            return
-        run.llm_cost += res.get("cost_usd", 0.0)
-        if _no_gaps(res["content"]):
-            run.notes.append("Round 2 found no missing aspects; proceeding with Round 1 sources.")
-            return
-        parsed = parse_subqueries(res["content"], run.topic, max_queries=3)
-        queries = validate_r2_queries(parsed, run.topic, run.subqueries, r1_domains, lang=run.lang)
-        if not queries:
-            run.notes.append("Round 2 gap query validation failed; proceeding with Round 1 sources.")
-            return
-        search_timeout = min(20.0, max(5.0, run.remaining() - run.synthesis_reserve))
-        results = await asyncio.gather(
-            *_research_search_calls(run, queries, search_timeout), return_exceptions=True
-        )
-        successful = [r for r in results if isinstance(r, dict) and r.get("ok")]
-        if not successful:
-            run.notes.append("Round 2 search produced no results; proceeding with Round 1 sources.")
-            return
-        for query, res_dict in zip(queries, results, strict=True):
-            if isinstance(res_dict, dict) and res_dict.get("ok"):
-                run.subqueries.append(query)
-                run.result_lists.append(res_dict.get("results", []))
-        run.add_searches(successful)
-    except Exception as exc:
-        logger.debug("Round 2 gap analysis exception: %s", exc)
-        run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
 
 
 async def _research_rank_and_fill(run: _ResearchRun) -> None:
     """Phases 3-4: rank and diversify the results into sources, then fetch pages with short content."""
-    selected, rank_notes = rank_and_diversify_sources(
-        run.result_lists,
-        k_sources=run.cfg.k_sources,
-        denylist=runtime.get_settings().source_denylist,
-        sources=run.sources_pref,
-    )
-    run.notes.extend(rank_notes)
-    run.sources = [
-        _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected, 1)
-    ]
+    with _stage(run, "rank") as counters:
+        stats: dict[str, Any] = {}
+        selected, rank_notes = rank_and_diversify_sources(
+            run.result_lists,
+            k_sources=run.cfg.k_sources,
+            denylist=runtime.get_settings().source_denylist,
+            sources=run.sources_pref,
+            stats=stats,
+        )
+        counters.update(stats)
+        run.notes.extend(rank_notes)
+        run.sources = [
+            _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected, 1)
+        ]
+        counters["sources"] = len(run.sources)
 
     gap_step = 4 if run.depth == "max" else 3
     await _report_job_progress(
         run.job, "gap_fill", gap_step, run.total_steps, "Fetching gap pages for top sources"
     )
-    fill = await _fill_gaps(
-        run.sources,
-        run.cfg.per_page_char_cap,
-        run.cfg.total_source_chars,
-        run.refresh,
-        run.strip_boilerplate,
-        deadline=run.phase_timeout(30.0),
-        max_pages=run.cfg.k_sources,
-        share_total=False,
-    )
-    run.requests_used += fill.requests_used
-    run.cached_count += fill.cached_count
-    run.fetch_cost = fill.requests_used * COST_PER_REQUEST
-    run.fetch_failed = fill.failed
-    if fill.fetched:
-        run.notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
-    if fill.failed:
-        run.notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
+    with _stage(run, "gap_fill") as counters:
+        fill = await _fill_gaps(
+            run.sources,
+            run.cfg.per_page_char_cap,
+            run.cfg.total_source_chars,
+            run.refresh,
+            run.strip_boilerplate,
+            deadline=run.phase_timeout(30.0),
+            max_pages=run.cfg.k_sources,
+            share_total=False,
+        )
+        run.requests_used += fill.requests_used
+        run.cached_count += fill.cached_count
+        run.fetch_cost = fill.requests_used * COST_PER_REQUEST
+        run.fetch_failed = fill.failed
+        if fill.fetched:
+            run.notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
+        if fill.failed:
+            run.notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
+        counters.update(
+            {
+                "sources": len(run.sources),
+                "fetched": fill.fetched,
+                "failed": fill.failed,
+                "trimmed": fill.trimmed,
+                "requests": fill.requests_used,
+                "cached": fill.cached_count,
+                "chars": sum(len(s.get("content") or "") for s in run.sources),
+            }
+        )
 
 
 def _research_cost_guard(run: _ResearchRun, context: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -667,61 +779,78 @@ async def _research_synthesize(
     """Write the report with deepseek-flash, retrying once without thinking when the first answer is
     cut off or empty. Return the answer used and the cost of an attempt that was billed but not used."""
     cfg = run.cfg
-    messages = build_synthesis_messages(
-        run.topic,
-        context,
-        depth=run.depth,
-        nonce=uuid.uuid4().hex[:12],
-        aspects=run.aspects,
-        lang=run.lang,
-    )
-    timeout = max(10.0, run.remaining() - 2.0)
-    kwargs: dict[str, Any] = {
-        "messages": messages,
-        "model": REWRITE_MODEL,
-        "max_tokens": cfg.max_tokens,
-        "timeout": timeout,
-        "deadline": timeout,
-        "attempts": 1,
-    }
-    if cfg.thinking:
-        kwargs["thinking"] = {"type": "enabled"}
-        if cfg.reasoning_effort:
-            kwargs["reasoning_effort"] = cfg.reasoning_effort
-    else:
-        kwargs["thinking"] = {"type": "disabled"}
-        kwargs["temperature"] = 0.0
-    res = await runtime._chat_request(**kwargs)
+    with _stage(run, "synthesize") as counters:
+        messages = build_synthesis_messages(
+            run.topic,
+            context,
+            depth=run.depth,
+            nonce=uuid.uuid4().hex[:12],
+            aspects=run.aspects,
+            lang=run.lang,
+        )
+        counters["context_sources"] = len(context)
+        counters["prompt_chars"] = sum(len(m.get("content") or "") for m in messages)
+        timeout = max(10.0, run.remaining() - 2.0)
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "model": REWRITE_MODEL,
+            "max_tokens": cfg.max_tokens,
+            "timeout": timeout,
+            "deadline": timeout,
+            "attempts": 1,
+        }
+        if cfg.thinking:
+            kwargs["thinking"] = {"type": "enabled"}
+            if cfg.reasoning_effort:
+                kwargs["reasoning_effort"] = cfg.reasoning_effort
+        else:
+            kwargs["thinking"] = {"type": "disabled"}
+            kwargs["temperature"] = 0.0
+        res = await runtime._chat_request(**kwargs)
+        counters["retry"] = False
+        counters["finish_reason"] = res.get("finish_reason")
+        counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
+        usage = res.get("usage") or {}
+        counters["prompt_tokens"] = int(usage.get("prompt_tokens") or 0)
+        counters["completion_tokens"] = int(usage.get("completion_tokens") or 0)
 
-    needs_retry = (
-        not res.get("ok") or res.get("finish_reason") == "length" or not (res.get("content") or "").strip()
-    )
-    rem_retry = run.remaining()
-    if not needs_retry or rem_retry < 8.0:
-        return res, 0.0
-    run.notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
-    await _report_job_progress(
-        run.job,
-        "synthesis",
-        synth_step,
-        run.total_steps,
-        "Retrying synthesis with thinking disabled",
-        detail="retry",
-    )
-    retry = await runtime._chat_request(
-        messages=messages,
-        thinking={"type": "disabled"},
-        temperature=0.0,
-        model=REWRITE_MODEL,
-        max_tokens=min(cfg.max_tokens, 16_384),
-        timeout=max(5.0, rem_retry - 2.0),
-        deadline=max(5.0, rem_retry - 2.0),
-        attempts=1,
-    )
-    # Every attempt is billed, so the attempt that is not used still counts toward the cost.
-    if retry.get("ok") and (retry.get("content") or "").strip() and retry.get("finish_reason") != "length":
-        return retry, float(res.get("cost_usd", 0.0) or 0.0)
-    return res, float(retry.get("cost_usd", 0.0) or 0.0)
+        needs_retry = (
+            not res.get("ok")
+            or res.get("finish_reason") == "length"
+            or not (res.get("content") or "").strip()
+        )
+        rem_retry = run.remaining()
+        if not needs_retry or rem_retry < 8.0:
+            return res, 0.0
+        counters["retry"] = True
+        run.notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
+        await _report_job_progress(
+            run.job,
+            "synthesis",
+            synth_step,
+            run.total_steps,
+            "Retrying synthesis with thinking disabled",
+            detail="retry",
+        )
+        retry = await runtime._chat_request(
+            messages=messages,
+            thinking={"type": "disabled"},
+            temperature=0.0,
+            model=REWRITE_MODEL,
+            max_tokens=min(cfg.max_tokens, 16_384),
+            timeout=max(5.0, rem_retry - 2.0),
+            deadline=max(5.0, rem_retry - 2.0),
+            attempts=1,
+        )
+        counters["retry_finish_reason"] = retry.get("finish_reason")
+        # Every attempt is billed, so the attempt that is not used still counts toward the cost.
+        if (
+            retry.get("ok")
+            and (retry.get("content") or "").strip()
+            and retry.get("finish_reason") != "length"
+        ):
+            return retry, float(res.get("cost_usd", 0.0) or 0.0)
+        return res, float(retry.get("cost_usd", 0.0) or 0.0)
 
 
 async def _finalize_report(
@@ -740,6 +869,7 @@ async def _finalize_report(
     rewritten.
     """
     allowed_urls = {s["url"].strip() for s in context if isinstance(s.get("url"), str) and s["url"].strip()}
+    finalize_start = _stage_start(run)
     filtered, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
     report = normalize_citations(filtered, max_id=len(context))
     words = report_body_words(report)
@@ -777,14 +907,28 @@ async def _finalize_report(
     if condense_called:
         requests_used += 1
 
+    _stage_end(
+        run,
+        "finalize",
+        finalize_start,
+        {
+            "words_in": words,
+            "words_out": report_body_words(report),
+            "report_chars": len(report),
+            "citations": len(citation_ids(report)),
+            "injection_suspected": injection_suspected,
+            "condense_called": condense_called,
+            "condense_cost_usd": round(condense_cost, 6),
+            "unverified_numbers": unverified_count,
+        },
+    )
     _maybe_dump_research_job(
-        job_id=run.job.job_id,
-        topic=run.topic,
-        depth=run.depth,
+        run=run,
         synthesis_context=context,
         raw_model_report=report_text,
         final_report=report,
         unverified_numbers=unverified_numbers,
+        requests_used=requests_used,
     )
     return run.envelope(
         report=report,
@@ -913,7 +1057,9 @@ async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]
         )
 
     base: _ResearchRun = job.client_run
-    run = dataclasses.replace(base, notes=list(base.notes))  # each submission starts from the same notes
+    run = dataclasses.replace(
+        base, notes=list(base.notes), trace=list(base.trace)
+    )  # each submission starts from the same notes and trace
     result = await _finalize_report(
         run,
         job.synthesis_context,
@@ -966,6 +1112,7 @@ async def _execute_research_pipeline(
         synthesis_reserve=0.0 if client else _SYNTHESIS_RESERVE_S.get(depth, 30.0),
         total_steps=5 if depth == "max" else 4,
     )
+    job.run = run
 
     await _research_decompose(run)
     failure = await _research_retrieve(run)
@@ -984,11 +1131,23 @@ async def _execute_research_pipeline(
         await _report_job_progress(
             job, "synthesis", synth_step, run.total_steps, "Synthesizing cited research report"
         )
-    context = select_synthesis_context(
-        run.sources, depth=depth, sources_pref=sources_pref, notes=run.notes, lang=run.lang, topic=run.topic
-    )
-    context, guard_notes = apply_token_guard(context)
-    run.notes.extend(guard_notes)
+    with _stage(run, "select") as counters:
+        stats: dict[str, Any] = {}
+        context = select_synthesis_context(
+            run.sources,
+            depth=depth,
+            sources_pref=sources_pref,
+            notes=run.notes,
+            lang=run.lang,
+            topic=run.topic,
+            stats=stats,
+        )
+        context, guard_notes = apply_token_guard(context)
+        run.notes.extend(guard_notes)
+        counters.update(stats)
+        counters["after_token_guard"] = len(context)
+        counters["token_guard_notes"] = len(guard_notes)
+        counters["context_chars"] = sum(len(c.get("content") or "") for c in context)
     if not context:
         return run.unsynthesized("No readable source content available for synthesis.")
     if client:
