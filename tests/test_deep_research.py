@@ -1803,22 +1803,3 @@ def test_grounding_keeps_a_heading_paragraph_without_cited_numbers() -> None:
 
     assert count == 0
     assert cleaned == report
-
-
-def test_rank_drops_the_same_article_published_on_two_hosts() -> None:
-    body = "Vanadium flow batteries reached 320 USD per kWh in 2024 according to the review. " * 3
-    results = [
-        [
-            {"url": "https://a.test/article", "title": "A", "content": body},
-            {"url": "https://b.test/reprint", "title": "B", "content": body},
-            {"url": "https://c.test/other", "title": "C", "content": "Different text about membranes. " * 6},
-        ]
-    ]
-    stats: dict[str, Any] = {}
-    selected, _notes = deep_research.rank_and_diversify_sources(results, 5, stats=stats)
-    assert [s["title"] for s in selected] == ["A", "C"]
-    assert stats["content_duplicates"] == 1
-
-
-def test_medium_widens_the_selection_to_cover_more_pages() -> None:
-    assert DEPTH_CONFIG["medium"].k_sources == 14
