@@ -1,7 +1,7 @@
 {
  "id": "it-pg-incremental-backup",
  "topic": "How PostgreSQL 17 incremental backups work (pg_basebackup --incremental, WAL summarization, pg_combinebackup) and their limitations",
- "status": "draft",
+ "status": "reviewed",
  "prepared": "2026-11-17",
  "key_points": [
   {
@@ -91,7 +91,7 @@
   },
   {
    "id": "k10",
-   "point": "pg_combinebackup copy modes: default --copy; --clone (reflinks, Linux Btrfs/XFS, macOS APFS) and --copy-file-range can speed up reconstruction and save space where the filesystem supports them.",
+   "point": "pg_combinebackup copies files by default (--copy); --clone (reflinks) and --copy-file-range can make reconstruction faster and save space where the OS and filesystem support them.",
    "importance": "secondary",
    "sources": [
     "https://www.postgresql.org/docs/17/app-pgcombinebackup.html"
@@ -100,7 +100,7 @@
   },
   {
    "id": "k11",
-   "point": "Incremental backups from a standby can fail with little activity since the previous backup (replay starts at the last restartpoint); the prior backup must also be on a compatible timeline.",
+   "point": "An incremental backup taken on a standby can fail if there was very little activity since the previous backup, because no new restartpoint may have been created.",
    "importance": "secondary",
    "sources": [
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
@@ -115,6 +115,32 @@
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
    ],
    "as_of": null
+  },
+  {
+   "id": "k13",
+   "point": "The output of pg_combinebackup is a synthetic full backup that can itself be used as input to a later pg_combinebackup run in place of the chain it was built from.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.postgresql.org/docs/17/app-pgcombinebackup.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k14",
+   "point": "PostgreSQL 18 added pg_combinebackup --link (-k), which hard-links files instead of copying them; input and output must be on the same filesystem, and changes to either side can affect the other.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.postgresql.org/docs/18/app-pgcombinebackup.html"
+   ],
+   "as_of": "2025-09"
   }
- ]
+ ],
+ "review": {
+  "by": "Fable (model reviewer standing in for a human), checked against primary sources",
+  "date": "2026-11-18",
+  "unverified": [
+   "k1: release date 2024-09-26 not re-fetched",
+   "k14: as_of date"
+  ]
+ }
 }

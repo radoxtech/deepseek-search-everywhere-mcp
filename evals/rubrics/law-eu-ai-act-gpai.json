@@ -1,7 +1,7 @@
 {
  "id": "law-eu-ai-act-gpai",
  "topic": "EU AI Act obligations for providers of general-purpose AI models: requirements, systemic-risk models, code of practice and deadlines",
- "status": "draft",
+ "status": "reviewed",
  "prepared": "2026-11-17",
  "key_points": [
   {
@@ -44,7 +44,7 @@
   },
   {
    "id": "k5",
-   "point": "Commission guidelines treat models above about 10^23 FLOP generating language, image or video as indicatively general-purpose; downstream modifiers become providers only above one-third of original training compute.",
+   "point": "Commission guidelines treat a model trained with more than about 10^23 FLOP that can generate language, text-to-image or text-to-video as indicatively general-purpose.",
    "importance": "secondary",
    "sources": [
     "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers"
@@ -82,23 +82,22 @@
   },
   {
    "id": "k9",
-   "point": "The Commission's signatory list has 22 names including OpenAI, Anthropic, Google, Microsoft, Amazon and Mistral; xAI signed only the Safety and Security chapter; Meta declined in 2025.",
-   "importance": "core",
+   "point": "Most major providers signed the Code (including OpenAI, Anthropic, Google, Microsoft and Amazon); xAI signed only the Safety and Security chapter.",
+   "importance": "secondary",
    "sources": [
-    "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai",
-    "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/08/CSA_research_note_eu_ai_act_gpai_enforcement_20260803-csa-styled.pdf"
+    "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai"
    ],
    "as_of": "2026-10"
   },
   {
    "id": "k10",
-   "point": "The Commission's enforcement powers, including fines, began 2 August 2026; fines reach 3% of worldwide turnover or EUR 15 million, whichever is higher.",
+   "point": "The Commission's enforcement powers over GPAI providers, including fines of up to 3% of worldwide annual turnover or EUR 15 million (whichever is higher), have applied since 2 August 2026.",
    "importance": "core",
    "sources": [
     "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers",
     "https://artificialintelligenceact.eu/article/101/"
    ],
-   "as_of": "2026-08"
+   "as_of": "2026-11"
   },
   {
    "id": "k11",
@@ -112,13 +111,33 @@
   },
   {
    "id": "k12",
-   "point": "The digital omnibus delayed Annex III high-risk obligations to 2 December 2027 but, per a secondary analysis, left GPAI obligations and their enforcement timing unchanged.",
+   "point": "The Digital Omnibus on AI (in force 27 July 2026) postponed high-risk obligations (Annex III to 2 December 2027, Annex I to 2 August 2028) but did not postpone GPAI obligations.",
    "importance": "secondary",
    "sources": [
-    "https://artificialintelligenceact.eu/implementation-timeline/",
-    "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/08/CSA_research_note_eu_ai_act_gpai_enforcement_20260803-csa-styled.pdf"
+    "https://www.whitecase.com/insight-alert/eu-ai-omnibus-enters-force-amending-ai-act",
+    "https://artificialintelligenceact.eu/implementation-timeline/"
    ],
    "as_of": "2026-08"
+  },
+  {
+   "id": "k13",
+   "point": "On 14 October 2026 the AI Office sent its first formal requests for information to providers of GPAI models with systemic risk: the first use of its investigative powers.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.reedsmith.com/our-insights/blogs/technology-law-dispatch/102o6as/eu-ai-act-the-ai-office-sends-its-first-requests-for-information-to-leading-ai/"
+   ],
+   "as_of": "2026-10"
   }
- ]
+ ],
+ "review": {
+  "by": "Fable (model reviewer standing in for a human), checked against primary sources",
+  "date": "2026-11-18",
+  "unverified": [
+   "k2, k3, k4, k6: articles not re-fetched",
+   "k5: threshold not re-fetched",
+   "k10: fine level and Article 101 numbering after the omnibus",
+   "k12: omnibus regulation number not checked; GPAI not postponed inferred from a law-firm summary",
+   "k13: single law-firm source"
+  ]
+ }
 }

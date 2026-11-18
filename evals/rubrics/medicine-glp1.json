@@ -1,7 +1,7 @@
 {
   "id": "medicine-glp1",
   "topic": "Semaglutide and tirzepatide for obesity: weight-loss efficacy in clinical trials and main safety concerns",
-  "status": "draft",
+  "status": "reviewed",
   "prepared": "2026-11-17",
   "key_points": [
     {
@@ -15,20 +15,20 @@
     },
     {
       "id": "k2",
-      "point": "SURMOUNT-1 (2,539 adults without diabetes, 72 weeks): tirzepatide 5/10/15 mg gave mean -16.0/-21.4/-22.5% vs -2.4% placebo; 89-96% lost at least 5% weight versus 27.9% on placebo.",
+      "point": "SURMOUNT-1 (2,539 adults without diabetes, 72 weeks): tirzepatide 5/10/15 mg gave about -15% / -20% / -21% mean weight change versus about -3% on placebo (label: -15.0/-19.5/-20.9 vs -3.1; efficacy estimand: -16.0/-21.4/-22.5 vs -2.4); roughly 85-96% lost at least 5%. Either set of figures counts.",
       "importance": "core",
       "sources": [
-        "https://www.lilly.com/hcp/medical-information/answers/how-did-zepbound-tirzepatide-compare-with-placebo-for-weight-reduction-in-people-without-diabetes-163853",
-        "https://blogs.the-hospitalist.org/content/tirzepatide-powers-unprecedented-weight-loss-surmount-1"
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf",
+        "https://www.lilly.com/hcp/medical-information/answers/how-did-zepbound-tirzepatide-compare-with-placebo-for-weight-reduction-in-people-without-diabetes-163853"
       ],
-      "as_of": "2022-06"
+      "as_of": "2026-04"
     },
     {
       "id": "k3",
       "point": "Head-to-head SURMOUNT-5 (751 adults with obesity, no diabetes, 72 weeks): tirzepatide produced 20.2% mean weight loss versus 13.7% with semaglutide, with similar GI-dominated safety profiles.",
       "importance": "core",
       "sources": [
-        "https://healthmanagement.org/c/cardio/news/tirzepatide-vs-semaglutide-for-treatment-of-obesity"
+        "https://www.acc.org/Latest-in-Cardiology/Articles/2025/05/12/12/49/SURMOUNT-5"
       ],
       "as_of": "2025-05"
     },
@@ -37,19 +37,18 @@
       "point": "Gastrointestinal events are the most common adverse reactions: with semaglutide 2.4 mg nausea 44% (placebo 16%), diarrhea 30%, vomiting 24%, constipation 24%; mostly during dose escalation.",
       "importance": "core",
       "sources": [
-        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf",
-        "https://www.mdedge.com/fedprac/article/255207/obesity/tirzepatide-powers-unprecedented-weight-loss-surmount-1/page/0/1"
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
       ],
       "as_of": "2026-11"
     },
     {
       "id": "k5",
-      "point": "Discontinuation for adverse events in SURMOUNT-1 was 4.3% (5 mg), 7.1% (10 mg), 6.2% (15 mg) versus 2.6% on placebo.",
+      "point": "Discontinuation due to adverse reactions with tirzepatide was about 5-7% across doses versus about 3% on placebo (label pooled: 4.8% / 6.3% / 6.7% vs 3.4%).",
       "importance": "secondary",
       "sources": [
-        "https://www.lilly.com/hcp/medical-information/answers/how-did-zepbound-tirzepatide-compare-with-placebo-for-weight-reduction-in-people-without-diabetes-163853"
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
       ],
-      "as_of": "2022-06"
+      "as_of": "2026-04"
     },
     {
       "id": "k6",
@@ -57,13 +56,13 @@
       "importance": "core",
       "sources": [
         "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf",
-        "https://www.drugs.com/clinical_trials/fda-approves-zepbound-chronic-weight-management-new-obesity-overweight-weight-related-medical-21167.html"
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
       ],
       "as_of": "2026-11"
     },
     {
       "id": "k7",
-      "point": "Wegovy label warnings include acute pancreatitis, acute gallbladder disease, acute kidney injury from volume depletion, hypoglycemia, diabetic retinopathy complications, and pulmonary aspiration during anesthesia or deep sedation.",
+      "point": "Beyond GI effects, label warnings include acute pancreatitis, acute gallbladder disease and acute kidney injury from volume depletion (also hypoglycemia, diabetic retinopathy complications in type 2 diabetes, severe GI adverse reactions and pulmonary aspiration under anesthesia); naming pancreatitis, gallbladder disease and one other warning counts.",
       "importance": "core",
       "sources": [
         "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
@@ -72,12 +71,12 @@
     },
     {
       "id": "k8",
-      "point": "Stopping treatment leads to weight regain: after switching to placebo, SURMOUNT-4 patients regained about 14% by week 88 and STEP 1 extension patients 11.6% by week 120, with cardiometabolic gains reversing.",
+      "point": "Stopping treatment leads to substantial weight regain: in SURMOUNT-4, patients switched to placebo regained about 14% of body weight between weeks 36 and 88, while those continuing tirzepatide lost a further 5.5%.",
       "importance": "core",
       "sources": [
-        "https://www.clinicaltrialsarena.com/analyst-comment/weight-regain-cardiometabolic-effects-after-withdrawal-glp-1r-agonists/"
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
       ],
-      "as_of": "2023-12"
+      "as_of": "2026-04"
     },
     {
       "id": "k9",
@@ -91,7 +90,7 @@
     },
     {
       "id": "k10",
-      "point": "Efficacy is lower in type 2 diabetes: the semaglutide 2.4 mg label trial in diabetes with obesity gave -9.6% vs -3.4% placebo; Wegovy also carries a MACE risk-reduction indication (HR 0.80, CI 0.72-0.90).",
+      "point": "Weight loss is smaller in people with type 2 diabetes: semaglutide 2.4 mg gave -9.6% vs -3.4% with placebo at 68 weeks (STEP 2; label Study 3).",
       "importance": "secondary",
       "sources": [
         "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
@@ -100,22 +99,40 @@
     },
     {
       "id": "k11",
-      "point": "Tirzepatide acts on both GIP and GLP-1 receptors (commentators credit this for greater loss than semaglutide); Zepbound was FDA-approved for chronic weight management on 8 Nov 2023.",
+      "point": "Tirzepatide is a dual GIP and GLP-1 receptor agonist, whereas semaglutide acts on the GLP-1 receptor only.",
       "importance": "secondary",
       "sources": [
-        "https://blogs.the-hospitalist.org/content/tirzepatide-powers-unprecedented-weight-loss-surmount-1",
-        "https://www.drugs.com/clinical_trials/fda-approves-zepbound-chronic-weight-management-new-obesity-overweight-weight-related-medical-21167.html"
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
       ],
       "as_of": "2023-11"
     },
     {
-      "id": "k12",
-      "point": "Pivotal trials were manufacturer-sponsored, ran 68-72 weeks with lifestyle support, and show wide individual variability; commentators note treatment likely needs to be long-term.",
+      "id": "k13",
+      "point": "In the SELECT cardiovascular outcomes trial (label Study 1), semaglutide 2.4 mg reduced major adverse cardiovascular events in adults with established cardiovascular disease and overweight or obesity (HR 0.80, 95% CI 0.72-0.90), and Wegovy carries this indication.",
       "importance": "secondary",
       "sources": [
-        "https://blogs.the-hospitalist.org/content/tirzepatide-powers-unprecedented-weight-loss-surmount-1"
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
       ],
-      "as_of": "2022-06"
+      "as_of": "2026-03"
+    },
+    {
+      "id": "k14",
+      "point": "The FDA removed the suicidal behavior and ideation warning from the Wegovy and Zepbound labels in early 2026.",
+      "importance": "secondary",
+      "sources": [
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf",
+        "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
+      ],
+      "as_of": "2026-04"
     }
-  ]
+  ],
+  "review": {
+    "by": "Fable (model reviewer standing in for a human), checked against primary sources",
+    "date": "2026-11-18",
+    "unverified": [
+      "k2: efficacy-estimand figures not re-fetched",
+      "k3: ACC source URL taken from the review, not opened by the maintainer",
+      "k9: EMA/WHO pages not re-fetched"
+    ]
+  }
 }
