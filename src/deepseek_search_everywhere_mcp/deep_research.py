@@ -301,8 +301,9 @@ _CLIENT_SOURCES_RULE = (
 _SERVER_METADATA = "Each source opens with a line giving its type, date and host."
 _CLIENT_METADATA = "Each entry carries its `source_type`, `date` and `url`."
 _SOURCE_TYPES_RULE = (
-    "Primary types: specification, documentation, guideline, rct, systematic_review, study, preprint, "
-    "repository; secondary types: review, news, blog, vendor, qa, video, other."
+    "Primary types: official, specification, documentation, guideline, rct, meta-analysis, "
+    "systematic_review, study, preprint, repository; secondary types: review, commentary, news, blog, "
+    "vendor, qa, video, other."
 )
 
 
@@ -583,10 +584,10 @@ R2_GAP_SYSTEM_PROMPT = (
     "research topic, the aspects the research planned to establish, the queries already run, and the "
     "results found so far (title, type, host and a snippet).\n"
     "First review each aspect: does any result answer it, and is an answering result a primary or "
-    "official source (types specification, documentation, guideline, rct, systematic_review, study, "
-    "preprint, repository)? Then write a new search query only for an aspect that has no answering "
-    "result or only secondary ones; fill unanswered primary aspects first. With no aspects listed, "
-    "judge which key questions of the topic the results leave open.\n"
+    "official source (types official, specification, documentation, guideline, rct, meta-analysis, "
+    "systematic_review, study, preprint, repository)? Then write a new search query only for an aspect "
+    "that has no answering result or only secondary ones; fill unanswered primary aspects first. With no "
+    "aspects listed, judge which key questions of the topic the results leave open.\n"
     "RULES:\n"
     "- At most 3 queries, each 3 to 8 keywords and at most 100 characters, in the search language.\n"
     "- Use the names a specialist would search for; name the primary document (issuing body and "
@@ -737,6 +738,7 @@ TECHNICAL_REPO_DOMAINS = frozenset(
         "github.com",
         "gitlab.com",
         "bitbucket.org",
+        "raw.githubusercontent.com",
     }
 )
 
@@ -764,7 +766,7 @@ def is_tech_doc_host(host: str) -> bool:
     clean = (host or "").lower().strip(".")
     if not clean:
         return False
-    if clean.startswith("docs.") or any(
+    if clean.startswith(("docs.", "manpages.")) or any(
         clean == d or clean.endswith("." + d) for d in TECHNICAL_DOCS_DOMAINS
     ):
         return True
@@ -915,6 +917,52 @@ def is_non_content_page(url: str, title: str = "", content: str = "") -> bool:
     return False
 
 
+# Public bodies: governments, regulators, the EU institutions and intergovernmental organisations.
+_OFFICIAL_HOST_RE = re.compile(
+    r"(?:^|\.)(?:gov|gob|gouv|govt|gv|mil)(?:\.[a-z]{2})?$|(?:^|\.)(?:gov|gob|gouv|govt)\.|"
+    r"(?:^|\.)europa\.eu$|\.int$|(?:^|\.)(?:gc|canada)\.ca$|(?:^|\.)admin\.ch$|(?:^|\.)bund\.de$"
+)
+# Law firms, consultancies and legal news services: secondary professional commentary.
+COMMENTARY_DOMAINS = frozenset(
+    {
+        "freshfields.com",
+        "cliffordchance.com",
+        "dlapiper.com",
+        "lw.com",
+        "taylorwessing.com",
+        "williamfry.com",
+        "lexology.com",
+        "mondaq.com",
+        "jdsupra.com",
+        "bakermckenzie.com",
+        "hoganlovells.com",
+        "whitecase.com",
+        "linklaters.com",
+        "aoshearman.com",
+        "nortonrosefulbright.com",
+        "twobirds.com",
+        "cms.law",
+        "pwc.com",
+        "deloitte.com",
+        "kpmg.com",
+        "ey.com",
+        "mckinsey.com",
+        "bcg.com",
+        "gartner.com",
+    }
+)
+
+
+def is_official_host(host: str) -> bool:
+    """Whether a host belongs to a public body (``.gov``, ``.gouv.fr``, ``europa.eu``, ``.int``, ...)."""
+    return bool(_OFFICIAL_HOST_RE.search((host or "").lower().strip(".")))
+
+
+def is_commentary_host(host: str) -> bool:
+    clean = (host or "").lower().strip(".")
+    return any(clean == d or clean.endswith("." + d) for d in COMMENTARY_DOMAINS)
+
+
 def classify_source_type(
     url: str,
     title: str,
@@ -924,10 +972,11 @@ def classify_source_type(
     pmid: str | None = None,
     pmcid: str | None = None,
 ) -> str:
-    """Classify a source into one of 16 granular types based on host, title and content cues.
+    """Classify a source into one of 18 granular types based on host, title and content cues.
 
     Types: meta-analysis | systematic_review | rct | study | guideline | preprint | review |
-    documentation | specification | repository | qa | news | blog | vendor | video | other
+    documentation | specification | repository | qa | official | commentary | news | blog | vendor |
+    video | other
     """
     raw_url = url or ""
     host = _url_host(raw_url)
@@ -1024,6 +1073,12 @@ def classify_source_type(
             or has_scholarly_id
         ):
             return "study"
+
+    if is_official_host(host):
+        return "official"
+
+    if is_commentary_host(host):
+        return "commentary"
 
     # Non-scholarly classification: vendor, blog, news, other
     if (

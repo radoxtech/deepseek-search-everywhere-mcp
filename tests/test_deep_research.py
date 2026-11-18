@@ -13,6 +13,7 @@ from deepseek_search_everywhere_mcp.deep_research import (
     build_decomposition_messages,
     build_synthesis_messages,
     build_synthesis_system_prompt,
+    classify_source_type,
     parse_subqueries,
     report_body_words,
     select_synthesis_context,
@@ -1575,3 +1576,30 @@ def test_condense_prompt_keeps_facts_language_and_ceiling() -> None:
     assert str(cfg.target_words) in system and str(cfg.max_words) in system
     assert "Never remove numbers, dates, names or versions" in system
     assert "keep the language of the report" in system
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://eur-lex.europa.eu/eli/reg/2024/1/oj", "official"),
+        ("https://digital-strategy.ec.europa.eu/en/policies/x", "official"),
+        ("https://www.fda.gov/drugs/x", "official"),
+        ("https://www.gov.uk/guidance/x", "official"),
+        ("https://www.legifrance.gouv.fr/x", "official"),
+        ("https://www.drugoffice.gov.hk/x", "official"),
+        ("https://www.who.int/news-room/x", "official"),
+        ("https://www.canada.ca/en/x", "official"),
+        ("https://www.freshfields.com/en/insights/x", "commentary"),
+        ("https://www.lexology.com/library/detail.aspx?g=x", "commentary"),
+        ("https://manpages.ubuntu.com/manpages/x", "documentation"),
+        ("https://raw.githubusercontent.com/a/b/main/README.md", "repository"),
+        ("https://govtech.com/x", "other"),
+        ("https://example.com/government-plans", "other"),
+    ],
+)
+def test_classify_official_commentary_and_tool_hosts(url: str, expected: str) -> None:
+    assert classify_source_type(url, "Title", "") == expected
+
+
+def test_scholarly_government_hosts_keep_scholarly_types() -> None:
+    assert classify_source_type("https://pubmed.ncbi.nlm.nih.gov/38123456/", "A cohort", "") == "study"
