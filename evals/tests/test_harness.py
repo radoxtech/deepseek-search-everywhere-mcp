@@ -120,3 +120,19 @@ def test_keypoint_pack_ids_are_stable_and_blind() -> None:
     assert first == keypoints.pack_id("pilot:medium", "medicine-glp1", 1)
     assert first != keypoints.pack_id("new:medium", "medicine-glp1", 1)
     assert "pilot" not in first and len(first) == 12
+
+
+def test_old_decompose_variant_restores_plain_queries(monkeypatch) -> None:
+    import variants
+
+    from deepseek_search_everywhere_mcp import research_jobs
+
+    monkeypatch.setattr(
+        research_jobs, "build_decomposition_messages", research_jobs.build_decomposition_messages
+    )
+    variants.apply("old-decompose")
+    system, user = research_jobs.build_decomposition_messages(
+        "Topic X", max_queries=3, sources="any", lang=None
+    )
+    assert '"queries"' in system["content"] and "aspects" not in system["content"]
+    assert user["content"] == "Decompose this research topic into 3 search queries: Topic X"
