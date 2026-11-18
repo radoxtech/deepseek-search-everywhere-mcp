@@ -41,6 +41,17 @@ python evals/keypoints.py build --side baseline:medium --side candidate:medium -
 python evals/keypoints.py score kp-candidate                # coverage per side and delta per topic
 ```
 
+Cheap stage-wise calibration:
+
+```bash
+# writing step alone, on the sources a saved run used (no search or fetch; synthesis cost only)
+python evals/run.py --name frz-new --frozen-from pilot --topics ... --depths medium --repeats 2
+python evals/run.py --name frz-old --variant old-synthesis --frozen-from pilot --topics ... --depths medium --repeats 2
+# query planning alone, on 30 topics outside the rubrics (decomposition + search, about $0.003 a topic)
+python evals/plan_probe.py --name probe-new
+python evals/plan_probe.py --name probe-old --variant old-decompose
+```
+
 Evidence excerpts are the two passages of the cited source that best match the sentence (its content
 words, and its numbers weighted three times), so the judge sees the passage that holds the figure.
 

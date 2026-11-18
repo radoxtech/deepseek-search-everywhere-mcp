@@ -175,3 +175,15 @@ def test_old_synthesis_variant_restores_the_33_prompt(monkeypatch) -> None:
     )
     assert "high-density, authoritative" in system["content"] and "exactly 3 sections" in system["content"]
     assert user["content"].startswith("Research Topic: Topic X") and "Source index" not in user["content"]
+
+
+def test_probe_flags_reference_lists_and_letters() -> None:
+    import plan_probe
+
+    refs = "Smith J et al. doi:10.1000/x. Doe A et al. 10.1000/y. " * 20
+    assert plan_probe.looks_bibliographic("Some study", "https://a.test/x", refs)
+    assert plan_probe.looks_bibliographic("Correspondence: trial results", "https://a.test/x", "text")
+    assert plan_probe.looks_bibliographic("T", "https://www.nejm.org/doi/full/10.1056/NEJMc2211120", "text")
+    assert not plan_probe.looks_bibliographic(
+        "Trial results", "https://a.test/x", "We randomized 400 adults. " * 50
+    )
