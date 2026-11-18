@@ -187,3 +187,29 @@ def test_probe_flags_reference_lists_and_letters() -> None:
     assert not plan_probe.looks_bibliographic(
         "Trial results", "https://a.test/x", "We randomized 400 adults. " * 50
     )
+
+
+def test_query_lab_scores_fact_yield_per_style(tmp_path, monkeypatch) -> None:
+    import json
+
+    import query_lab
+
+    monkeypatch.setattr(query_lab, "HERE", tmp_path)
+    monkeypatch.setattr(
+        query_lab,
+        "_rubric",
+        lambda _t: {"key_points": [{"id": "k1", "importance": "core"}, {"id": "k2", "importance": "core"}]},
+    )
+    topic = tmp_path / "results" / "lab" / "t1"
+    (topic / "verdicts").mkdir(parents=True)
+    page = {"query": "q", "url": "https://a.test/x", "source_type": "study"}
+    other = {"query": "q", "url": "https://b.test/y", "source_type": "blog"}
+    (topic / "aspects.json").write_text(
+        json.dumps({"style": "aspects", "queries": ["q"], "results": [page, other]})
+    )
+    (topic / "verdicts" / "p00.json").write_text(
+        json.dumps({"pages": {query_lab._page_id(page["url"]): ["k1"], query_lab._page_id(other["url"]): []}})
+    )
+    query_lab.score(type("A", (), {"name": "lab"})())
+    row = json.loads((tmp_path / "results" / "lab" / "_score.json").read_text())["aspects"]
+    assert row["core_yield"] == 0.5 and row["useful_pages"] == 0.5 and row["primary"] == 0.5
