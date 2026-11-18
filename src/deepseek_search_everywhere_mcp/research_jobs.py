@@ -426,7 +426,7 @@ def _maybe_dump_research_job(
 
 
 # Seconds of the depth deadline kept free for the synthesis call while the earlier phases run.
-_SYNTHESIS_RESERVE_S: Final[dict[str, float]] = {"low": 35.0, "medium": 70.0, "high": 110.0, "max": 150.0}
+_SYNTHESIS_RESERVE_S: Final[dict[str, float]] = {"low": 20.0, "medium": 70.0, "high": 110.0, "max": 150.0}
 
 
 @dataclass

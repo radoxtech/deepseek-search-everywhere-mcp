@@ -202,9 +202,9 @@ DEPTH_CONFIG: dict[str, DepthConfig] = {
         thinking=False,
         reasoning_effort=None,
         max_tokens=16_384,
-        target_words=800,
-        max_words=960,
-        deadline_s=90.0,
+        target_words=400,
+        max_words=480,
+        deadline_s=60.0,
     ),
     "medium": DepthConfig(
         subqueries=3,
