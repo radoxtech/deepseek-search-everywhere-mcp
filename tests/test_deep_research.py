@@ -1697,3 +1697,51 @@ def test_rank_notes_a_primary_swap() -> None:
     ]
     selected, notes = deep_research.rank_and_diversify_sources(results, k_sources=3)
     assert any(s["title"] == "Label" for s in selected)
+
+
+@pytest.mark.parametrize(
+    ("query", "topic", "kind", "expected"),
+    [
+        (
+            "STEP 1 SURMOUNT-1 semaglutide tirzepatide NEJM",
+            "Obesity drugs",
+            "primary",
+            "STEP 1 SURMOUNT-1 semaglutide tirzepatide",
+        ),
+        (
+            "Wilding et al. (2021) semaglutide weight loss",
+            "Obesity drugs",
+            "primary",
+            "Wilding semaglutide weight loss",
+        ),
+        ("N Engl J Med tirzepatide results", "Obesity drugs", "numbers", "tirzepatide results"),
+        (
+            "PostgreSQL 17 incremental backup 2026 benchmarks",
+            "PostgreSQL 17 backups",
+            "numbers",
+            "PostgreSQL 17 incremental backup benchmarks",
+        ),
+        ("AI Act GPAI enforcement 2026", "AI Act obligations", "current", "AI Act GPAI enforcement 2026"),
+        ("AI Act 2026 deadlines", "AI Act 2026 timeline", "limits", "AI Act 2026 deadlines"),
+        ("NEJM", "Obesity drugs", "primary", "NEJM"),
+    ],
+)
+def test_clean_query_strips_publication_details_and_stray_year(
+    query: str, topic: str, kind: str, expected: str
+) -> None:
+    assert deep_research.clean_query(query, topic, kind, year=2026) == expected
+
+
+def test_research_plan_cleans_aspect_queries() -> None:
+    raw = (
+        '{"aspects": [{"kind": "primary", "aspect": "trial results", "looking_for": "x", '
+        '"query": "SURMOUNT-1 tirzepatide NEJM"}]}'
+    )
+    queries, aspects = deep_research.parse_research_plan(raw, "Obesity drugs", 3)
+    assert queries == ["SURMOUNT-1 tirzepatide"]
+    assert aspects[0].query == "SURMOUNT-1 tirzepatide"
+
+
+def test_prompts_steer_to_findings_not_publications() -> None:
+    assert "never its publication details" in deep_research.DECOMPOSE_SYSTEM_PROMPT
+    assert "never list publications, authors or journals" in build_synthesis_system_prompt("medium")

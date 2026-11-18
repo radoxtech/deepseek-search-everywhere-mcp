@@ -251,8 +251,9 @@ DECOMPOSE_SYSTEM_PROMPT = (
     "You plan web research. Split the topic into research aspects: the distinct things a specialist "
     "would need to establish to answer it well. Give each aspect exactly one search query.\n"
     "Kinds of aspect:\n"
-    "- primary: the official or original document itself: a law, a standard, a documentation page, a "
-    "named trial or registry entry, a dataset, release notes, a filing\n"
+    "- primary: what the primary source itself states or found: the results of a named trial, the "
+    "obligations in a law, the behaviour in a documentation page or standard, the figures in a dataset "
+    "or filing; query its subject and outcome, never its publication details\n"
     "- numbers: measured results, sizes, prices, rates or dates, with the period they apply to\n"
     "- limits: limitations, risks, criticism, failure cases or open disputes\n"
     "- current: the latest status, changes, versions or deadlines as of today's date\n"
@@ -262,18 +263,21 @@ DECOMPOSE_SYSTEM_PROMPT = (
     "Query rules: 3 to 8 keywords, not a sentence; use the names a specialist would search for (proper "
     "names, parameter or setting names, study names, document titles) rather than the wording of the "
     "topic; use a number or identifier (article, version, registry id) only when you are certain it "
-    "exists, otherwise name the issuing body and the document type; put a year only in a numbers or "
-    "current query, taken from today's date; never a paraphrase of the topic or of another query; no "
-    "URLs; at most 100 characters; in the search language given in the user message.\n"
+    "exists, otherwise name the issuing body and the document type; put a year only in a current query "
+    "about the present state, never today's year in a query about a past version or study; no journal "
+    'names, author names, "et al.", volume or page numbers; never a paraphrase of the topic or of '
+    "another query; no URLs; at most 100 characters; in the search language given in the user message.\n"
     "Return only a json object, with no code fences and no other text, in this form:\n"
     '{"aspects": ['
     '{"kind": "primary", "aspect": "what the specification requires", '
-    '"looking_for": "the section that defines it", "query": "IETF HTTP/3 specification RFC"}, '
+    '"looking_for": "the requirements it sets", '
+    '"query": "HTTP/3 specification stream multiplexing requirements"}, '
     '{"kind": "numbers", "aspect": "size of the measured effect", '
     '"looking_for": "pooled estimate from a meta-analysis", '
     '"query": "coffee intake blood pressure meta-analysis mmHg"}]}\n'
     'Bad queries (paraphrases of the topic): "HTTP/3 adoption how it works", "HTTP/3 adoption problems". '
-    'Good queries: "IETF HTTP/3 specification RFC", "QUIC 0-RTT replay attack mitigation", '
+    'Good queries: "HTTP/3 specification stream multiplexing requirements", '
+    '"QUIC 0-RTT replay attack mitigation", '
     '"HTTP/3 share of requests Cloudflare Radar".'
 )
 
@@ -336,7 +340,9 @@ def build_synthesis_system_prompt(depth: str = "medium", *, client: bool = False
         "sources that bear on the topic: numbers, dates, names, versions, mechanisms, conditions and "
         "limitations. Every fact that answers a listed research aspect must reach the report; add the "
         "others as space allows, most specific first. When space runs short, shorten the wording, not the "
-        "facts; a specific fact beats a general statement.\n"
+        "facts; a specific fact beats a general statement. Report what the sources found (results, rules, "
+        "figures, behaviour): never list publications, authors or journals as findings, and spend no "
+        "sentence on where or by whom something was published.\n"
         "3. CITATIONS: every factual statement must be cited with bracketed numbered citations like [1], "
         "[2], or [1][3] matching the source id, placed at the end of the sentence. Before you write a "
         "number or a specific claim, find the passage that states it and cite the source in which that "
@@ -515,6 +521,27 @@ _PLACEHOLDER_QUERIES = frozenset(
 )
 
 
+# Publication details in a query make the search return pages that cite a study instead of its results.
+_BIBLIOGRAPHIC_RE = re.compile(
+    r"(?i)\b(?:NEJM|N\.?\s?Engl\.?\s?J\.?\s?Med\.?|JAMA|BMJ|Lancet|et\s+al\.?|doi:?|vol\.|pp\.)(?!\w)"
+    r"|\((?:19|20)\d{2}\)"
+)
+
+
+def clean_query(query: str, topic: str, kind: str = "", *, year: int | None = None) -> str:
+    """Strip publication details from a query, and today's year unless the aspect is about the present.
+
+    The year stays when the topic itself names it or the aspect's kind is ``current``. The query is
+    returned unchanged when stripping would leave nothing.
+    """
+    cleaned = _BIBLIOGRAPHIC_RE.sub(" ", query)
+    this_year = str(year or datetime.date.today().year)
+    if kind != "current" and this_year not in topic:
+        cleaned = re.sub(rf"(?<!\d){this_year}(?!\d)", " ", cleaned)
+    cleaned = " ".join(cleaned.split())
+    return cleaned or query
+
+
 @dataclass(frozen=True)
 class ResearchAspect:
     """One thing the research has to establish, as planned by the decomposition call."""
@@ -531,8 +558,9 @@ def parse_research_plan(
     """Parse the decomposition answer into ``(queries, aspects)``.
 
     Accepts ``{"aspects": [{aspect, kind, looking_for, query}]}`` and the older ``{"queries": [...]}``
-    (no aspects then). Each query is cut to 128 characters; paraphrases of the topic or of another
-    query are dropped. Falls back to the topic as the only query.
+    (no aspects then). Each query is cut to 128 characters, aspect queries lose publication details
+    and a stray current year (``clean_query``), and paraphrases of the topic or of another query are
+    dropped. Falls back to the topic as the only query.
     """
     fallback = [fallback_topic[:128].strip()]
     parsed, err = sanitize_json(response_text)
@@ -545,7 +573,8 @@ def parse_research_plan(
         for item in raw_aspects:
             if not isinstance(item, dict):
                 continue
-            query = str(item.get("query") or "").strip()[:128].strip()
+            kind = str(item.get("kind") or "").strip()[:20]
+            query = clean_query(str(item.get("query") or "").strip()[:128].strip(), fallback_topic, kind)
             aspect = str(item.get("aspect") or "").strip()[:200]
             if not query:
                 continue
@@ -553,7 +582,7 @@ def parse_research_plan(
             aspects.append(
                 ResearchAspect(
                     aspect=aspect or query,
-                    kind=str(item.get("kind") or "").strip()[:20],
+                    kind=kind,
                     looking_for=str(item.get("looking_for") or "").strip()[:200],
                     query=query,
                 )
