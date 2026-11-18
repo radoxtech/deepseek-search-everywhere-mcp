@@ -136,3 +136,42 @@ def test_old_decompose_variant_restores_plain_queries(monkeypatch) -> None:
     )
     assert '"queries"' in system["content"] and "aspects" not in system["content"]
     assert user["content"] == "Decompose this research topic into 3 search queries: Topic X"
+
+
+def test_freeze_replays_the_saved_context(tmp_path, monkeypatch) -> None:
+    import json
+
+    import variants
+
+    from deepseek_search_everywhere_mcp import research_jobs
+
+    for name in (
+        "_research_retrieve",
+        "_research_round_two",
+        "_research_rank_and_fill",
+        "select_synthesis_context",
+    ):
+        monkeypatch.setattr(research_jobs, name, getattr(research_jobs, name))
+    context = [{"id": 1, "title": "T", "url": "https://a.test/x", "content": "saved text"}]
+    record = tmp_path / "r.json"
+    record.write_text(json.dumps({"dump": {"synthesis_context": context}}), encoding="utf-8")
+    variants.freeze(str(record))
+    assert research_jobs.select_synthesis_context([], depth="medium") == context
+
+
+def test_old_synthesis_variant_restores_the_33_prompt(monkeypatch) -> None:
+    import variants
+
+    from deepseek_search_everywhere_mcp import research_jobs
+
+    monkeypatch.setattr(research_jobs, "build_synthesis_messages", research_jobs.build_synthesis_messages)
+    variants.apply("old-synthesis")
+    system, user = research_jobs.build_synthesis_messages(
+        "Topic X",
+        [{"id": 1, "title": "T", "url": "u", "content": "c"}],
+        depth="medium",
+        nonce="n1",
+        aspects=(),
+    )
+    assert "high-density, authoritative" in system["content"] and "exactly 3 sections" in system["content"]
+    assert user["content"].startswith("Research Topic: Topic X") and "Source index" not in user["content"]

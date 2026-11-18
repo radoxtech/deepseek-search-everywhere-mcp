@@ -41,20 +41,30 @@ def load_topics(selected: str) -> list[dict[str, str]]:
     return [t for t in topics if t["id"] in wanted]
 
 
+def frozen_record(name: str, topic_id: str, depth: str, repeat: int) -> Path | None:
+    """The saved record of run ``name`` whose sources a frozen job replays (None when there is none)."""
+    matches = sorted((HERE / "results" / name).glob(f"{topic_id}__*__{depth}__r{repeat}.json"))
+    return matches[0] if matches else None
+
+
 def plan(args: argparse.Namespace) -> list[dict[str, Any]]:
     jobs = []
     for repeat in range(1, args.repeats + 1):
         for topic in load_topics(args.topics):
             for depth in args.depths.split(","):
-                jobs.append(
-                    {
-                        "topic_id": topic["id"],
-                        "topic": topic["topic"],
-                        "depth": depth,
-                        "variant": args.variant,
-                        "repeat": repeat,
-                    }
-                )
+                job = {
+                    "topic_id": topic["id"],
+                    "topic": topic["topic"],
+                    "depth": depth,
+                    "variant": args.variant,
+                    "repeat": repeat,
+                }
+                if getattr(args, "frozen_from", None):
+                    frozen = frozen_record(args.frozen_from, topic["id"], depth, repeat)
+                    if frozen is None:
+                        continue
+                    job["frozen_from"] = str(frozen)
+                jobs.append(job)
     return jobs
 
 
@@ -77,6 +87,8 @@ def run_job(job: dict[str, Any], out: Path) -> dict[str, Any]:
         "--repeat",
         str(job["repeat"]),
     ]
+    if job.get("frozen_from"):
+        cmd += ["--frozen-from", job["frozen_from"]]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900, check=False)
     if proc.returncode != 0:
         record = {
@@ -99,6 +111,10 @@ def main() -> None:
     parser.add_argument("--depths", default="low,medium,high,max")
     parser.add_argument("--variant", default="baseline")
     parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument(
+        "--frozen-from",
+        help="replay the sources of this results run (same topic, depth, repeat): no search or fetch cost",
+    )
     parser.add_argument("--parallel", type=int, default=3)
     parser.add_argument("--max-usd", type=float, default=5.0)
     parser.add_argument("--estimate", action="store_true", help="print the planned jobs, cost and time only")

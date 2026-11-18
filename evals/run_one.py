@@ -35,6 +35,8 @@ async def _run(args: argparse.Namespace, dump_dir: Path) -> dict[str, Any]:
         return res
 
     runtime._chat_request = recording_chat
+    if args.frozen_from:
+        variants.freeze(args.frozen_from)
     variants.apply(args.variant)
 
     started = time.monotonic()
@@ -59,6 +61,7 @@ async def _run(args: argparse.Namespace, dump_dir: Path) -> dict[str, Any]:
         "depth": args.depth,
         "variant": args.variant,
         "repeat": args.repeat,
+        "frozen_from": args.frozen_from,
         "wall_s": round(wall_s, 3),
         "envelope": res,
         "dump": dump,
@@ -74,6 +77,7 @@ def main() -> None:
     parser.add_argument("--variant", default="baseline", choices=sorted(variants.VARIANTS))
     parser.add_argument("--tool", default="research", choices=["research"])
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--frozen-from", help="saved record whose sources to replay (no search, no fetch)")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="evals-dump-") as tmp:
         record = asyncio.run(_run(args, Path(tmp)))
