@@ -12,7 +12,10 @@ and not part of the default test run; nothing here runs unless started by hand.
 - `variants.py`: harness-side patches that turn the server into a variant under test.
 - `metrics.py`: code metrics (citation validity and lexical support, unverified numbers, source count
   and diversity, off-peak cost, wall time).
-- `judge.py`: blind pairwise judge packs (both orders) and scoring with the win rule.
+- `keypoints.py`: the main metric. One blind pack per report; the judge marks each rubric key point
+  covered or not (binary), names the cited sentence that states it and whether its citation holds.
+- `judge.py`: blind pairwise judge packs (both orders) and scoring with the win rule; the second
+  criterion, judged three times per pack because single verdicts are noisy.
 
 Results go to `evals/results/` (ignored by git).
 
@@ -32,7 +35,14 @@ python evals/judge.py build --aa aa:medium --out cmp-aa
 python evals/judge.py score cmp-aa --write-tolerance
 python evals/judge.py build --a baseline:medium --b degraded:medium --out cmp-degraded
 python evals/judge.py score cmp-degraded --tolerance evals/results/cmp-aa/_tolerance.json
+
+python evals/keypoints.py build --side baseline:medium --side candidate:medium --out kp-candidate
+# judge every pack in evals/results/kp-candidate/packs/ the same way
+python evals/keypoints.py score kp-candidate                # coverage per side and delta per topic
 ```
+
+Evidence excerpts are the two passages of the cited source that best match the sentence (its content
+words, and its numbers weighted three times), so the judge sees the passage that holds the figure.
 
 ## Win rule
 

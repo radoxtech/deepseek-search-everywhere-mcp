@@ -44,6 +44,7 @@ RUBRICS = HERE / "rubrics"
 WINS_TO_PASS = 16
 COST_RATIO_LIMIT = 3.0
 EXCERPT_CHARS = 450
+EXCERPT_WINDOWS = 2
 
 JUDGE_INSTRUCTIONS = """You are a strict, impartial judge comparing two research reports on the same topic.
 You have no web access and need none: judge only from this pack.
@@ -73,18 +74,36 @@ def _records(name: str, depth: str) -> dict[tuple[str, int], dict[str, Any]]:
     return out
 
 
-def _excerpt(sentence: str, text: str) -> str:
-    """The window of ``text`` around the sentence's rarest content word found in it."""
+def _window_score(window: str, words: set[str], numbers: set[str]) -> int:
+    lowered = window.lower()
+    return sum(1 for w in words if w in lowered) + 3 * len(numbers & metrics._numbers(window))
+
+
+def _excerpt(sentence: str, text: str, windows: int = EXCERPT_WINDOWS) -> str:
+    """The ``windows`` best non-overlapping passages of ``text`` for the sentence, joined by " … ".
+
+    A passage scores one point per content word of the sentence it contains and three per number of the
+    sentence it contains, so the passage that holds the cited figure wins.
+    """
     if not text:
         return "(source text not available)"
-    lowered = text.lower()
-    words = sorted(metrics._content_words(sentence), key=lambda w: lowered.count(w) or 10**9)
-    for word in words:
-        at = lowered.find(word)
-        if at >= 0:
-            start = max(0, at - EXCERPT_CHARS // 2)
-            return text[start : start + EXCERPT_CHARS].replace("\n", " ")
-    return text[:EXCERPT_CHARS].replace("\n", " ")
+    words = metrics._content_words(sentence)
+    numbers = metrics._numbers(sentence)
+    step = EXCERPT_CHARS // 3
+    starts = range(0, max(1, len(text) - EXCERPT_CHARS + step), step)
+    scored = sorted(
+        ((_window_score(text[i : i + EXCERPT_CHARS], words, numbers), -i) for i in starts), reverse=True
+    )
+    picked: list[int] = []
+    for score_, neg_start in scored:
+        start = -neg_start
+        if score_ <= 0 and picked:
+            break
+        if all(abs(start - other) >= EXCERPT_CHARS for other in picked):
+            picked.append(start)
+        if len(picked) == windows:
+            break
+    return " … ".join(text[i : i + EXCERPT_CHARS].replace("\n", " ") for i in sorted(picked))
 
 
 def _evidence(record: dict[str, Any]) -> list[str]:

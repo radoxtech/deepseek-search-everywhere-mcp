@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import judge  # noqa: E402
+import keypoints  # noqa: E402
 import metrics  # noqa: E402
 
 
@@ -79,3 +80,43 @@ def test_a_failed_job_is_reported_with_its_reason() -> None:
     record = {"envelope": {"ok": False, "error": {"reason": "timeout"}}, "chat_usage": []}
     m = metrics.record_metrics(record)
     assert m["ok"] is False and m["reason"] == "timeout"
+
+
+def test_excerpt_picks_the_passage_with_the_cited_figure() -> None:
+    filler = "Background text about the study design and general methods. " * 30
+    text = filler + "Mean weight change was -14.9% with semaglutide versus -2.4% with placebo. " + filler
+    excerpt = judge._excerpt("Semaglutide gave -14.9% versus -2.4% with placebo", text)
+    assert "-14.9%" in excerpt and "-2.4%" in excerpt
+
+
+def test_excerpt_returns_two_separate_passages() -> None:
+    text = "alpha 12.5 here. " + "x " * 600 + "alpha 99.1 there. " + "y " * 600
+    excerpt = judge._excerpt("alpha rose from 12.5 to 99.1", text)
+    assert " … " in excerpt and "12.5" in excerpt and "99.1" in excerpt
+
+
+def test_keypoint_scores_count_core_coverage_and_citation_support() -> None:
+    rubric = {
+        "key_points": [
+            {"id": "k1", "importance": "core"},
+            {"id": "k2", "importance": "core"},
+            {"id": "k3", "importance": "secondary"},
+        ]
+    }
+    verdict = {
+        "points": {
+            "k1": {"covered": True, "sentence": 2, "supported": True},
+            "k2": {"covered": True, "sentence": None, "supported": None},
+            "k3": {"covered": False},
+        },
+        "unsupported": [4, 7],
+    }
+    scores = keypoints.verdict_scores(verdict, rubric)
+    assert scores == {"core": 1.0, "all": 2 / 3, "core_supported": 0.5, "unsupported": 2.0}
+
+
+def test_keypoint_pack_ids_are_stable_and_blind() -> None:
+    first = keypoints.pack_id("pilot:medium", "medicine-glp1", 1)
+    assert first == keypoints.pack_id("pilot:medium", "medicine-glp1", 1)
+    assert first != keypoints.pack_id("new:medium", "medicine-glp1", 1)
+    assert "pilot" not in first and len(first) == 12
