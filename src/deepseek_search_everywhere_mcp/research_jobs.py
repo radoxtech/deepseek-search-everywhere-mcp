@@ -21,6 +21,7 @@ from typing import Any, Final, Literal
 from . import runtime, search_core
 from .deep_research import (
     DEPTH_CONFIG,
+    ResearchAspect,
     ResearchJob,
     apply_token_guard,
     best_source_title,
@@ -36,6 +37,7 @@ from .deep_research import (
     ground_report_numbers,
     normalize_citations,
     paginate_context,
+    parse_research_plan,
     parse_subqueries,
     rank_and_diversify_sources,
     report_body_words,
@@ -53,6 +55,7 @@ from .envelope import (
 from .errors import (
     _fail,  # re-exported for callers and tests
 )
+from .extract import sanitize_json
 from .filters import (
     MAX_QUERY,
     fit_query,
@@ -390,6 +393,7 @@ class _ResearchRun:
     synthesis_reserve: float
     total_steps: int
     subqueries: list[str] = field(default_factory=list)
+    aspects: list[ResearchAspect] = field(default_factory=list)
     result_lists: list[list[dict[str, Any]]] = field(default_factory=list)
     sources: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -507,12 +511,13 @@ async def _research_decompose(run: _ResearchRun) -> None:
     timeout = run.phase_timeout(20.0)
     res = await runtime._chat_request(
         messages=build_decomposition_messages(
-            run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref
+            run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref, lang=run.lang
         ),
         thinking={"type": "disabled"},
         model=REWRITE_MODEL,
         temperature=0.0,
         max_tokens=1024,
+        response_format={"type": "json_object"},
         timeout=timeout,
         deadline=timeout,
         attempts=2,
@@ -520,7 +525,9 @@ async def _research_decompose(run: _ResearchRun) -> None:
     if res.get("ok"):
         run.llm_cost += res.get("cost_usd", 0.0)
     if res.get("ok") and res.get("content"):
-        run.subqueries = parse_subqueries(res["content"], run.topic, max_queries=run.cfg.subqueries)
+        run.subqueries, run.aspects = parse_research_plan(
+            res["content"], run.topic, max_queries=run.cfg.subqueries
+        )
     else:
         fallback, _ = fit_query(run.topic)
         run.subqueries = [fallback]
@@ -538,6 +545,12 @@ async def _research_retrieve(run: _ResearchRun) -> dict[str, Any] | None:
     return None
 
 
+def _no_gaps(content: str) -> bool:
+    """Whether a gap-analysis answer says nothing is missing (an empty ``queries`` list)."""
+    parsed, err = sanitize_json(content)
+    return not err and isinstance(parsed, dict) and parsed.get("queries") == []
+
+
 async def _research_round_two(run: _ResearchRun) -> None:
     """Round 2 (depth max): ask for gap queries over the round-1 results and search them too."""
     await _report_job_progress(
@@ -552,7 +565,7 @@ async def _research_round_two(run: _ResearchRun) -> None:
     timeout = min(25.0, max(5.0, budget / 2))
     try:
         res = await runtime._chat_request(
-            messages=build_r2_gap_messages(run.topic, r1_items, run.subqueries),
+            messages=build_r2_gap_messages(run.topic, r1_items, run.subqueries, run.aspects, lang=run.lang),
             thinking={"type": "disabled"},
             model=REWRITE_MODEL,
             temperature=0.0,
@@ -566,6 +579,9 @@ async def _research_round_two(run: _ResearchRun) -> None:
             run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
             return
         run.llm_cost += res.get("cost_usd", 0.0)
+        if _no_gaps(res["content"]):
+            run.notes.append("Round 2 found no missing aspects; proceeding with Round 1 sources.")
+            return
         parsed = parse_subqueries(res["content"], run.topic, max_queries=3)
         queries = validate_r2_queries(parsed, run.topic, run.subqueries, r1_domains, lang=run.lang)
         if not queries:
@@ -651,7 +667,14 @@ async def _research_synthesize(
     """Write the report with deepseek-flash, retrying once without thinking when the first answer is
     cut off or empty. Return the answer used and the cost of an attempt that was billed but not used."""
     cfg = run.cfg
-    messages = build_synthesis_messages(run.topic, context, depth=run.depth, nonce=uuid.uuid4().hex[:12])
+    messages = build_synthesis_messages(
+        run.topic,
+        context,
+        depth=run.depth,
+        nonce=uuid.uuid4().hex[:12],
+        aspects=run.aspects,
+        lang=run.lang,
+    )
     timeout = max(10.0, run.remaining() - 2.0)
     kwargs: dict[str, Any] = {
         "messages": messages,

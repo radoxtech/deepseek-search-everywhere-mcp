@@ -1466,3 +1466,112 @@ def test_grounding_notes_derived_numbers() -> None:
     )
     assert count == 0
     assert any("computed from other cited numbers" in note for note in notes)
+
+
+# --- Research plan, prompts and their inputs ----------------------------------------------------------------
+
+
+def test_research_plan_returns_queries_and_aspects() -> None:
+    raw = (
+        '{"aspects": [{"kind": "primary", "aspect": "official spec", "looking_for": "the RFC", '
+        '"query": "IETF HTTP/3 specification RFC"}, {"kind": "numbers", "aspect": "adoption", '
+        '"looking_for": "share of requests", "query": "HTTP/3 share of requests Cloudflare Radar"}]}'
+    )
+    queries, aspects = deep_research.parse_research_plan(raw, "HTTP/3 adoption", max_queries=3)
+    assert queries == ["IETF HTTP/3 specification RFC", "HTTP/3 share of requests Cloudflare Radar"]
+    assert [(a.kind, a.aspect, a.looking_for) for a in aspects] == [
+        ("primary", "official spec", "the RFC"),
+        ("numbers", "adoption", "share of requests"),
+    ]
+
+
+def test_research_plan_drops_paraphrases_and_placeholders() -> None:
+    raw = (
+        '{"queries": ["HTTP/3 adoption problems explained", "QUIC 0-RTT replay attack mitigation", '
+        '"QUIC 0-RTT replay attack mitigations", "new search query"]}'
+    )
+    queries, aspects = deep_research.parse_research_plan(raw, "HTTP/3 adoption problems explained", 4)
+    assert queries == ["QUIC 0-RTT replay attack mitigation"]
+    assert aspects == []
+
+
+def test_research_plan_keeps_one_query_when_all_are_paraphrases() -> None:
+    raw = '{"queries": ["HTTP/3 adoption problems", "adoption problems HTTP/3"]}'
+    assert deep_research.parse_subqueries(raw, "HTTP/3 adoption problems", 3) == ["HTTP/3 adoption problems"]
+
+
+def test_decomposition_puts_date_language_and_topic_in_the_user_message() -> None:
+    system, user = deep_research.build_decomposition_messages(
+        "Effect of X on Y", max_queries=3, lang="pl", today="2026-11-18"
+    )
+    assert "2026" not in system["content"]
+    assert "Today's date: 2026-11-18" in user["content"]
+    assert "Search language: Polish" in user["content"]
+    assert "Research topic: Effect of X on Y" in user["content"]
+    assert "exactly 3 aspects" in user["content"]
+    assert "json" in system["content"]
+
+
+def test_synthesis_message_carries_plan_index_metadata_and_closing_reminder() -> None:
+    aspects = [deep_research.ResearchAspect("official requirements", "primary", "the article", "q")]
+    sources = [
+        {
+            "id": 1,
+            "title": "Trial",
+            "url": "https://www.nejm.org/doi/x",
+            "date": "2025-03-01",
+            "source_type": "rct",
+            "content": "word " * 2000,
+        }
+    ]
+    system, user = build_synthesis_messages(
+        "Effect of X on Y", sources, aspects=aspects, lang="de", today="2026-11-18"
+    )
+    text = user["content"]
+    assert "Today's date: 2026-11-18" in text and "Report language: German" in text
+    assert "1. [primary] official requirements (looking for: the article)" in text
+    assert "[1] Trial — rct · 2025-03-01 · nejm.org" in text
+    assert "Source 1: rct · 2025-03-01 · nejm.org" in text
+    assert "[source 1, continued]" in text
+    tail = text[text.rindex("word word") :]
+    assert "Research Topic: Effect of X on Y" in tail and "official requirements" in tail
+    assert "exactly 3 sections" in tail
+    assert "2026-11-18" not in system["content"]
+
+
+def test_continuation_markers_keep_the_source_text() -> None:
+    content = ("alpha beta\n" * 1500).strip()
+    marked = deep_research._with_continuation_markers(content, 7)
+    assert marked.count("[source 7, continued]") >= 3
+    assert marked.replace("\n[source 7, continued]\n", "") == content
+
+
+def test_client_synthesis_prompt_allows_only_paging_tools() -> None:
+    prompt = build_synthesis_system_prompt("medium", client=True)
+    assert "Call no tools except to fetch the remaining pages" in prompt
+    assert "user message" not in prompt
+    assert "never in the report" in prompt
+
+
+def test_r2_gap_message_has_aspects_date_and_language() -> None:
+    aspects = [deep_research.ResearchAspect("official requirements", "primary", "", "q")]
+    system, user = deep_research.build_r2_gap_messages(
+        "Effect of X on Y",
+        [{"title": "Trial", "url": "https://www.nejm.org/doi/x", "snippet": "We randomized 400 adults"}],
+        ["q"],
+        aspects,
+        lang="fr",
+        today="2026-11-18",
+    )
+    assert "json" in system["content"] and '"review"' in system["content"]
+    assert "Today's date: 2026-11-18" in user["content"] and "Search language: French" in user["content"]
+    assert "1. [primary] official requirements" in user["content"]
+    assert "Trial (" in user["content"] and "nejm.org)" in user["content"]
+
+
+def test_condense_prompt_keeps_facts_language_and_ceiling() -> None:
+    system = deep_research.build_condense_messages("report", "medium")[0]["content"]
+    cfg = DEPTH_CONFIG["medium"]
+    assert str(cfg.target_words) in system and str(cfg.max_words) in system
+    assert "Never remove numbers, dates, names or versions" in system
+    assert "keep the language of the report" in system

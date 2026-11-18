@@ -1565,3 +1565,20 @@ async def test_round_two_without_search_results_keeps_round_one(fake_upstream: A
     assert res["synthesized"] is True
     assert "Round 2 search produced no results; proceeding with Round 1 sources." in res["notes"]
     assert not any("gap angle" in q for q in res["subqueries"])
+
+
+async def test_round_two_with_no_missing_aspects_searches_nothing_more(fake_upstream: Any) -> None:
+    class NoGapUpstream(DeepResearchUpstream):
+        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            payload = kwargs.get("payload") or {}
+            if path == "/v1/chat/completions" and len(self.chats) == 1:
+                self.chats.append(payload)
+                return _chat_reply(json.dumps({"review": [], "missing_aspects": [], "queries": []}))
+            return await super().__call__(method, path, **kwargs)
+
+    upstream = NoGapUpstream()
+    fake_upstream(upstream)
+    res = await server.deepseek_research("no gap topic", depth="max")
+    assert res["synthesized"] is True
+    assert "Round 2 found no missing aspects; proceeding with Round 1 sources." in res["notes"]
+    assert "no gap topic" not in res["subqueries"][1:]
