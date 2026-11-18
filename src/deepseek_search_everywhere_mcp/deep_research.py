@@ -1277,6 +1277,10 @@ def rank_and_diversify_sources(
             overflow.sort(key=lambda it: _authority_key(it, sources), reverse=True)
             selected.extend(overflow[:needed])
             notes.append("Relaxed domain cap to meet target source count.")
+    if sources == "any":
+        selected, swapped = apply_primary_quota(selected, capped + overflow, k_sources)
+        if swapped:
+            notes.append(f"Swapped in {swapped} primary source(s) to meet the primary-source quota.")
     if skipped_non_content:
         notes.append(
             f"Skipped {skipped_non_content} non-content page(s) (search results, login walls, fragments)."
@@ -1653,13 +1657,175 @@ def is_scholarly_candidate(s: dict[str, Any]) -> bool:
     return st in SCHOLARLY_SOURCE_TYPES
 
 
+# Source types that report first-hand: the document itself, the study, the official text.
+PRIMARY_SOURCE_TYPES = frozenset(
+    {
+        "official",
+        "specification",
+        "documentation",
+        "guideline",
+        "rct",
+        "meta-analysis",
+        "systematic_review",
+        "study",
+        "preprint",
+        "repository",
+    }
+)
+
+
+def _primary_quota(k_sources: int) -> int:
+    """Primary sources wanted among ``k_sources`` when the pool has them: about a third, at least one."""
+    return max(1, k_sources // 3)
+
+
+def _is_primary(item: dict[str, Any]) -> bool:
+    st = item.get("source_type") or classify_source_type(
+        item.get("url") or "", item.get("title") or "", item.get("content") or ""
+    )
+    return st in PRIMARY_SOURCE_TYPES
+
+
+def apply_primary_quota(
+    selected: list[dict[str, Any]], pool: Sequence[dict[str, Any]], k_sources: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Swap the lowest-ranked secondary picks for the best unpicked primary ones until the quota is met.
+
+    Returns the new selection (same length, original order kept for the picks that stay, swapped-in
+    primaries appended) and how many were swapped.
+    """
+    quota = _primary_quota(k_sources)
+    have = sum(_is_primary(it) for it in selected)
+    picked = {id(it) for it in selected}
+    spare = [it for it in pool if id(it) not in picked and _is_primary(it)]
+    out = list(selected)
+    swapped = 0
+    while have < quota and spare:
+        drop_at = next((i for i in range(len(out) - 1, -1, -1) if not _is_primary(out[i])), None)
+        if drop_at is None:
+            break
+        out.pop(drop_at)
+        out.append(spare.pop(0))
+        have += 1
+        swapped += 1
+    return out, swapped
+
+
+_LANGUAGE_STOPWORDS: dict[str, frozenset[str]] = {
+    "en": frozenset("the and of to in is that for with are this was on as by be".split()),
+    "de": frozenset("der die das und ist nicht mit den von für auf dem des sich eine".split()),
+    "fr": frozenset("le la les et des est une pour dans que qui sur pas du avec".split()),
+    "es": frozenset("el la los las y que de en es una por para con del se".split()),
+    "it": frozenset("il di che la è per una sono con del della non gli le".split()),
+    "pt": frozenset("o a os de que em é um uma para com não do da dos".split()),
+    "nl": frozenset("de het een en van is dat niet op te zijn voor met".split()),
+    "sv": frozenset("och att det som en är på för med av den till inte har".split()),
+    "pl": frozenset("i w nie na się że do jest z to jak dla przez od".split()),
+    "cs": frozenset("a je se na že v to s z do jako pro by jsou".split()),
+}
+_LANGUAGE_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+def text_language(text: str, *, min_hits: int = 8) -> str | None:
+    """Best guess of a text's language as a two-letter code, or None when the text is unclear.
+
+    Scripts decide first (Chinese, Japanese, Korean, Cyrillic); Latin-script text is judged by common
+    function words, and the leader must have ``min_hits`` of them and half again as many as the next.
+    """
+    sample = text[:4000]
+    letters = [c for c in sample if c.isalpha()]
+    if not letters:
+        return None
+    share = len(letters) / 100 or 1
+
+    def count(lo: int, hi: int) -> int:
+        return sum(lo <= ord(c) <= hi for c in letters)
+
+    if count(0x3040, 0x30FF) / share > 10:
+        return "ja"
+    if count(0xAC00, 0xD7AF) / share > 30:
+        return "ko"
+    if count(0x4E00, 0x9FFF) / share > 30:
+        return "zh"
+    if count(0x0400, 0x04FF) / share > 30:
+        return "ru"
+    words = _LANGUAGE_WORD_RE.findall(sample.lower())
+    scores = sorted(
+        ((sum(w in stop for w in words), code) for code, stop in _LANGUAGE_STOPWORDS.items()), reverse=True
+    )
+    (best, code), (second, _) = scores[0], scores[1]
+    if best >= min_hits and best >= 1.5 * second:
+        return code
+    return None
+
+
+def _number_fingerprint(content: str) -> set[str]:
+    """Distinctive numbers of a text (decimals, percents, or 100 and above; no bare years)."""
+    out: set[str] = set()
+    for fact in _number_facts(_normalize_for_numbers(content)):
+        if fact.canon_b is None and _is_bare_year(fact.raw, fact.canon_a, None):
+            continue
+        if _distinctive(fact):
+            out.add(fact.canon_a if fact.canon_b is None else f"{fact.canon_a}-{fact.canon_b}")
+    return out
+
+
+# Two sources sharing this share of their distinctive numbers (and at least the minimum count) are one
+# report in two copies: a translation, a reprint or a syndicated article.
+DUPLICATE_NUMBER_OVERLAP = 0.5
+DUPLICATE_MIN_NUMBERS = 6
+
+
+def drop_duplicate_sources(
+    sources: Sequence[dict[str, Any]], target_lang: str | None
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Drop translations and reprints, then move sources in another language behind the rest.
+
+    Sources are taken in order; one whose distinctive numbers mostly repeat a kept source's numbers is
+    dropped, except that a copy in ``target_lang`` replaces a kept copy in another language. Returns
+    ``(kept, duplicates_dropped, moved_back)``.
+    """
+    kept: list[tuple[dict[str, Any], set[str], str | None]] = []
+    dropped = 0
+    for s in sources:
+        content = s.get("content") or ""
+        prints = _number_fingerprint(content)
+        lang = text_language(content)
+        twin = None
+        if len(prints) >= DUPLICATE_MIN_NUMBERS:
+            for i, (_, other, _) in enumerate(kept):
+                if (
+                    len(other) >= DUPLICATE_MIN_NUMBERS
+                    and _overlap(prints, other) >= DUPLICATE_NUMBER_OVERLAP
+                ):
+                    twin = i
+                    break
+        if twin is None:
+            kept.append((s, prints, lang))
+            continue
+        dropped += 1
+        other_lang = kept[twin][2]
+        if target_lang and lang == target_lang and other_lang not in (None, target_lang):
+            kept[twin] = (s, prints, lang)
+    same = [s for s, _, lang in kept if not (target_lang and lang and lang != target_lang)]
+    other = [s for s, _, lang in kept if target_lang and lang and lang != target_lang]
+    return same + other, dropped, len(other)
+
+
 def select_synthesis_context(
     sources: list[dict[str, Any]],
     depth: str = "medium",
     sources_pref: str = "any",
     notes: list[str] | None = None,
+    *,
+    lang: str | None = None,
+    topic: str = "",
 ) -> list[dict[str, Any]]:
-    """Select up to tier K non-empty sources and cap per-page and total characters."""
+    """Select up to tier K non-empty sources and cap per-page and total characters.
+
+    Translations and reprints of a kept source are dropped, and sources in a language other than
+    ``lang`` (or the topic's language, else English) go behind the rest.
+    """
     cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
     valid_sources = [s for s in sources if s.get("content")]
 
@@ -1701,6 +1867,12 @@ def select_synthesis_context(
             ),
             reverse=True,
         )
+    target_lang = (lang or "").strip().lower()[:2] or text_language(topic, min_hits=2) or "en"
+    valid_sources, duplicates, moved = drop_duplicate_sources(valid_sources, target_lang)
+    if notes is not None and duplicates:
+        notes.append(f"Dropped {duplicates} source(s) that repeat another source (translation or reprint).")
+    if notes is not None and moved:
+        notes.append(f"Ranked {moved} source(s) in another language than {target_lang!r} last.")
     selected: list[dict[str, Any]] = []
     total_chars = 0
     for idx, s in enumerate(valid_sources[: cfg.k_sources], 1):

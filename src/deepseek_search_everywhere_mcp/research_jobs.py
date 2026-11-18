@@ -984,7 +984,9 @@ async def _execute_research_pipeline(
         await _report_job_progress(
             job, "synthesis", synth_step, run.total_steps, "Synthesizing cited research report"
         )
-    context = select_synthesis_context(run.sources, depth=depth, sources_pref=sources_pref, notes=run.notes)
+    context = select_synthesis_context(
+        run.sources, depth=depth, sources_pref=sources_pref, notes=run.notes, lang=run.lang, topic=run.topic
+    )
     context, guard_notes = apply_token_guard(context)
     run.notes.extend(guard_notes)
     if not context:

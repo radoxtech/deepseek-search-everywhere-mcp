@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from typing import Any
 
 import pytest
 
@@ -1603,3 +1604,96 @@ def test_classify_official_commentary_and_tool_hosts(url: str, expected: str) ->
 
 def test_scholarly_government_hosts_keep_scholarly_types() -> None:
     assert classify_source_type("https://pubmed.ncbi.nlm.nih.gov/38123456/", "A cohort", "") == "study"
+
+
+# --- Source selection: primary quota, translations and language ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "The trial showed that the drug is safe and that the effect was large for most of the patients "
+            * 3,
+            "en",
+        ),
+        ("Die Studie zeigt, dass die Wirkung mit der Dosis steigt und sich nicht auf den Placebo " * 3, "de"),
+        ("Studien visar att det är en effekt som inte har med dosen att göra och den är stor " * 3, "sv"),
+        ("该研究表明，药物的效果与剂量有关，并且在大多数患者中是安全的。" * 3, "zh"),
+        ("この研究では、薬の効果は用量に関係していることが示されました。" * 3, "ja"),
+        ("12 34 56 78", None),
+        ("", None),
+    ],
+)
+def test_text_language(text: str, expected: str | None) -> None:
+    assert deep_research.text_language(text) == expected
+
+
+_TABLE = "Results: 12.4% vs 8.1%, 1,407 adults, 34.5 kg, 0.77 HR, 95.2% CI, 2.31 ratio, 18.7% loss. "
+
+
+def _src(i: int, content: str, url: str | None = None) -> dict[str, Any]:
+    return {"id": i, "title": f"T{i}", "url": url or f"https://s{i}.test/a", "content": content}
+
+
+def test_translation_of_a_kept_source_is_dropped() -> None:
+    english = _src(1, "The trial reported the following figures for the patients and the placebo. " + _TABLE)
+    swedish = _src(
+        2, "Studien visar att det är en effekt som inte har med dosen att göra och den är stor. " + _TABLE
+    )
+    other = _src(3, "Another study with 41.2% and 7.7% and 3,900 people and 2.9 kg and 0.55 and 63.1%.")
+    kept, dropped, moved = deep_research.drop_duplicate_sources([english, swedish, other], "en")
+    assert [s["id"] for s in kept] == [1, 3]
+    assert (dropped, moved) == (1, 0)
+
+
+def test_copy_in_the_target_language_replaces_a_foreign_one() -> None:
+    swedish = _src(
+        1, "Studien visar att det är en effekt som inte har med dosen att göra och den är stor. " + _TABLE
+    )
+    english = _src(
+        2, "The trial reported the following figures for the patients and the placebo. " * 2 + _TABLE
+    )
+    kept, dropped, _ = deep_research.drop_duplicate_sources([swedish, english], "en")
+    assert [s["id"] for s in kept] == [2] and dropped == 1
+
+
+def test_sources_in_another_language_go_last() -> None:
+    german = _src(
+        1, "Die Studie zeigt, dass die Wirkung mit der Dosis steigt und sich nicht auf den Placebo " * 2
+    )
+    english = _src(
+        2, "The trial showed that the drug is safe and that the effect was large for most of the patients"
+    )
+    kept, dropped, moved = deep_research.drop_duplicate_sources([german, english], "en")
+    assert [s["id"] for s in kept] == [2, 1] and (dropped, moved) == (0, 1)
+
+
+def test_select_context_uses_the_requested_language() -> None:
+    german = _src(
+        1, "Die Studie zeigt, dass die Wirkung mit der Dosis steigt und sich nicht auf den Placebo " * 2
+    )
+    english = _src(
+        2, "The trial showed that the drug is safe and that the effect was large for most of the patients"
+    )
+    notes: list[str] = []
+    picked = select_synthesis_context([german, english], depth="low", notes=notes, lang="de")
+    assert [s["url"] for s in picked] == ["https://s1.test/a", "https://s2.test/a"]
+    assert any("another language than 'de'" in n for n in notes)
+
+
+def test_primary_quota_swaps_in_the_best_unpicked_primary() -> None:
+    blogs = [{"url": f"https://blog{i}.test/blog/x", "title": f"B{i}", "content": ""} for i in range(6)]
+    official = {"url": "https://www.fda.gov/drugs/x", "title": "Label", "content": ""}
+    selected, swapped = deep_research.apply_primary_quota(blogs[:3], [*blogs, official], 3)
+    assert swapped == 1
+    assert [s["title"] for s in selected] == ["B0", "B1", "Label"]
+
+
+def test_rank_notes_a_primary_swap() -> None:
+    results = [
+        [{"url": f"https://blog{i}.test/blog/x", "title": f"B{i}", "content": "x"} for i in range(5)],
+        [{"url": "https://www.fda.gov/drugs/x", "title": "Label", "content": "x"}],
+    ]
+    selected, notes = deep_research.rank_and_diversify_sources(results, k_sources=3)
+    assert any(s["title"] == "Label" for s in selected)
