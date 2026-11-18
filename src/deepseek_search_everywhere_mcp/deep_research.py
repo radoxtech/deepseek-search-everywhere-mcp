@@ -209,7 +209,7 @@ DEPTH_CONFIG: dict[str, DepthConfig] = {
     "medium": DepthConfig(
         subqueries=3,
         count=12,
-        k_sources=10,
+        k_sources=14,
         per_page_char_cap=20_000,
         total_source_chars=150_000,
         thinking=True,
@@ -1225,6 +1225,15 @@ def _authority_key(item: dict[str, Any], sources: str = "any") -> tuple[float, f
     )
 
 
+def _content_fingerprint(content: str) -> str:
+    """A fingerprint of a page's opening text, to catch one article published on two hosts.
+
+    Short text (a snippet) is never fingerprinted: two unrelated snippets can share their words.
+    """
+    words = " ".join(re.findall(r"[a-z0-9]+", (content or "")[:400].lower()))
+    return words[:200] if len(words) >= 150 else ""
+
+
 def rank_and_diversify_sources(
     subquery_results: list[list[dict[str, Any]]],
     k_sources: int,
@@ -1245,7 +1254,8 @@ def rank_and_diversify_sources(
        to meet the target source count and add a note.
 
     ``stats``, when given, receives this stage's counters for the debug dump: pool size, drops,
-    canonical duplicates, domain-cap overflow and relaxation, and the selected count.
+    canonical duplicates, content duplicates, domain-cap overflow and relaxation, and the selected
+    count.
     """
     in_pages = sum(len(r) for r in subquery_results)
     skipped_non_content = 0
@@ -1281,13 +1291,22 @@ def rank_and_diversify_sources(
 
     deduped: list[dict[str, Any]] = []
     seen_canons: set[str] = set()
+    seen_contents: set[str] = set()
+    content_duplicates = 0
     for item in interleaved:
         url = clean_source_url(item.get("url") or "")
         canon = _canonical_url(url) or url.strip().lower()
-        if canon not in seen_canons:
-            seen_canons.add(canon)
-            deduped.append(item)
-    canonical_duplicates = len(interleaved) - len(deduped)
+        if canon in seen_canons:
+            continue
+        fingerprint = _content_fingerprint(item.get("content") or "")
+        if fingerprint and fingerprint in seen_contents:
+            content_duplicates += 1
+            continue
+        seen_canons.add(canon)
+        if fingerprint:
+            seen_contents.add(fingerprint)
+        deduped.append(item)
+    canonical_duplicates = len(interleaved) - len(deduped) - content_duplicates
 
     domain_counts: dict[str, int] = {}
     capped: list[dict[str, Any]] = []
@@ -1335,6 +1354,7 @@ def rank_and_diversify_sources(
                 "non_content": skipped_non_content,
                 "denylisted": denied,
                 "canonical_duplicates": canonical_duplicates,
+                "content_duplicates": content_duplicates,
                 "cap_overflow": len(overflow),
                 "cap_relaxed": relaxed,
                 "primary_swapped": swapped,
