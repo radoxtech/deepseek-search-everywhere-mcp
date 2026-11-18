@@ -73,6 +73,32 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
   unverified numbers, notes and a per-stage `stage_trace` with timings and counters). The trace never
   enters the public envelope.
 
+## Evaluation, experiments and decision records
+
+Any change that claims to improve the quality of a tool's output is an experiment, and an experiment
+needs a record before it needs code. Quality means rubric coverage and citation faithfulness as
+measured by the harness in `evals/`; "feels better" is not a result.
+
+- **Register:** `evals/EXPERIMENTS.md` holds one entry per experiment (`E01`, `E02`, …) with `Change`
+  (the parameter or code path, before → after), `Claim` (the mechanism, not "better quality"), `Arms`,
+  `Criterion`, `Result` (mean, sd, t, cost, wall) and `Verdict`.
+- **ADR:** a decision that changes shipped behaviour or a default (word budgets, limits, retrieval
+  parameters, prompts, envelope shape) also gets a numbered record in `evals/adr/NNNN-<topic>.md` with
+  Status, Context, Decision, Evidence, Consequences and the alternatives rejected. Link the experiment
+  id from the ADR and the ADR from the register entry.
+- **Order of work:** write the hypothesis and the success criterion first, run, record, decide. Do not
+  implement a quality change that has no entry and no criterion.
+- **Verdicts:** `keep`, `revert`, `reject`, `inconclusive`. Only `keep` lands in `src/`. A change that
+  loses is reverted in its own commit and its numbers stay in the register, so nobody retries it.
+- **Number discipline:** compare only runs judged by the same protocol; use at least two repeats and the
+  three control topics before a `keep`; record what each run cost in the ledger. A single repeat has
+  already produced +3.5 pp and −1.3 pp for the same change.
+- **History is append-only:** a later experiment supersedes an earlier one with a new entry and flips
+  the ADR status to `superseded`, linking the successor. Never rewrite old numbers.
+- Record in English, like the rest of the repository. The harness, its register and its ADRs are kept
+  local for now (`evals/` is gitignored); when they are promoted into the repository, move the ADRs to
+  `docs/adr/` and keep the ids so existing links survive.
+
 ## Invariants (do not change without an explicit maintainer decision)
 
 - Tool names, parameters, envelope fields and error codes are stable public API. The 3.0 release
