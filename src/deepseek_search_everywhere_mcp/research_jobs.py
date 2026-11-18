@@ -458,6 +458,11 @@ class _ResearchRun:
     started_at: float = field(default_factory=runtime._clock)
     trace: list[dict[str, Any]] = field(default_factory=list)
 
+    @property
+    def query_budget(self) -> int:
+        """How many queries the decomposition may plan: the depth tier plus two spare ones."""
+        return self.cfg.subqueries + 2
+
     def remaining(self) -> float:
         """Seconds left before the job deadline."""
         return self.deadline_at - runtime._clock()
@@ -563,10 +568,12 @@ async def _research_decompose(run: _ResearchRun) -> None:
         run.job, "decomposition", 1, run.total_steps, "Decomposing topic into subqueries"
     )
     with _stage(run, "decompose") as counters:
+        budget = run.query_budget
+        counters["query_budget"] = budget
         timeout = run.phase_timeout(20.0)
         res = await runtime._chat_request(
             messages=build_decomposition_messages(
-                run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref, lang=run.lang
+                run.topic, max_queries=budget, sources=run.sources_pref, lang=run.lang
             ),
             thinking={"type": "disabled"},
             model=REWRITE_MODEL,
@@ -582,9 +589,7 @@ async def _research_decompose(run: _ResearchRun) -> None:
         counters["model_ok"] = bool(res.get("ok"))
         counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
         if res.get("ok") and res.get("content"):
-            run.subqueries, run.aspects = parse_research_plan(
-                res["content"], run.topic, max_queries=run.cfg.subqueries
-            )
+            run.subqueries, run.aspects = parse_research_plan(res["content"], run.topic, max_queries=budget)
             counters["fallback"] = False
         else:
             fallback, _ = fit_query(run.topic)

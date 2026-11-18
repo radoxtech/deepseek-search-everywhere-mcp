@@ -208,7 +208,7 @@ DEPTH_CONFIG: dict[str, DepthConfig] = {
     ),
     "medium": DepthConfig(
         subqueries=3,
-        count=8,
+        count=12,
         k_sources=10,
         per_page_char_cap=20_000,
         total_source_chars=150_000,
