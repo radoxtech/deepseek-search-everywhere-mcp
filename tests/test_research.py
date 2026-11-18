@@ -1173,6 +1173,18 @@ def _chat_ok(content: str, cost: float = 0.0, finish: str = "stop") -> dict[str,
     }
 
 
+def _pin_words(monkeypatch: pytest.MonkeyPatch, target: int, ceiling: int, depth: str = "low") -> None:
+    """Pin the word budget of one depth so the condense tests do not follow the shipped ladder."""
+    import dataclasses
+
+    from deepseek_search_everywhere_mcp import deep_research
+
+    cfg = deep_research.DEPTH_CONFIG[depth]
+    monkeypatch.setitem(
+        deep_research.DEPTH_CONFIG, depth, dataclasses.replace(cfg, target_words=target, max_words=ceiling)
+    )
+
+
 def _install_condense_chat(
     monkeypatch: pytest.MonkeyPatch, long_report: str, condense_result: dict[str, Any] | None
 ) -> list[dict[str, Any]]:
@@ -1197,6 +1209,7 @@ def _long_report(words: int) -> str:
 
 
 async def test_overlength_report_is_condensed(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    _pin_words(monkeypatch, 400, 480)
     fake_upstream(DeepResearchUpstream())
     short = "## Findings\n\nShort and dense [1][2]."
     calls = _install_condense_chat(monkeypatch, _long_report(600), _chat_ok(short, cost=0.003))
@@ -1217,6 +1230,7 @@ async def test_overlength_report_is_condensed(fake_upstream: Any, monkeypatch: p
 async def test_report_within_ceiling_is_not_condensed(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _pin_words(monkeypatch, 400, 480)
     fake_upstream(DeepResearchUpstream())
     calls = _install_condense_chat(monkeypatch, _long_report(440), None)
     res = await server.deepseek_research("no condense topic", depth="low")
@@ -1228,6 +1242,7 @@ async def test_report_within_ceiling_is_not_condensed(
 async def test_condense_failure_keeps_original_with_note(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _pin_words(monkeypatch, 400, 480)
     fake_upstream(DeepResearchUpstream())
     failed = {"ok": False, "error": {"code": "internal_error", "message": "boom"}, "cost_usd": 0.0}
     _install_condense_chat(monkeypatch, _long_report(600), failed)
@@ -1249,6 +1264,7 @@ async def test_condense_failure_keeps_original_with_note(
 async def test_condense_rejected_results_keep_original_and_bill_cost(
     bad: dict[str, Any], fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _pin_words(monkeypatch, 400, 480)
     fake_upstream(DeepResearchUpstream())
     _install_condense_chat(monkeypatch, _long_report(600), bad)
     res = await server.deepseek_research("condense reject topic", depth="low")

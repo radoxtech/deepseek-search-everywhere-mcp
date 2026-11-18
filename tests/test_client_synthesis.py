@@ -212,7 +212,7 @@ async def test_client_mode_drops_the_synthesis_time_reserve(fake_upstream: Any) 
         await server.deepseek_research("reserve topic", depth="low")
         await server.deepseek_research("reserve topic", depth="low", synthesis="client")
     server_run, client_run = runs
-    assert server_run.synthesis_reserve == 20.0 and client_run.synthesis_reserve == 0.0
+    assert server_run.synthesis_reserve == 35.0 and client_run.synthesis_reserve == 0.0
     # With 25 s left a phase gets 5 s when 20 s are kept for synthesis, and 20 s when none are.
     for run in runs:
         run.deadline_at = server._clock() + 25.0
