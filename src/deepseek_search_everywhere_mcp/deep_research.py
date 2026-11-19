@@ -59,7 +59,7 @@ class ResearchJob:
     client_charged: bool = False
     run: Any = None
 
-    def normalize_key(self) -> tuple[str, str, str | None, str, str, str]:
+    def normalize_key(self) -> tuple[str, str, str | None, str, str, str, str]:
         return (
             normalize_topic_key(self.topic),
             self.depth,
@@ -67,6 +67,7 @@ class ResearchJob:
             self.sources,
             self.unverified,
             self.synthesis,
+            self.kind,
         )
 
     @property
@@ -108,8 +109,9 @@ class ResearchJobStore:
         sources: str = "any",
         unverified: str = "flag",
         synthesis: str = "server",
+        kind: str = "research",
     ) -> ResearchJob | None:
-        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified, synthesis)
+        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified, synthesis, kind)
         for job in self._jobs.values():
             if job.task is not None and not job.task.done():
                 if job.normalize_key() == target_key:
@@ -125,12 +127,13 @@ class ResearchJobStore:
         sources: str = "any",
         unverified: str = "flag",
         synthesis: str = "server",
+        kind: str = "research",
     ) -> ResearchJob | None:
         """Return the newest successfully finished job for the key that is still within the TTL.
 
         A finished job has a report, or (client synthesis) its sources ready for the client's report.
         """
-        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified, synthesis)
+        target_key = (normalize_topic_key(topic), depth, lang, sources, unverified, synthesis, kind)
         best: ResearchJob | None = None
         for job in self._jobs.values():
             if job.completed_at is None or (now - job.completed_at) > self.ttl:

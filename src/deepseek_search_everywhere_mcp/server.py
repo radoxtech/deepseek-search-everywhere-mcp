@@ -69,6 +69,7 @@ from .text import (
     _truncate,
     _unescape_markdown,
 )
+from .tools.agent import deepseek_agent_deep_research
 from .tools.balance import deepseek_check_balance
 from .tools.extract import deepseek_extract
 from .tools.fetch import deepseek_fetch
@@ -130,6 +131,7 @@ __all__ = [
     "_upstream_date",
     "_url_date",
     "create_server",
+    "deepseek_agent_deep_research",
     "deepseek_check_balance",
     "deepseek_check_research",
     "deepseek_extract",
@@ -204,6 +206,7 @@ SERVER_NAME = "deepseek-search-everywhere-mcp"
 
 TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_search,
+    deepseek_agent_deep_research,
     deepseek_fetch,
     deepseek_research,
     deepseek_check_research,
@@ -217,6 +220,13 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     ),
     "deepseek_fetch": ToolAnnotations(
         title="Read a web page",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+    "deepseek_agent_deep_research": ToolAnnotations(
+        title="Agent deep research (stops when rounds stop paying)",
         readOnlyHint=True,
         destructiveHint=False,
         idempotentHint=True,

@@ -28,6 +28,31 @@ from .research_jobs import (
 )
 
 MAX_ROUNDS = 3
+
+
+async def run_agent_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
+    """Run the agent pipeline for one job and keep the result on the job, like the research runner."""
+    from .errors import _fail
+    from .redact import redact
+    from .research_jobs import _maybe_dump_research_job
+
+    try:
+        res = await run_agent(job, **kwargs)
+        job.result = res
+        job.completed_at = runtime._clock()
+        return res
+    except asyncio.CancelledError:
+        job.completed_at = runtime._clock()
+        raise
+    except Exception as exc:
+        job.exception = exc
+        job.completed_at = runtime._clock()
+        job.result = _fail("internal_error", redact(str(exc)))
+        if job.run is not None:
+            _maybe_dump_research_job(run=job.run, error=redact(str(exc)))
+        return job.result
+
+
 SEARCH_COST_USD = 0.00075
 ESTIMATED_SYNTHESIS_USD = {"low": 0.0035, "medium": 0.0081, "high": 0.0243, "max": 0.0337}
 ESTIMATE_MARGIN = 1.2

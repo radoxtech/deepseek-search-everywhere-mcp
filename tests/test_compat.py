@@ -10,6 +10,7 @@ from deepseek_search_everywhere_mcp import search_core, server
 
 TOOL_NAMES = {
     "deepseek_search",
+    "deepseek_agent_deep_research",
     "deepseek_fetch",
     "deepseek_research",
     "deepseek_check_research",
