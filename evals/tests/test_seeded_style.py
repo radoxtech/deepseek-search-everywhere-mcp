@@ -33,9 +33,27 @@ def test_seeded_style_puts_snippets_in_front_of_the_plan_builder(monkeypatch) ->
     async def fake_search_all(queries, topic, depth):
         calls.append((list(queries), topic, depth))
         return [
-            {"query": queries[0], "rank": 1, "url": "https://a.test/1", "title": "A", "content": "first"},
-            {"query": queries[0], "rank": 2, "url": "https://a.test/1", "title": "A dup", "content": "dup"},
-            {"query": queries[1], "rank": 1, "url": "https://b.test/2", "title": "B", "content": "second"},
+            {
+                "query": queries[0],
+                "rank": 1,
+                "url": "https://a.test/1",
+                "title": "A",
+                "content": "In the 68-week trial semaglutide gave -14.9% vs -2.4% placebo in 1961 adults.",
+            },
+            {
+                "query": queries[0],
+                "rank": 2,
+                "url": "https://a.test/1",
+                "title": "A dup",
+                "content": "Duplicate page 42 with 17 numbers.",
+            },
+            {
+                "query": queries[1],
+                "rank": 1,
+                "url": "https://b.test/2",
+                "title": "B",
+                "content": "After 72 weeks the 15 mg arm lost 20.9% of body weight in 2539 adults.",
+            },
         ]
 
     monkeypatch.setattr(query_lab, "_ask", fake_ask)
@@ -46,7 +64,8 @@ def test_seeded_style_puts_snippets_in_front_of_the_plan_builder(monkeypatch) ->
     assert got == ["q1", "q2"]
     assert len(calls) == 1 and calls[0][2] == "low"
     assert "https://a.test/1" in seen["plan"] and "https://b.test/2" in seen["plan"]
-    assert "dup" not in seen["plan"], "duplicate URLs must reach the plan builder once"
+    assert "-14.9%" in seen["plan"], "the seed must carry the figures, not the page header"
+    assert "Duplicate page" not in seen["plan"], "duplicate URLs must reach the plan builder once"
 
 
 def test_seed_snippets_stop_at_the_cap(monkeypatch) -> None:
@@ -55,7 +74,13 @@ def test_seed_snippets_stop_at_the_cap(monkeypatch) -> None:
 
     async def fake_search_all(queries, topic, depth):
         return [
-            {"query": "a", "rank": i, "url": f"https://x.test/{i}", "title": "t", "content": "c"}
+            {
+                "query": "a",
+                "rank": i,
+                "url": f"https://x.test/{i}",
+                "title": "t",
+                "content": f"Trial number {i} enrolled {100 + i} adults and lost {i + 1}.5% of weight.",
+            }
             for i in range(20)
         ]
 

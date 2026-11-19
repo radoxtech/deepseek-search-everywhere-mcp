@@ -1,0 +1,303 @@
+{
+ "id": "nutrition-mediterranean-vs-lowfat",
+ "topic": "Mediterranean diet versus low-fat diet for cardiovascular events: PREDIMED, CORDIOPREV and Lyon Diet Heart trial results and the main criticisms of the evidence",
+ "status": "reviewed",
+ "prepared": "2026-11-19",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "PREDIMED randomized 7,447 adults at high cardiovascular risk; after a mean 4.8 years the primary composite (myocardial infarction, stroke, or cardiovascular death) occurred in 3.8% with Mediterranean diet plus extra-virgin olive oil, 3.4% with Mediterranean diet plus nuts and 4.4% in the control group, giving adjusted hazard ratios of 0.70 (95% CI 0.54-0.92) and 0.72 (95% CI 0.54-0.96).",
+   "importance": "core",
+   "sources": [
+    "https://blogs.nejm.org/cardioexchange/2013/02/25/large-trial-shows-cardiovascular-benefits-of-mediterranean-diet/comment-page-1/"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "PREDIMED randomized 7,447 adults at high cardiovascular risk.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "The PREDIMED primary composite occurred in 3.8% (olive oil), 3.4% (nuts) and 4.4% (control) over a mean 4.8 years.",
+     "main": true
+    },
+    {
+     "id": "k1c",
+     "fact": "Adjusted hazard ratios were 0.70 (95% CI 0.54-0.92) for olive oil and 0.72 (0.54-0.96) for nuts.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k2",
+   "point": "PREDIMED was stopped early when the Mediterranean groups crossed a prespecified benefit boundary; the absolute risk reduction was 0.6 percentage points for olive oil and 1.0 percentage point for nuts over 4.8 years, and 288 incident cardiovascular events were adjudicated in total.",
+   "importance": "core",
+   "sources": [
+    "https://blogs.nejm.org/cardioexchange/2013/02/25/large-trial-shows-cardiovascular-benefits-of-mediterranean-diet/comment-page-1/",
+    "https://www.ahajournals.org/doi/pdf/10.1161/CIRCULATIONAHA.116.024261"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "PREDIMED was stopped early when the Mediterranean groups crossed a prespecified benefit boundary.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "The absolute risk reduction was 0.6 percentage points for olive oil and 1.0 for nuts over 4.8 years.",
+     "main": true
+    },
+    {
+     "id": "k2c",
+     "fact": "288 incident cardiovascular events were adjudicated in PREDIMED.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k3",
+   "point": "PREDIMED's randomization was criticised: 425 participants who shared a household with an earlier participant were assigned to the same group as their relative, and 441 individual participants plus 26 household members at one of 11 centres were assigned by clinic; the paper was withdrawn and republished with reanalyses.",
+   "importance": "core",
+   "sources": [
+    "https://www.sciencedirect.com/science/article/pii/S0300893224000381"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "425 PREDIMED participants who shared a household were assigned to the same group as their relative.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "441 individual participants and 26 household members at one centre were assigned by clinic rather than individually randomized.",
+     "main": true
+    },
+    {
+     "id": "k3c",
+     "fact": "The original PREDIMED paper was withdrawn and republished with reanalyses.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k4",
+   "point": "When the non-individually randomized subgroups were excluded the PREDIMED results were reported as even more favourable, and a per-protocol analysis adjusted for adherence gave a primary-endpoint hazard ratio of 0.42 (95% CI 0.24-0.63) for Mediterranean versus low-fat control.",
+   "importance": "core",
+   "sources": [
+    "https://www.sciencedirect.com/science/article/pii/S0300893224000381"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "Excluding the non-individually randomized subgroups left PREDIMED results even more favourable.",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "The adherence-adjusted per-protocol hazard ratio was 0.42 (95% CI 0.24-0.63).",
+     "main": true
+    }
+   ]
+  },
+  {
+   "id": "k5",
+   "point": "Critics argue the PREDIMED control was not truly low-fat: total fat reduction in the control group was small, and the only significant endpoint was fewer strokes rather than myocardial infarction or mortality.",
+   "importance": "core",
+   "sources": [
+    "https://blogs.nejm.org/cardioexchange/2013/02/25/large-trial-shows-cardiovascular-benefits-of-mediterranean-diet/comment-page-1/"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "The PREDIMED control group's reduction in total fat intake was small.",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "The only significant PREDIMED endpoint was fewer strokes rather than myocardial infarction or mortality.",
+     "main": true
+    }
+   ]
+  },
+  {
+   "id": "k6",
+   "point": "CORDIOPREV randomized 1,002 patients with established coronary heart disease (502 Mediterranean, 500 low-fat) for 7 years; the prior intention-to-treat analysis reported the Mediterranean diet as effective versus low-fat.",
+   "importance": "core",
+   "sources": [
+    "https://www.sciencedirect.com/science/article/abs/pii/S0953620526000385"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "CORDIOPREV randomized 1,002 patients with established coronary heart disease, 502 to Mediterranean and 500 to low-fat.",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "CORDIOPREV followed patients for 7 years.",
+     "main": true
+    },
+    {
+     "id": "k6c",
+     "fact": "CORDIOPREV's intention-to-treat analysis reported the Mediterranean diet as effective versus low-fat.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k7",
+   "point": "CORDIOPREV's newer adherence analysis compares achieved adherence categories rather than randomized arms, so it cannot by itself establish causal superiority of one diet; highest versus lowest adherence hazard ratios were 0.142-0.148 for Mediterranean and 0.127-0.142 for low-fat.",
+   "importance": "core",
+   "sources": [
+    "https://www.sciencedirect.com/science/article/abs/pii/S0953620526000385"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "CORDIOPREV's adherence analysis compares achieved adherence categories, not randomized arms.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "Highest versus lowest adherence hazard ratios were 0.142-0.148 for Mediterranean and 0.127-0.142 for low-fat.",
+     "main": true
+    }
+   ]
+  },
+  {
+   "id": "k8",
+   "point": "The Lyon Diet Heart Study, a secondary-prevention trial after first myocardial infarction, reported at a mean 46 months 14 versus 44 events for cardiac death plus nonfatal myocardial infarction (P=0.0001) and 27 versus 90 for the broader composite including unstable angina, stroke and heart failure (P=0.0001).",
+   "importance": "core",
+   "sources": [
+    "https://pubmed.ncbi.nlm.nih.gov/9989963/"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "Lyon Diet Heart was a secondary-prevention trial after a first myocardial infarction.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "At a mean 46 months Lyon reported 14 versus 44 events for cardiac death plus nonfatal myocardial infarction (P=0.0001).",
+     "main": true
+    },
+    {
+     "id": "k8c",
+     "fact": "The broader Lyon composite including unstable angina, stroke and heart failure was 27 versus 90 (P=0.0001).",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k9",
+   "point": "The initial Lyon report, terminated at 27 months because of benefit, reported a 70% reduction in all-cause mortality and zero sudden cardiac deaths among 302 experimental participants versus 8 among 303 controls; the final adjusted risk ratios ranged from 0.28 to 0.53 and were risk ratios, not hazard ratios.",
+   "importance": "core",
+   "sources": [
+    "https://www.ahajournals.org/doi/full/10.1161/01.cir.99.6.733"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "The initial Lyon report was terminated at 27 months because of benefit and reported a 70% reduction in all-cause mortality.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "Lyon reported zero sudden cardiac deaths among 302 experimental participants versus 8 among 303 controls.",
+     "main": true
+    },
+    {
+     "id": "k9c",
+     "fact": "Lyon's adjusted risk ratios ranged from 0.28 to 0.53 and were risk ratios, not hazard ratios.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k10",
+   "point": "Pooled randomized estimates are compatible with benefit: 0.64 (95% CI 0.53-0.79) in one review, 0.55 (0.39-0.76) in another, and coronary events 0.65 (0.50-0.85) with stroke 0.66 (0.48-0.92) but cardiovascular mortality 0.90 (0.72-1.11).",
+   "importance": "supporting",
+   "sources": [
+    "https://www.sciencedirect.com/science/article/pii/S0300893224000381"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "Pooled randomized estimates for Mediterranean diet and cardiovascular disease were 0.64 (0.53-0.79) and 0.55 (0.39-0.76).",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "Randomized coronary events fell at 0.65 (0.50-0.85) and stroke at 0.66 (0.48-0.92), while cardiovascular mortality was 0.90 (0.72-1.11).",
+     "main": true
+    }
+   ]
+  },
+  {
+   "id": "k11",
+   "point": "Critics argue no randomized trial has compared people who follow a Mediterranean diet with those who do not; trials such as PREDIMED tested adding one or two features (extra-virgin olive oil or nuts), and Lyon's arms differed in many ways, confounding attribution to alpha-linolenic acid alone.",
+   "importance": "supporting",
+   "sources": [
+    "https://www.sciencedirect.com/science/article/pii/S0300893224000381",
+    "https://www.ahajournals.org/doi/full/10.1161/01.cir.99.6.733"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "No randomized trial has compared people who follow a Mediterranean diet with those who do not.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "PREDIMED tested adding extra-virgin olive oil or nuts rather than a whole-diet comparison.",
+     "main": true
+    },
+    {
+     "id": "k11c",
+     "fact": "Lyon's experimental and control diets differed in many ways, confounding attribution to alpha-linolenic acid alone.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k12",
+   "point": "Cohort and trial data are largely concordant that Mediterranean-style diets associate with lower cardiovascular risk, but how much of the randomised effect is causal, how much depends on olive oil or nuts specifically, and whether a whole-diet comparison against a genuinely low-fat control would reproduce the Lyon and PREDIMED magnitudes remain unresolved.",
+   "importance": "supporting",
+   "sources": [
+    "https://pubmed.ncbi.nlm.nih.gov/30817261/",
+    "https://www.sciencedirect.com/science/article/pii/S0300893224000381"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "Cohort and trial data are largely concordant that Mediterranean-style diets associate with lower cardiovascular risk.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "How much of the randomised effect is causal and how much depends on olive oil or nuts specifically remains unresolved.",
+     "main": true
+    }
+   ]
+  }
+ ],
+ "review": {
+  "by": "research synthesis",
+  "date": "2026-11-19",
+  "note": "Built from a cited deep-research pass; every point carries one or more sources and an atom set."
+ }
+}

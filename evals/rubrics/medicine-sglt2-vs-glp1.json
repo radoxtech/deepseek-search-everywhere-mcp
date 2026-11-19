@@ -1,0 +1,314 @@
+{
+ "id": "medicine-sglt2-vs-glp1",
+ "topic": "SGLT2 inhibitors versus GLP-1 receptor agonists in type 2 diabetes: cardiovascular and renal outcome trial results and main safety findings",
+ "status": "reviewed",
+ "prepared": "2026-11-19",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "EMPA-REG OUTCOME (7,020 patients) reduced three-point MACE by 14%, CV death by 38% and all-cause mortality by 32% versus placebo; all-cause mortality HR 0.68 (95% CI 0.57-0.82).",
+   "importance": "core",
+   "sources": [
+    "https://www.tandfonline.com/doi/10.1080/00325481.2019.1624582",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC9240141/pdf/13300_2022_Article_1277.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "EMPA-REG OUTCOME (7,020 patients) reduced three-point MACE by 14% versus placebo.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "Empagliflozin reduced CV death by 38% and all-cause mortality by 32% in EMPA-REG OUTCOME.",
+     "main": true
+    },
+    {
+     "id": "k1c",
+     "fact": "All-cause mortality hazard ratio for empagliflozin was 0.68 (95% CI 0.57-0.82).",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k2",
+   "point": "CANVAS (10,142 patients) reduced MACE by 14% with canagliflozin, but all-cause mortality was not significantly reduced (HR 0.87, 0.74-1.01); DECLARE-TIMI 58 (17,160) was noninferior for MACE without a significant MACE reduction (all-cause HR 0.93, 0.82-1.04).",
+   "importance": "core",
+   "sources": [
+    "https://www.tandfonline.com/doi/10.1080/00325481.2019.1624582",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC9240141/pdf/13300_2022_Article_1277.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "CANVAS (10,142 patients) reduced three-point MACE by 14% with canagliflozin.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "Dapagliflozin in DECLARE-TIMI 58 was noninferior for MACE without a significant reduction in MACE.",
+     "main": true
+    },
+    {
+     "id": "k2c",
+     "fact": "All-cause mortality HR was 0.87 (0.74-1.01) for canagliflozin and 0.93 (0.82-1.04) for dapagliflozin.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k3",
+   "point": "LEADER (9,340 patients, median 3.8 years) reduced MACE from 14.9% to 13.0% (HR 0.87, 95% CI 0.78-0.97; p=0.01) and CV death from 6.0% to 4.7%.",
+   "importance": "core",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC12095380/table/Tab3/",
+    "https://www.sciencedirect.com/org/science/article/pii/S1479680524000081"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "LEADER (9,340 patients) reduced MACE from 14.9% to 13.0% with liraglutide.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "The LEADER MACE hazard ratio was 0.87 (95% CI 0.78-0.97), p=0.01 for superiority.",
+     "main": true
+    },
+    {
+     "id": "k3c",
+     "fact": "LEADER reduced cardiovascular death from 6.0% to 4.7%.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k4",
+   "point": "SUSTAIN-6 (3,297 patients) reduced MACE from 8.9% to 6.6% (HR 0.74, 0.58-0.95; p=0.02) and nonfatal stroke from 2.7% to 1.6% (HR 0.61, 0.38-0.99) but did not reduce CV death; retinopathy complications were higher (50 versus 29; HR 1.76, 1.11-2.78; p=0.02).",
+   "importance": "core",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC12095380/table/Tab3/",
+    "https://www.sciencedirect.com/org/science/article/pii/S1479680524000081"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "SUSTAIN-6 (3,297 patients) reduced MACE from 8.9% to 6.6% (HR 0.74, 0.58-0.95).",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "SUSTAIN-6 reduced nonfatal stroke from 2.7% to 1.6% (HR 0.61, 0.38-0.99) but did not reduce CV death.",
+     "main": true
+    },
+    {
+     "id": "k4c",
+     "fact": "Retinopathy complications were higher in SUSTAIN-6, 50 versus 29 events (HR 1.76, 1.11-2.78).",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k5",
+   "point": "The SGLT2 inhibitor benefit is strongest for heart failure: heart-failure hospitalisation fell 35% with empagliflozin, 33% with canagliflozin and 39% in CREDENCE; a network meta-analysis of 133 RCTs (289,558 participants) gave heart-failure RR 0.64 (0.53-0.77).",
+   "importance": "core",
+   "sources": [
+    "https://www.tandfonline.com/doi/10.1080/00325481.2019.1624582",
+    "https://europepmc.org/article/MED/42365335"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "Heart-failure hospitalisation was reduced by 35% with empagliflozin and 33% with canagliflozin.",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "A network meta-analysis of 133 RCTs found SGLT2 inhibitors reduced heart failure with RR 0.64 (0.53-0.77).",
+     "main": true
+    },
+    {
+     "id": "k5c",
+     "fact": "CREDENCE reduced heart-failure hospitalisation by 39%.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k6",
+   "point": "A pooled analysis of SGLT2 inhibitor CVOTs found a 45% reduction in worsening renal function, ESRD or renal death (HR 0.55, 0.48-0.64; p<0.0001); CREDENCE (4,401 patients) reduced the renal composite by 30% and DAPA-CKD gave HR 0.61 (0.51-0.72).",
+   "importance": "core",
+   "sources": [
+    "https://www.tandfonline.com/doi/10.1080/00325481.2019.1624582",
+    "https://www.sciencedirect.com/science/article/pii/S2772487526000152"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "Pooled SGLT2 CVOT data showed a 45% reduction in worsening renal function, ESRD or renal death (HR 0.55, 0.48-0.64).",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "CREDENCE (4,401 patients) reduced the primary renal composite by 30%.",
+     "main": true
+    },
+    {
+     "id": "k6c",
+     "fact": "DAPA-CKD reduced the composite renal endpoint with HR 0.61 (0.51-0.72).",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k7",
+   "point": "The classes are complementary rather than interchangeable: SGLT2 inhibitors lead on heart failure and renal protection, GLP-1 receptor agonists on atherosclerotic events and weight; an indirect comparison estimated MACE HR 0.89 (0.84-0.95) for SGLT2 inhibitors and 0.82 (0.78-0.87) for GLP-1 RAs.",
+   "importance": "core",
+   "sources": [
+    "https://dev.europepmc.org/article/MED/41454299",
+    "https://www.jacc.org/doi/full/10.1016/j.jacc.2026.02.683"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "SGLT2 inhibitors are strongest for heart failure and renal outcomes, GLP-1 receptor agonists for atherosclerotic events.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "An indirect comparison estimated MACE HR 0.89 (0.84-0.95) for SGLT2 inhibitors and 0.82 (0.78-0.87) for GLP-1 receptor agonists.",
+     "main": true
+    },
+    {
+     "id": "k7c",
+     "fact": "A harmonised meta-analysis of eight GLP-1 CVOTs found pooled MACE HR 0.86 (0.80-0.93).",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k8",
+   "point": "GLP-1 receptor agonist safety: a nonsignificant pancreatic-cancer imbalance in LEADER, nonsignificant pancreatitis and pancreatic-cancer imbalances in HARMONY, and severe hypoglycaemia 1.4% versus 0.8% with oral semaglutide in PIONEER-6.",
+   "importance": "core",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC12095380/table/Tab3/"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "LEADER showed a nonsignificant pancreatic-cancer imbalance.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "Severe hypoglycaemia was 1.4% versus 0.8% with oral semaglutide in PIONEER-6.",
+     "main": true
+    }
+   ]
+  },
+  {
+   "id": "k9",
+   "point": "SGLT2 inhibitor safety: genital mycotic infections are more frequent (women 10.0% versus 2.6% with empagliflozin), volume depletion higher with canagliflozin (26.0% versus 18.5%), and diabetic ketoacidosis rare (56 events in 30,766 patients, 0.18%, versus 23 in 25,211, 0.09%).",
+   "importance": "supporting",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC9240141/pdf/13300_2022_Article_1277.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "Genital mycotic infections were more frequent with empagliflozin, 10.0% versus 2.6% in women.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "Diabetic ketoacidosis occurred in 56 of 30,766 patients (0.18%) versus 23 of 25,211 (0.09%).",
+     "main": true
+    },
+    {
+     "id": "k9c",
+     "fact": "Volume depletion was higher with canagliflozin, 26.0% versus 18.5%.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k10",
+   "point": "CANVAS showed increased lower-limb amputation (6.3 versus 3.4 per 1,000 patient-years) and fracture, but the amputation risk was not confirmed in CREDENCE.",
+   "importance": "supporting",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC9240141/pdf/13300_2022_Article_1277.pdf",
+    "https://www.tandfonline.com/doi/10.1080/00325481.2019.1624582"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "CANVAS showed increased lower-limb amputation, 6.3 versus 3.4 per 1,000 patient-years.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "The amputation risk seen in CANVAS was not confirmed in CREDENCE.",
+     "main": true
+    }
+   ]
+  },
+  {
+   "id": "k11",
+   "point": "GLP-1 receptor agonist renal effects are present but smaller: REWIND reduced renal outcomes from 19.6% to 17.1% (p=0.0004) and AMPLITUDE-O gave HR 0.68 (0.57-0.79).",
+   "importance": "supporting",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC12095380/table/Tab3/"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "REWIND reduced renal outcomes from 19.6% to 17.1% (p=0.0004).",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "AMPLITUDE-O reduced renal outcomes with HR 0.68 (0.57-0.79).",
+     "main": true
+    }
+   ]
+  },
+  {
+   "id": "k12",
+   "point": "Numbers needed to treat are not reported in these trials; only absolute event rates are available (for example LEADER 13.0% versus 14.9%, SUSTAIN-6 6.6% versus 8.9%), so any NNT must be calculated rather than quoted.",
+   "importance": "supporting",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC12095380/table/Tab3/",
+    "https://www.sciencedirect.com/science/article/pii/S2772487526000152"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "These trials report absolute event rates rather than numbers needed to treat.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "LEADER event rates were 13.0% versus 14.9% and SUSTAIN-6 were 6.6% versus 8.9%.",
+     "main": true
+    }
+   ]
+  }
+ ],
+ "review": {
+  "by": "research synthesis",
+  "date": "2026-11-19",
+  "note": "Built from a cited deep-research pass; every point carries one or more sources and an atom set."
+ }
+}

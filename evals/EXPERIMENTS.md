@@ -529,6 +529,44 @@ the extra pages landed in domains the cap already covered. Cost $0.0053 → $0.0
 **Verdict: reject.** `low` keeps two subqueries. The 20.6 pp spread across six topics is larger than any
 effect measured in this project; with one repeat per arm it is the draw, not the third query.
 
+### E18 — Does an analyzer with clarification improve the search plan? (2026-11-19, reject)
+
+**Change.** A reconnaissance pass (two light searches, six pages cut to sentences carrying numbers) feeds
+an analyzer that returns the facts a search must establish, the questions the asker could answer, and a
+default for each question. Two arms used it: `analyzed` planned one query per fact; `analyzed-answered`
+first re-ran the analyzer with answers to those questions. Baseline `aspects` analyses and plans with no
+reconnaissance at all.
+
+**Claim.** Knowing what the web already holds should stop the plan from restating the topic, and asking
+the asker for the preference the topic leaves open should point the search at the right evidence.
+
+**Arms.** Six topics with existing verdicts, one repeat: `aspects`, `analyzed`, `analyzed-answered`, and
+`analyzed-human` where a human answered the questions. Then a fair comparison on two topics where the
+answer genuinely excludes rubric points (nutrition-TRE and nutrition-mediterranean), rubric narrowed to
+the points that still apply, both planners given the same answers, two repeats each.
+
+**Result.** Against `aspects` at 0.569 over six topics: `analyzed` 0.503 (−6.5 pp, sd 27.9, t −0.58),
+`analyzed-answered` 0.521 (−4.7 pp), `analyzed-human` 0.497 (−10.4 pp over five topics). The per-topic
+spread swamped every arm: the same planner on medicine-glp1 read 0.429 and 0.571 on different runs, and
+on law it fell 1.000 → 0.500.
+
+The fair comparison, which the first pass got wrong by scoring narrowed plans against the full rubric:
+
+| topic | aspects (narrowed rubric) | analyzed (narrowed rubric) |
+|---|---|---|
+| nutrition-time-restricted-eating | 0.100 (0.000, 0.200) | 0.100 (0.000, 0.200) |
+| nutrition-mediterranean-vs-lowfat | 0.800 (0.800, 0.800) | 0.800 (1.000, 0.600) |
+| **mean** | **0.450** | **0.450** |
+
+Paired difference 0.0 pp over two topics, two repeats each. The analyzer was also less stable: 1.000 and
+0.600 on identical plans, against 0.800 twice for `aspects`.
+
+**Verdict: reject** for the search plan. The analyzer does not beat a plain analysis, and clarification
+does not change the result once both planners get the same answers. Two earlier readings looked like
+gains (+25 pp on medicine-sglt2, +20 pp on one narrowed topic) and both dissolved on repeats. Whether the
+analyzer earns its place inside an agent loop, where a question is a step rather than a one-shot return,
+is a different measurement and is not covered here.
+
 ## Ledger
 
 | date | what | deepseek $ |
@@ -550,7 +588,13 @@ effect measured in this project; with one repeat per arm it is the draw, not the
 | 2026-11-18 | smoke tests (2) | 0.024 |
 | 2026-11-19 | low floor arms B and C, 12 reports | 0.068 |
 | 2026-11-19 | low with three subqueries, 6 reports | 0.038 |
-| **total** | | **2.417** |
+| 2026-11-19 | E18 P2 seeded runs (aspects + seeded, 6 topics) | 0.052 |
+| 2026-11-19 | E18 four seed variants, 6 topics | 0.118 |
+| 2026-11-19 | E18 seeded-lit on 6 topics | 0.061 |
+| 2026-11-19 | E18 analyzer 20-topic sweep (×2) | 0.121 |
+| 2026-11-19 | E18 analyzed / answered / human, 6 topics | 0.107 |
+| 2026-11-19 | E18 narrowed fair comparison, 2 topics × 2 repl. | 0.049 |
+| **total** | | **2.925** |
 
 ## Traps worth remembering
 
