@@ -289,15 +289,26 @@ Write only this JSON object: {"pages": {"<page id>": ["k1", "k4"], "<page id>": 
 """
 
 
+def _labelled_page_ids(results_dir: Path) -> set[str]:
+    """Every page id that already has a verdict under ``results_dir``, so a pack run can reuse it."""
+    ids: set[str] = set()
+    for verdict in results_dir.glob("*/verdicts/*.json"):
+        pages = json.loads(verdict.read_text(encoding="utf-8")).get("pages")
+        if isinstance(pages, dict):
+            ids.update(pages)
+    return ids
+
+
 def packs(args: argparse.Namespace) -> None:
     root = HERE / "results" / args.name
+    already = _labelled_page_ids(HERE / "results" / args.skip_labelled) if args.skip_labelled else set()
     for topic_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         pages: dict[str, dict[str, Any]] = {}
         for f in sorted(topic_dir.glob("*.json")):
             for r in json.loads(f.read_text())["results"]:
                 pages.setdefault(_page_id(r["url"]), r)
         rubric = judge._rubric_text(topic_dir.name)
-        ids = sorted(pages)
+        ids = [pid for pid in sorted(pages) if pid not in already]
         (topic_dir / "packs").mkdir(exist_ok=True)
         for i in range(0, len(ids), PAGES_PER_PACK):
             chunk = ids[i : i + PAGES_PER_PACK]
@@ -380,6 +391,12 @@ def main() -> None:
     for name in ("packs", "score"):
         s = sub.add_parser(name)
         s.add_argument("--name", required=True)
+        if name == "packs":
+            s.add_argument(
+                "--skip-labelled",
+                default=None,
+                help="another results dir whose verdicts already cover some pages; those stay unpacked",
+            )
     args = parser.parse_args()
     if args.cmd == "run":
         asyncio.run(run(args))
