@@ -32,10 +32,8 @@ plans/
 .DS_Store
 .idea/
 
-# Evaluation harness output
+# Evaluation harness output: runs, debug dumps and archived reports stay local
 evals/results/
 evals/dumps/
-
-# Evaluation harness work in progress: keep local until the tooling and the archived reports are
-# finished (the files already tracked in git stay tracked; this only stops new ones from creeping in)
-evals/
+evals/archive/
+evals/topics-local.json

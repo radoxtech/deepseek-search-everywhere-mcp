@@ -75,6 +75,9 @@ Issues = "https://github.com/radoxtech/deepseek-search-everywhere-mcp/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/deepseek_search_everywhere_mcp"]
 
+[tool.hatch.build.targets.sdist]
+exclude = ["/evals"]
+
 [tool.ruff]
 line-length = 110
 target-version = "py311"
