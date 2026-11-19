@@ -98,6 +98,9 @@ measured by the harness in `evals/`; "feels better" is not a result.
 - **Number discipline:** compare only runs judged by the same protocol; use at least two repeats and the
   three control topics before a `keep`; record what each run cost in the ledger. A single repeat has
   already produced +3.5 pp and −1.3 pp for the same change.
+- **The noise floor is measured, not assumed:** two runs of the identical configuration differ by 7.2 pp
+  on average (range −14 to +10 pp, `E07`). A threshold below that band is meaningless for one report;
+  judge a change on the paired mean over six or more topics and require t > 2.
 - **History is append-only:** a later experiment supersedes an earlier one with a new entry and flips
   the ADR status to `superseded`, linking the successor. Never rewrite old numbers.
 - Record in English, like the rest of the repository. The harness, its register and its ADRs are kept
