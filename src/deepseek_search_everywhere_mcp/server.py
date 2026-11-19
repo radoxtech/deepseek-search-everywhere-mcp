@@ -1,7 +1,7 @@
 """MCP server for the DeepSeek Search & Fetch API.
 
 Exposes web search, page fetch (single and batch), search-and-read, research and balance tools.
-``create_server()`` builds a FastMCP instance with every tool registered; the module-level
+``create_server()`` builds an ``MCPServer`` instance with every tool registered; the module-level
 ``mcp`` serves stdio, and ``deepseek_search_everywhere_mcp.http_app`` builds fresh ones for HTTP.
 Requires DEEPSEEK_API_KEY; DEEPSEEK_BASE_URL overrides the endpoint.
 
@@ -19,7 +19,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Final
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
 from . import runtime
@@ -144,7 +144,7 @@ __all__ = [
     "reset_state",
 ]
 
-# FastMCP instructions sent to clients during MCP initialization to guide tool choice.
+# MCP server instructions sent to clients during MCP initialization to guide tool choice.
 SERVER_INSTRUCTIONS: Final[str] = (
     "DeepSeek Search Everywhere: live web search, page reading, structured extraction and cited deep"
     " research.\n\n"
@@ -263,21 +263,18 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
 }
 
 
-def create_server(**options: Any) -> FastMCP:
-    """Build a new FastMCP instance with every tool registered.
+def create_server(**options: Any) -> MCPServer:
+    """Build a new ``MCPServer`` instance with every tool registered.
 
-    ``options`` are passed to :class:`FastMCP` (host, port, HTTP path, transport flags,
-    ``log_level``). ``log_level`` defaults to WARNING so FastMCP's one-time root logging
-    setup stays quiet; the CLI applies ``DEEPSEEK_MCP_LOG_LEVEL`` to the loggers themselves.
-    Each call returns an independent server, so each HTTP application gets its own
-    session manager. The server reports the package version in the ``initialize`` handshake.
+    ``options`` are passed to :class:`MCPServer` (``log_level`` and the HTTP transport flags).
+    ``log_level`` defaults to WARNING so the SDK's one-time root logging setup stays quiet; the
+    CLI applies ``DEEPSEEK_MCP_LOG_LEVEL`` to the loggers themselves. Each call returns an
+    independent server, so each HTTP application gets its own session manager. The server
+    reports the package version in the ``initialize`` handshake.
     """
     options.setdefault("log_level", DEFAULT_LOG_LEVEL)
     options.setdefault("instructions", SERVER_INSTRUCTIONS)
-    server = FastMCP(SERVER_NAME, **options)
-    # FastMCP has no ``version`` argument, so the handshake would report the MCP SDK's version.
-    # The low-level server's ``version`` is what ``initialize`` returns as ``serverInfo.version``.
-    server._mcp_server.version = __version__
+    server = MCPServer(SERVER_NAME, version=__version__, **options)
     for tool in TOOLS:
         description = inspect.cleandoc(tool.__doc__) if tool.__doc__ else None
         server.add_tool(

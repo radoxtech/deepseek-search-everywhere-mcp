@@ -54,7 +54,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "mcp>=1.26.0,<2.0",
+    "mcp>=2.3.0,<3.0",
     "httpx>=0.28.0",
 ]
 
@@ -87,6 +87,7 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [

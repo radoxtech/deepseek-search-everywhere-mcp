@@ -59,7 +59,7 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 
 ## Conventions
 
-- Python >= 3.11, fully typed, line length 110 (ruff: E, F, I, UP, B).
+- Python >= 3.12, fully typed, line length 110 (ruff: E, F, I, UP, B).
 - Global runtime state is created lazily and cleared by the module's `reset_state()`; `tests/conftest.py`
   calls it around every test.
 - No global asyncio primitives (locks, events, queues) at module level.

@@ -86,23 +86,23 @@ def _resolve_token(token: str | None) -> bytes:
 def build_http_app(settings: Settings | None = None, *, token: str | None = None) -> Starlette:
     """Build a new bearer-protected Starlette application for the streamable HTTP transport.
 
-    Each call creates a fresh FastMCP server, because a session manager can run only once.
+    Each call creates a fresh server, because a session manager can run only once.
     DNS-rebinding protection is disabled on purpose: the bearer token is the trust boundary,
     and the Host check would answer 421 to legitimate clients when binding to ``0.0.0.0``.
     Raises ``ValueError`` when no token is given and ``MCP_BEARER_TOKEN`` is unset or empty.
     """
     settings = settings or get_settings()
     secret = _resolve_token(token)
-    server = create_server(
+    # ``MCPServer`` carries no transport settings: in the 2.x API the host, port and
+    # streamable-HTTP path are arguments of ``streamable_http_app()``, not the constructor.
+    server = create_server(log_level=settings.log_level.upper())
+    app = server.streamable_http_app(
         host=settings.http_host,
-        port=settings.http_port,
         streamable_http_path=settings.http_path,
         stateless_http=True,
         json_response=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-        log_level=settings.log_level.upper(),
     )
-    app = server.streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, token=secret, path=settings.http_path)
 
     original_lifespan = app.router.lifespan_context

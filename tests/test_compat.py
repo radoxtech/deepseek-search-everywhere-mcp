@@ -169,19 +169,19 @@ def test_tool_annotations_are_truthful() -> None:
     annotations = server.TOOL_ANNOTATIONS
     assert set(annotations.keys()) == TOOL_NAMES
     for name, ann in annotations.items():
-        assert ann.readOnlyHint is True
-        assert ann.destructiveHint is False
-        assert ann.idempotentHint is True
+        assert ann.read_only_hint is True
+        assert ann.destructive_hint is False
+        assert ann.idempotent_hint is True
         if name == "deepseek_check_balance":
-            assert ann.openWorldHint is False
+            assert ann.open_world_hint is False
         else:
-            assert ann.openWorldHint is True
+            assert ann.open_world_hint is True
 
 
 def test_every_tool_input_schema_property_has_description() -> None:
     tools = asyncio.run(server.mcp.list_tools())
     for tool in tools:
-        props = tool.inputSchema.get("properties", {})
+        props = tool.input_schema.get("properties", {})
         for prop_name, prop in props.items():
             desc = prop.get("description")
             assert desc, f"Tool '{tool.name}' property '{prop_name}' is missing description."
@@ -243,7 +243,7 @@ def test_research_description_explains_polling_and_client_synthesis() -> None:
 )
 def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -> None:
     tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
-    default = tools[tool].inputSchema["properties"][param]["default"]
+    default = tools[tool].input_schema["properties"][param]["default"]
     assert f"{default:,}" in tools[tool].description, f"{tool}.{param} default {default} not in description"
 
 

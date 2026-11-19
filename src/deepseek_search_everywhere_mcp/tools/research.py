@@ -6,7 +6,7 @@ import asyncio
 import uuid
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver.context import Context
 from pydantic import Field
 
 from .. import runtime

@@ -107,7 +107,7 @@ Common mistakes to avoid: a query plus its filters must fit in 128 characters; t
 ## Quick start
 
 1. Create a DeepSeek API key at [platform.deepseek.com](https://platform.deepseek.com) and add a small balance.
-2. Install [uv](https://docs.astral.sh/uv/) (or use `pip`; Python 3.11 or newer is required).
+2. Install [uv](https://docs.astral.sh/uv/) (or use `pip`; Python 3.12 or newer is required).
 3. Add the server to your MCP client. The minimal configuration is:
 
 ```json

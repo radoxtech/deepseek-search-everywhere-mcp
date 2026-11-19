@@ -57,7 +57,7 @@ def _configure_logging(level: str) -> None:
     """Send log records to stderr and apply ``level`` to this package's and the SDK's loggers.
 
     The levels are set on the loggers themselves, so they hold even when the root logger was
-    already configured (FastMCP configures it once when the first server is built).
+    already configured (the MCP SDK configures it once when the first server is built).
     """
     level = level.upper()
     logging.basicConfig(level=level)

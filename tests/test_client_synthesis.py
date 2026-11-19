@@ -308,8 +308,8 @@ async def test_tool_surface_stays_at_seven_tools() -> None:
     tools = await server.mcp.list_tools()
     assert len(tools) == 7
     names = {t.name: t for t in tools}
-    research_params = names["deepseek_research"].inputSchema["properties"]
-    check_params = names["deepseek_check_research"].inputSchema["properties"]
+    research_params = names["deepseek_research"].input_schema["properties"]
+    check_params = names["deepseek_check_research"].input_schema["properties"]
     assert research_params["synthesis"]["default"] == "server"
     assert check_params["page"]["default"] is None and check_params["answer"]["default"] is None
     del _asyncio

@@ -278,7 +278,7 @@ async def _report_job_progress(
     *,
     detail: str | None = None,
 ) -> None:
-    """Update job progress state and emit FastMCP progress notification if context is attached."""
+    """Update job progress state and emit an MCP progress notification if context is attached."""
     event: dict[str, Any] = {"phase": phase, "step": step, "of": total_steps}
     if detail:
         event["detail"] = detail

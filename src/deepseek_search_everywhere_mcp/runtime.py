@@ -49,7 +49,6 @@ logger = logging.getLogger(f"{__package__}.server")
 _clock: Callable[[], float] = time.monotonic
 
 
-
 @dataclass
 class SessionMetrics:
     """In-memory request and cache-hit counts for the current session."""
@@ -386,7 +385,7 @@ def _timed[**P](
     """Add ``elapsed_ms``, the call's wall time on the monotonic clock, to every envelope ``tool`` returns.
 
     Success and error envelopes alike get it, on a copy; a cache hit reports its own (small) time.
-    ``functools.wraps`` keeps the signature and docstring that FastMCP turns into the tool schema.
+    ``functools.wraps`` keeps the signature and docstring that the MCP SDK turns into the tool schema.
     """
 
     @functools.wraps(tool)
