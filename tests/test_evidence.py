@@ -53,9 +53,7 @@ def test_round_gain_counts_a_numeric_fact_that_fills_a_gap() -> None:
 
 
 def test_guard_drops_unknown_citations_and_foreign_figures() -> None:
-    cleaned, dropped = lab.guard(
-        "Cost was 320 USD per kWh [1]. Cost was 999 USD [1]. Mirage [9].", CONTEXT
-    )
+    cleaned, dropped = lab.guard("Cost was 320 USD per kWh [1]. Cost was 999 USD [1]. Mirage [9].", CONTEXT)
 
     assert "999" not in cleaned and "Mirage" not in cleaned
     assert "320 USD per kWh" in cleaned
