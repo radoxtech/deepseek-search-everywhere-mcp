@@ -17,7 +17,7 @@ Keep all four tiers, but record what each one costs per point:
 
 | tier | core | words | sources | wall | cost/report | cost per pp over the tier below |
 |---|---|---|---|---|---|---|
-| low | 0.300 | 481 | 5.3 | 10.9 s | $0.0043 | — |
+| low | 0.433 | 1134 | 6.3 | 11.4 s | $0.0053 | — |
 | medium | 0.501 | 1690 | 9.7 | 56.9 s | $0.0104 | $0.0003 |
 | high | 0.565 (2 repeats) | 2624 | 15.2 | 62.6 s | $0.0284 | **$0.0042** |
 | max | 0.615 | 3390 | 22.0 | 70.4 s | $0.0388 | $0.0016 |

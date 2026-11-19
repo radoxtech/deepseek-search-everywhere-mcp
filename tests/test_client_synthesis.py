@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import research_jobs, runtime, server
+from deepseek_search_everywhere_mcp import deep_research, research_jobs, runtime, server
 from deepseek_search_everywhere_mcp.deep_research import (
     CONTEXT_PAGE_CHARS,
     build_synthesis_system_prompt,
@@ -118,7 +118,15 @@ async def test_a_report_can_be_sent_again_and_notes_do_not_pile_up(fake_upstream
     assert len(second["notes"]) < len(first["notes"])
 
 
-async def test_over_length_client_report_is_noted_not_condensed(fake_upstream: Any) -> None:
+async def test_over_length_client_report_is_noted_not_condensed(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    cfg = deep_research.DEPTH_CONFIG["low"]
+    monkeypatch.setitem(
+        deep_research.DEPTH_CONFIG, "low", dataclasses.replace(cfg, target_words=300, max_words=360)
+    )
     upstream = Upstream()
     res = await _awaiting(fake_upstream, upstream)
     long_report = "## A\n\n" + "Surface codes provide fault tolerance in quantum computing [1]. " * 120

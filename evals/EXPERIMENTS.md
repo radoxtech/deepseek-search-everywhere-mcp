@@ -468,6 +468,38 @@ on some fetched page; the query style is already the best of six measured; the w
 material than it already has. The next quality step needs a change of sources or of model, not of the
 pipeline's shape.
 
+### E16 — What is the cheapest tier that still says something useful? (2026-11-19)
+
+**Change.** `low` measured at three settings: shipped (K=6, 480 words), B (K=8, 1000/1200 words), C
+(K=10, 1600/1920 words, i.e. the medium writer on the two-query retrieval).
+
+**Claim.** `low` should be the cheapest tier that returns a usable answer, not the cheapest possible. Its
+shipped ceiling is reached exactly (481 words written, 3 of 6 reports condensed), so raising it should buy
+coverage at almost no cost until the small pool runs out.
+
+**Arms.** Live, 6 tuning topics, 1 repeat, `low` depth throughout; medium (0.501, $0.0104) as the reference.
+
+**Result.**
+
+| arm | core | words | condensed | sources | wall | cost | % of medium cost |
+|---|---|---|---|---|---|---|---|
+| A shipped (K=6, 480) | 0.300 | 481 | 3/6 | 5.3 | 10.9 s | $0.0043 | 53% |
+| **B (K=8, 1200)** | **0.433** | 1134 | 1/6 | 6.3 | 11.4 s | **$0.0053** | 65% |
+| C (K=10, 1920) | 0.433 | 1852 | 2/6 | 6.8 | 16.9 s | $0.0061 | 76% |
+
+B and C tie, so C is dominated: 15% more money and 50% more time for the same coverage. The pool is the
+limit — two queries return about 12 candidates, and dedupe plus the domain cap leave 6–7 pages whatever K
+says.
+
+Per topic, B repairs the two disasters of A: `medicine-glp1` 0.097 → 0.387, `nutrition` 0.032 → 0.226.
+
+**Verdict: keep B.** +13.3 pp over the shipped `low` for +$0.001 and +0.5 s, i.e. 86% of medium's coverage
+for 65% of its price.
+
+**Not shown.** B does not reach the 0.47 floor that would put it within noise of medium. `low` stays a
+deliberately incomplete tier: cheap and quick, not a substitute for medium. Reaching 0.47 at low's price
+would need a larger pool, and the pool is set by the two queries, which `E03` showed is not a lever.
+
 ## Ledger
 
 | date | what | deepseek $ |
@@ -487,7 +519,8 @@ pipeline's shape.
 | 2026-11-18 | matrix-checklist, 7 reports | 0.076 |
 | 2026-11-18 | big pages at high, 6 reports | 0.104 |
 | 2026-11-18 | smoke tests (2) | 0.024 |
-| **total** | | **2.311** |
+| 2026-11-19 | low floor arms B and C, 12 reports | 0.068 |
+| **total** | | **2.379** |
 
 ## Traps worth remembering
 

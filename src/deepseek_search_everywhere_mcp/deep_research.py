@@ -196,14 +196,14 @@ DEPTH_CONFIG: dict[str, DepthConfig] = {
     "low": DepthConfig(
         subqueries=2,
         count=6,
-        k_sources=6,
+        k_sources=8,
         per_page_char_cap=15_000,
         total_source_chars=60_000,
         thinking=False,
         reasoning_effort=None,
         max_tokens=16_384,
-        target_words=400,
-        max_words=480,
+        target_words=1000,
+        max_words=1200,
         deadline_s=60.0,
     ),
     "medium": DepthConfig(

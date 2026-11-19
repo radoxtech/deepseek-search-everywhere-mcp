@@ -47,7 +47,7 @@ def test_select_synthesis_context_caps_at_sources_and_chars():
         for i in range(1, 30)
     ]
     selected_low = select_synthesis_context(sources, depth="low")
-    assert len(selected_low) == 6
+    assert len(selected_low) == deep_research.DEPTH_CONFIG["low"].k_sources
     total_chars_low = sum(len(s["content"]) for s in selected_low)
     assert total_chars_low <= 60000
     assert [s["id"] for s in selected_low] == list(range(1, len(selected_low) + 1))
