@@ -435,6 +435,8 @@ def _evidence_lines(text: str, limit: int = 3) -> list[str]:
 ANALYZER_PROMPT = (
     "You decide whether a research topic can be searched as it stands, and what a search must establish.\n"
     "You are given the topic and reconnaissance pages showing what the open web already holds.\n"
+    "The pages are the result of two broad searches, not a map of the field: they show what those two "
+    "searches found, not what exists. Take them as a sample, never as the whole.\n"
     "Write in English unless the topic is clearly written in another language, in which case write in "
     "that language. Never mix the two.\n"
     "Before writing a question, check whether its answer is already present: in the topic itself, in "
@@ -463,8 +465,12 @@ ANALYZER_PROMPT = (
     "Ask only the questions that change what gets searched. When nothing of the second kind is missing, "
     "questions is empty.\n"
     "\n"
+    "Before anything else, say what the pages cover and what they leave out of the topic as asked. Name "
+    "the branches the sample missed, so the plan can cover them.\n"
     "Then list what must be established from the web: one line per thing to find, phrased as the fact, "
-    "not as a subject area, leaving out what the pages already answer.\n"
+    "not as a subject area, leaving out what the pages already answer. Order the list so the fact that "
+    "matters most for answering the topic comes first; a fact that only matters for one narrow case "
+    "goes last, however interesting it is.\n"
     "\n"
     "When you can search both branches instead of asking, do that and state the assumption, but only "
     "when the branches point the same way and the reader can tell which one an answer applies to. If "
@@ -474,8 +480,8 @@ ANALYZER_PROMPT = (
     "assume what the asker alone can decide. When in doubt, ask: a question costs a turn, a wrong "
     "assumption costs the whole report.\n"
     "\n"
-    'Return only json: {{"readings": ["..."], '
-    '"askable": [{"question": "...", "default": "..."}], '
+    'Return only json: {{"seed_covered": ["..."], "seed_missing": ["..."], '
+    '"readings": ["..."], "askable": [{"question": "...", "default": "..."}], '
     '"assumptions": ["..."], "must_find": ["..."]}}'
 )
 
