@@ -1,11 +1,8 @@
-"""Deterministic building blocks for multi-stage synthesis (evals only).
+"""Deterministic evidence bookkeeping: which source sentences belong to which aspect, what a report
+misses, and what one search round added.
 
-The pieces here decide, without any model call, which sentences of the context belong to which aspect,
-which of them made it into a written section, and which sentences may stay in the final report. They are
-the part of the `matrix-repair` design that cannot drift between runs, so they are kept apart from the
-prompted steps in ``evals/variants.py``.
-
-Run the self-check with ``python evals/synthesis_lab.py``.
+Nothing here calls a model, so the results cannot drift between runs. The agent tool uses this to decide
+whether another round is worth its cost; the evaluation harness uses it to attribute losses to stages.
 """
 
 from __future__ import annotations
@@ -125,6 +122,27 @@ def block_ids(block: dict[str, Any]) -> list[int]:
     return sorted({item["id"] for item in block["sentences"]}, key=str)
 
 
+def round_gain(before: dict[str, Any], after: dict[str, Any], *, new_sources: int) -> dict[str, Any]:
+    """What one search round added: new facts carrying figures, aspects that got their first evidence,
+    and new sources. ``before`` and ``after`` are the evidence-block lists of the two rounds."""
+    seen_before = {item["text"][:80].lower() for block in before for item in block["sentences"]}
+    fresh = [
+        item for block in after for item in block["sentences"] if item["text"][:80].lower() not in seen_before
+    ]
+    numeric = sum(1 for item in fresh if numbers(item["text"]))
+    before_counts = {block["aspect"]: len(block["sentences"]) for block in before}
+    gaps_filled = sum(
+        1 for block in after if block["sentences"] and before_counts.get(block["aspect"], 0) == 0
+    )
+    return {
+        "new_facts": len(fresh),
+        "new_numeric_facts": numeric,
+        "gaps_filled": gaps_filled,
+        "new_sources": new_sources,
+        "saturated": numeric == 0 and gaps_filled == 0 and new_sources == 0,
+    }
+
+
 def is_covered(sentence: str, report: str, *, term_share: float = 0.5) -> bool:
     """Whether a report states a source sentence: its figures, and most of its terms, appear in it."""
     want_numbers = numbers(sentence)
@@ -191,37 +209,3 @@ def assemble(sections: list[tuple[str, str]], lead: str = "") -> str:
             continue
         parts.append(f"## {name}\n\n{body}")
     return "\n\n".join(parts)
-
-
-def _selftest() -> None:
-    """Check the deterministic behaviour on a small synthetic context."""
-    context = [
-        {"id": 1, "content": "Vanadium flow batteries reached 320 USD per kWh in 2024. The cost fell."},
-        {"id": 2, "content": "Electrolyte crossover limits cycle life to about 12000 cycles. Nothing else."},
-    ]
-    aspects = [
-        type("A", (), {"aspect": "installed cost per kWh", "looking_for": "USD per kWh, 2024"})(),
-        type("A", (), {"aspect": "cycle life", "looking_for": "cycle counts"})(),
-        type("A", (), {"aspect": "manufacturing", "looking_for": "factories"})(),
-    ]
-    blocks = evidence_matrix(aspects, context)
-    assert blocks[0]["sentences"] and blocks[0]["sentences"][0]["id"] == 1, blocks[0]
-    assert blocks[1]["sentences"] and blocks[1]["sentences"][0]["id"] == 2, blocks[1]
-    assert blocks[2]["empty"] and blocks[2]["thin"], blocks[2]
-
-    report = "Vanadium flow batteries reached 320 USD per kWh in 2024 [1]."
-    gaps = coverage_gaps(blocks, report)
-    assert gaps[0]["count"] == 0, gaps[0]
-    assert gaps[1]["count"] >= 1, gaps[1]
-
-    cleaned, dropped = guard("Cost was 320 USD per kWh [1]. Cost was 999 USD [1]. Mirage [9].", context)
-    assert "999" not in cleaned and "Mirage" not in cleaned, cleaned
-    assert "320 USD per kWh" in cleaned and len(dropped) == 2, (cleaned, dropped)
-
-    text = assemble([("Cost", "Body one [1]."), ("Life", "Body two [2].")], lead="Lead.")
-    assert text.startswith("Lead.") and "## Cost" in text and "## Life" in text, text
-    print("synthesis_lab self-check: ok")
-
-
-if __name__ == "__main__":
-    _selftest()

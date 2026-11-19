@@ -478,8 +478,7 @@ def _matrix(repair: bool) -> Callable[[], None]:
     deterministic coverage check and an optional targeted repair."""
 
     def apply() -> None:
-        import synthesis_lab as lab
-
+        from deepseek_search_everywhere_mcp import evidence as lab
         from deepseek_search_everywhere_mcp import research_jobs, runtime
 
         _long_deadline()
@@ -559,8 +558,7 @@ def _matrix(repair: bool) -> Callable[[], None]:
 
 def _matrix_checklist() -> None:
     """Full context for recall, a per-aspect fact checklist in the prompt, then a targeted repair."""
-    import synthesis_lab as lab
-
+    from deepseek_search_everywhere_mcp import evidence as lab
     from deepseek_search_everywhere_mcp import research_jobs, runtime
 
     _long_deadline()
@@ -627,7 +625,46 @@ def _big_pages() -> None:
         deep_research.DEPTH_CONFIG[depth] = dataclasses.replace(cfg, per_page_char_cap=chars)
 
 
+def _tune() -> None:
+    """Set selection width and word ceiling from EVAL_K and EVAL_MAX_WORDS, to find a tier's floor."""
+    import dataclasses
+    import os
+
+    from deepseek_search_everywhere_mcp import deep_research
+
+    width = int(os.environ.get("EVAL_K", "0") or 0)
+    ceiling = int(os.environ.get("EVAL_MAX_WORDS", "0") or 0)
+    if width <= 0 and ceiling <= 0:
+        return
+    _long_deadline()
+    for depth, cfg in list(deep_research.DEPTH_CONFIG.items()):
+        changes = {}
+        if width > 0:
+            changes["k_sources"] = width
+        if ceiling > 0:
+            changes["max_words"] = ceiling
+            changes["target_words"] = max(200, ceiling * 5 // 6)
+        deep_research.DEPTH_CONFIG[depth] = dataclasses.replace(cfg, **changes)
+
+
+def _queries() -> None:
+    """Set the number of planned subqueries from EVAL_SUBQUERIES, to test a tier's pool size."""
+    import dataclasses
+    import os
+
+    from deepseek_search_everywhere_mcp import deep_research
+
+    count = int(os.environ.get("EVAL_SUBQUERIES", "0") or 0)
+    if count <= 0:
+        return
+    _long_deadline()
+    for depth, cfg in list(deep_research.DEPTH_CONFIG.items()):
+        deep_research.DEPTH_CONFIG[depth] = dataclasses.replace(cfg, subqueries=count)
+
+
 VARIANTS: dict[str, Callable[[], None]] = {
+    "queries": _queries,
+    "tune": _tune,
     "big-pages": _big_pages,
     "matrix-checklist": _matrix_checklist,
     "matrix": _matrix(repair=False),
