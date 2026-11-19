@@ -15,6 +15,7 @@ from typing import Any
 
 from . import evidence, runtime
 from .deep_research import DEPTH_CONFIG, ResearchJob, apply_token_guard, select_synthesis_context
+from .errors import _fail
 from .filters import fit_query
 from .research_jobs import (
     _finalize_report,
@@ -167,6 +168,25 @@ async def run_agent(
         counters["queries"] = len(run.subqueries)
         counters["results"] = len(results)
 
+    if not results:
+        # Every search failed: a report built on nothing would look complete and be wrong.
+        return {
+            **_fail("upstream_error", "All searches failed or timed out; no report was written."),
+            "estimate_usd": estimate,
+            "stopped_reason": "retrieval_failed",
+            "plan": plan,
+            "rounds": [
+                {
+                    "new_facts": 0,
+                    "new_numeric_facts": 0,
+                    "gaps_filled": 0,
+                    "new_sources": 0,
+                    "saturated": True,
+                }
+            ],
+            "facts_per_round": [0],
+        }
+
     rounds: list[dict[str, Any]] = []
     stopped_reason = "max_rounds"
     blocks = evidence.evidence_matrix(run.aspects, _result_sources(results))
@@ -213,7 +233,14 @@ async def run_agent(
         run.notes.extend(guard_notes)
         counters["context_chars"] = sum(len(c.get("content") or "") for c in context)
     if not context:
-        return run.unsynthesized("No readable source content available for synthesis.")
+        return {
+            **_fail("empty_page", "Every selected page had no readable content; no report was written."),
+            "estimate_usd": estimate,
+            "stopped_reason": "empty_pages",
+            "plan": plan,
+            "rounds": rounds,
+            "facts_per_round": [gain["new_facts"] for gain in rounds],
+        }
     if (stopped := _research_cost_guard(run, context)) is not None:
         return stopped
 

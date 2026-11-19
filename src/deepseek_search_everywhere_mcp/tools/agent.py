@@ -24,9 +24,7 @@ async def deepseek_agent_deep_research(
     *,
     depth: Annotated[
         Literal["low", "medium", "high", "max"],
-        Field(
-            description="Writer size and source count (default 'medium'); rounds come from max_rounds"
-        ),
+        Field(description="Writer size and source count (default 'medium'); rounds come from max_rounds"),
     ] = "medium",
     max_rounds: Annotated[
         int,

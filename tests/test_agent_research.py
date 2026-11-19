@@ -156,3 +156,47 @@ async def test_agent_refuses_a_budget_below_its_estimate(fake_upstream: Any) -> 
     assert res["error"]["code"] == "budget_exceeded"
     assert fake.searches == []
     assert fake.chats == []
+
+
+class FailingSearchUpstream(PlannedUpstream):
+    """Every search reports an upstream failure."""
+
+    async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        from deepseek_search_everywhere_mcp import server
+
+        if path == server.SEARCH_PATH:
+            return {"ok": False, "error": {"code": "upstream_error", "message": "boom"}}
+        return await super().__call__(method, path, **kwargs)
+
+
+class EmptyPageUpstream(PlannedUpstream):
+    """Searches succeed but every page has no readable content, and fetching adds none."""
+
+    PAGES = [{"title": "Empty", "url": "https://example.org/empty", "content": ""}]
+
+    async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        from deepseek_search_everywhere_mcp import server
+
+        if path == server.FETCH_PATH:
+            return {"ok": True, "data": {"title": "Empty", "content": ""}}
+        return await super().__call__(method, path, **kwargs)
+
+
+async def test_agent_reports_when_every_search_fails(fake_upstream: Any) -> None:
+    fake_upstream(FailingSearchUpstream())
+
+    res = await _run(_job())
+
+    assert res["ok"] is False
+    assert res["error"]["code"] == "temporary_failure"
+    assert res["stopped_reason"] == "retrieval_failed"
+
+
+async def test_agent_reports_when_every_page_is_empty(fake_upstream: Any) -> None:
+    fake_upstream(EmptyPageUpstream())
+
+    res = await _run(_job())
+
+    assert res["ok"] is False
+    assert res["error"]["code"] == "page_unavailable"
+    assert res["stopped_reason"] == "empty_pages"
