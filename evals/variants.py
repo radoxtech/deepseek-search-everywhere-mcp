@@ -397,6 +397,28 @@ MERGE_ASK = (
 )
 
 
+ANSWER_FIRST_RULE = (
+    "\n13. OPEN WITH THE ANSWER: the first sentence of the report states, in one line, what the "
+    "evidence shows about the question. Background, definitions and history may follow inside the same "
+    "section, but only after that sentence. A reader who stops after the first sentence must know the "
+    "answer."
+)
+
+
+def _answer_first() -> None:
+    """Append one rule: the report opens with the answer, not with background."""
+    from deepseek_search_everywhere_mcp import research_jobs
+
+    original = research_jobs.build_synthesis_messages
+
+    def messages(*args: Any, **kwargs: Any) -> list[dict[str, str]]:
+        base = original(*args, **kwargs)
+        base[0] = {"role": "system", "content": base[0]["content"] + ANSWER_FIRST_RULE}
+        return base
+
+    research_jobs.build_synthesis_messages = messages
+
+
 def _sections() -> None:
     """Phase 6: write one section per aspect, then merge them into the report."""
     from types import SimpleNamespace
@@ -670,6 +692,7 @@ VARIANTS: dict[str, Callable[[], None]] = {
     "matrix": _matrix(repair=False),
     "matrix-repair": _matrix(repair=True),
     "sections": _sections,
+    "answer-first": _answer_first,
     "k": _k_sources,
     "words": _words,
     "specifics": _specifics,

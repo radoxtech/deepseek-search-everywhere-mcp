@@ -392,7 +392,11 @@ def build_synthesis_system_prompt(depth: str = "medium", *, client: bool = False
         f"sources gets one sentence, not a section. No separate introduction or conclusion section beyond "
         f"those {n} sections. Put three or more comparable figures in a compact markdown table instead of "
         "prose. Lead with the most decision-relevant findings and drop background that sources do not "
-        "directly support."
+        "directly support.\n"
+        f"13. OPEN WITH THE ANSWER: the first sentence of the report states, in one line, what the "
+        "evidence shows about the question. Background, definitions and history may follow inside the "
+        "same section, but only after that sentence. A reader who stops after the first sentence must "
+        "know the answer."
     )
 
 

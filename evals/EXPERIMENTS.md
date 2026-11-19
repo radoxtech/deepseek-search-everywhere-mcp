@@ -567,6 +567,35 @@ gains (+25 pp on medicine-sglt2, +20 pp on one narrowed topic) and both dissolve
 analyzer earns its place inside an agent loop, where a question is a step rather than a one-shot return,
 is a different measurement and is not covered here.
 
+### E19 — Does "open with the answer" move the report opening? (2026-11-20, keep)
+
+**Change.** One sentence appended to the synthesis system prompt: the first sentence of the report
+states what the evidence shows about the question, in one line; background and history may follow inside
+the same section, but only after it. Everything else as shipped.
+
+**Claim.** The shipped rule already said "lead with the most decision-relevant findings", but the model
+read that as "put findings in the first section" and still opened with a definition, a document history
+or a single trial's design. Naming the first *sentence* as the place for the answer should fix openings
+that bury it.
+
+**Arms.** `medium`, 6 tuning topics, 2 repeats, same session: `baseline` against `answer-first`
+(variant in `evals/variants.py`).
+
+**Result.** A judge read the first sentence of all 24 reports and asked whether a reader who stopped there
+would know what the research found.
+
+| arm | first sentence answers the question |
+|---|---|
+| baseline | 5 / 12 |
+| answer-first | 12 / 12 |
+
+Per topic, the baseline failures were consistent with the failure mode: both passkeys reports opened with
+a component definition, both law reports announced "four duties" without stating them, both nutrition
+reports described a trial design without its result, one pg report opened with pre-17 history.
+
+**Verdict: keep.** The change is one prompt sentence with no extra call and it moves every report, not a
+subset. Cost unchanged at $0.0126 per report at `medium`.
+
 ## Ledger
 
 | date | what | deepseek $ |
@@ -594,7 +623,8 @@ is a different measurement and is not covered here.
 | 2026-11-19 | E18 analyzer 20-topic sweep (×2) | 0.121 |
 | 2026-11-19 | E18 analyzed / answered / human, 6 topics | 0.107 |
 | 2026-11-19 | E18 narrowed fair comparison, 2 topics × 2 repl. | 0.049 |
-| **total** | | **2.925** |
+| 2026-11-20 | E19 baseline + answer-first, 12 + 12 reports | 0.302 |
+| **total** | | **3.227** |
 
 ## Traps worth remembering
 
