@@ -17,7 +17,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, ParamSpec
+from typing import Any
 
 from .budget import DailyBudgetTracker, Reservation
 from .cache import SingleFlight, TTLCache
@@ -48,8 +48,6 @@ logger = logging.getLogger(f"{__package__}.server")
 # Monotonic clock behind every envelope's ``elapsed_ms``; tests may replace it.
 _clock: Callable[[], float] = time.monotonic
 
-
-_P = ParamSpec("_P")
 
 
 @dataclass
@@ -382,9 +380,9 @@ async def _cached_call(
     return result.value, False
 
 
-def _timed(
-    tool: Callable[_P, Awaitable[dict[str, Any]]],
-) -> Callable[_P, Awaitable[dict[str, Any]]]:
+def _timed[**P](
+    tool: Callable[P, Awaitable[dict[str, Any]]],
+) -> Callable[P, Awaitable[dict[str, Any]]]:
     """Add ``elapsed_ms``, the call's wall time on the monotonic clock, to every envelope ``tool`` returns.
 
     Success and error envelopes alike get it, on a copy; a cache hit reports its own (small) time.
@@ -392,7 +390,7 @@ def _timed(
     """
 
     @functools.wraps(tool)
-    async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> dict[str, Any]:
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> dict[str, Any]:
         started = _clock()
         envelope = await tool(*args, **kwargs)
         # A copy: the envelope may be shared (single-flight followers, the upstream's error dict).

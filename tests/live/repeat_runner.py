@@ -12,9 +12,7 @@ import functools
 import inspect
 import os
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 
 def default_repeats() -> int:
@@ -22,7 +20,7 @@ def default_repeats() -> int:
     return int(os.environ.get("LIVE_REPEATS") or 1)
 
 
-async def run_repeated(
+async def run_repeated[T](
     func: Callable[..., Awaitable[T] | T],
     *args: Any,
     repeats: int | None = None,

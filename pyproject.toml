@@ -37,7 +37,7 @@ keywords = [
     "rag",
 ]
 authors = [{ name = "radoxtech" }]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -45,9 +45,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
@@ -58,9 +59,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-asyncio>=0.24", "starlette>=0.27"]
-lint = ["ruff>=0.6"]
-http = ["starlette>=0.27", "uvicorn>=0.30"]
+test = ["pytest>=9", "pytest-asyncio>=1.4", "starlette>=1.10"]
+lint = ["ruff>=0.17"]
+http = ["starlette>=1.10", "uvicorn>=0.54"]
 
 [project.scripts]
 deepseek-search-everywhere-mcp = "deepseek_search_everywhere_mcp.cli:main"
@@ -80,7 +81,7 @@ exclude = ["/evals"]
 
 [tool.ruff]
 line-length = 110
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
