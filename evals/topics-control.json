@@ -1,0 +1,19 @@
+{
+  "topics": [
+    {
+      "id": "finance-basel-endgame",
+      "domain": "finance",
+      "topic": "Basel III endgame in the United States: what the capital rules require, how the proposals changed, and their implementation status"
+    },
+    {
+      "id": "engineering-solid-state-batteries",
+      "domain": "engineering",
+      "topic": "Solid-state batteries for electric vehicles: how they work, the main technical obstacles, and realistic commercialization timelines"
+    },
+    {
+      "id": "history-1918-influenza",
+      "domain": "history",
+      "topic": "The 1918 influenza pandemic: origins, death toll estimates, and why it was so deadly"
+    }
+  ]
+}

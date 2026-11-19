@@ -120,10 +120,25 @@ def _evidence(record: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _rubric_text(topic_id: str) -> str:
+def atoms(rubric: dict[str, Any]) -> list[dict[str, Any]]:
+    """The atomic facts of a rubric's key points; a point without atoms is its own single atom."""
+    out = []
+    for k in rubric["key_points"]:
+        for a in k.get("atoms") or [{"id": k["id"], "fact": k["point"], "main": True}]:
+            out.append({**a, "point": k["id"], "importance": k["importance"]})
+    return out
+
+
+def _rubric_text(topic_id: str, *, use_atoms: bool = False) -> str:
     path = RUBRICS / f"{topic_id}.json"
     rubric = json.loads(path.read_text(encoding="utf-8"))
-    return "\n".join(f"- {k['id']} ({k['importance']}): {k['point']}" for k in rubric["key_points"])
+    if not use_atoms:
+        return "\n".join(f"- {k['id']} ({k['importance']}): {k['point']}" for k in rubric["key_points"])
+    lines = []
+    for a in atoms(rubric):
+        accept = f" (also accept: {'; '.join(a['also_accept'])})" if a.get("also_accept") else ""
+        lines.append(f"- {a['id']} ({a['importance']}): {a['fact']}{accept}")
+    return "\n".join(lines)
 
 
 def _pack(topic: str, topic_id: str, first: dict[str, Any], second: dict[str, Any]) -> str:

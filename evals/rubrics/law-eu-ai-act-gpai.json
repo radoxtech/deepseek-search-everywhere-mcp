@@ -12,7 +12,34 @@
     "https://digital-strategy.ec.europa.eu/en/factpages/general-purpose-ai-obligations-under-ai-act",
     "https://www.houthoff.com/insights/news/obligations-for-gpai-model-providers-and-penalties/"
    ],
-   "as_of": "2025-08"
+   "as_of": "2025-08",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "EU AI Act obligations for GPAI providers began applying on 2 August 2025.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "GPAI providers must produce technical documentation.",
+     "main": false
+    },
+    {
+     "id": "k1c",
+     "fact": "GPAI providers must provide information for downstream providers.",
+     "main": false
+    },
+    {
+     "id": "k1d",
+     "fact": "GPAI providers must have an EU copyright policy.",
+     "main": false
+    },
+    {
+     "id": "k1e",
+     "fact": "GPAI providers must publish a public summary of training content.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k2",
@@ -22,7 +49,24 @@
     "https://artificialintelligenceact.eu/article/51/",
     "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers"
    ],
-   "as_of": "2025-08"
+   "as_of": "2025-08",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "Under the EU AI Act, a GPAI model trained with more than 10^25 FLOP is presumed to have high-impact capabilities and thus systemic risk.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "The Commission can also designate GPAI models as systemic-risk.",
+     "main": false
+    },
+    {
+     "id": "k2c",
+     "fact": "The Commission can amend the systemic-risk thresholds by delegated act.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k3",
@@ -31,7 +75,29 @@
    "sources": [
     "https://artificialintelligenceact.eu/article/55/"
    ],
-   "as_of": "2025-08"
+   "as_of": "2025-08",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "Under Article 55 of the EU AI Act, systemic-risk GPAI providers must additionally evaluate their models, including adversarial testing.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "Systemic-risk GPAI providers must assess and mitigate systemic risks.",
+     "main": false
+    },
+    {
+     "id": "k3c",
+     "fact": "Systemic-risk GPAI providers must report serious incidents to the AI Office.",
+     "main": false
+    },
+    {
+     "id": "k3d",
+     "fact": "Systemic-risk GPAI providers must ensure cybersecurity.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k4",
@@ -40,7 +106,19 @@
    "sources": [
     "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers"
    ],
-   "as_of": "2025-08"
+   "as_of": "2025-08",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "GPAI providers must notify the Commission without delay and within two weeks of meeting or foreseeing the 10^25 FLOP threshold.",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "GPAI providers notifying the Commission about the 10^25 FLOP threshold may argue that their model is not systemic-risk.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k5",
@@ -49,7 +127,14 @@
    "sources": [
     "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers"
    ],
-   "as_of": "2025-08"
+   "as_of": "2025-08",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "Commission guidelines treat a model trained with more than about 10^23 FLOP that can generate language, text-to-image or text-to-video as indicatively general-purpose.",
+     "main": true
+    }
+   ]
   },
   {
    "id": "k6",
@@ -59,7 +144,24 @@
     "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers",
     "https://www.houthoff.com/insights/news/obligations-for-gpai-model-providers-and-penalties/"
    ],
-   "as_of": "2025-08"
+   "as_of": "2025-08",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "Free and open-source GPAI models are exempt from some documentation and EU-representative duties.",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "Free and open-source GPAI models are not exempt from the copyright policy and training-summary duties.",
+     "main": false
+    },
+    {
+     "id": "k6c",
+     "fact": "The exemption for free and open-source GPAI models never applies to systemic-risk models.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k7",
@@ -68,7 +170,24 @@
    "sources": [
     "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai"
    ],
-   "as_of": "2026-10"
+   "as_of": "2026-10",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "The GPAI Code of Practice was published on 10 July 2025.",
+     "main": false
+    },
+    {
+     "id": "k7b",
+     "fact": "The GPAI Code of Practice has Transparency, Copyright and Safety and Security chapters.",
+     "main": true
+    },
+    {
+     "id": "k7c",
+     "fact": "The Safety and Security chapter of the GPAI Code of Practice applies only to systemic-risk providers.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k8",
@@ -78,7 +197,24 @@
     "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai",
     "https://digital-strategy.ec.europa.eu/en/factpages/general-purpose-ai-obligations-under-ai-act"
    ],
-   "as_of": "2026-10"
+   "as_of": "2026-10",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "The Commission and AI Board deemed the GPAI Code an adequate voluntary tool.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "Signing the GPAI Code of Practice brings reduced burden and more legal certainty.",
+     "main": false
+    },
+    {
+     "id": "k8c",
+     "fact": "Non-signers of the GPAI Code of Practice must show compliance by other adequate means.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k9",
@@ -87,7 +223,19 @@
    "sources": [
     "https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai"
    ],
-   "as_of": "2026-10"
+   "as_of": "2026-10",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "Most major providers signed the GPAI Code, including OpenAI, Anthropic, Google, Microsoft and Amazon.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "xAI signed only the Safety and Security chapter of the GPAI Code of Practice.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k10",
@@ -97,7 +245,19 @@
     "https://digital-strategy.ec.europa.eu/en/faqs/guidelines-obligations-general-purpose-ai-providers",
     "https://artificialintelligenceact.eu/article/101/"
    ],
-   "as_of": "2026-11"
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "The Commission's enforcement powers over GPAI providers have applied since 2 August 2026.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "The Commission's enforcement powers over GPAI providers include fines of up to 3% of worldwide annual turnover or EUR 15 million, whichever is higher.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k11",
@@ -107,7 +267,14 @@
     "https://digital-strategy.ec.europa.eu/en/news/eu-rules-general-purpose-ai-models-start-apply-bringing-more-transparency-safety-and-accountability",
     "https://artificialintelligenceact.eu/implementation-timeline/"
    ],
-   "as_of": "2025-08"
+   "as_of": "2025-08",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "GPAI models placed on the EU market before 2 August 2025 have until 2 August 2027 to comply.",
+     "main": true
+    }
+   ]
   },
   {
    "id": "k12",
@@ -117,7 +284,29 @@
     "https://www.whitecase.com/insight-alert/eu-ai-omnibus-enters-force-amending-ai-act",
     "https://artificialintelligenceact.eu/implementation-timeline/"
    ],
-   "as_of": "2026-08"
+   "as_of": "2026-08",
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "The EU Digital Omnibus on AI came into force on 27 July 2026.",
+     "main": false
+    },
+    {
+     "id": "k12b",
+     "fact": "The Digital Omnibus on AI postponed the AI Act's high-risk obligations for Annex III systems to 2 December 2027.",
+     "main": true
+    },
+    {
+     "id": "k12c",
+     "fact": "The Digital Omnibus on AI postponed the AI Act's high-risk obligations for Annex I systems to 2 August 2028.",
+     "main": false
+    },
+    {
+     "id": "k12d",
+     "fact": "The Digital Omnibus on AI did not postpone GPAI obligations.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k13",
@@ -126,7 +315,19 @@
    "sources": [
     "https://www.reedsmith.com/our-insights/blogs/technology-law-dispatch/102o6as/eu-ai-act-the-ai-office-sends-its-first-requests-for-information-to-leading-ai/"
    ],
-   "as_of": "2026-10"
+   "as_of": "2026-10",
+   "atoms": [
+    {
+     "id": "k13a",
+     "fact": "On 14 October 2026 the AI Office sent its first formal requests for information to providers of GPAI models with systemic risk.",
+     "main": true
+    },
+    {
+     "id": "k13b",
+     "fact": "The AI Office's first formal requests for information to providers of systemic-risk GPAI models were the first use of its investigative powers.",
+     "main": false
+    }
+   ]
   }
  ],
  "review": {

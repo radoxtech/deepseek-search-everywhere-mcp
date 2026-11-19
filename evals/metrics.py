@@ -9,7 +9,8 @@ Metrics (no LLM involved):
   A/A spread as tolerance.
 - ``unverified_numbers``: numbers the server could not ground in their cited source.
 - ``sources`` and ``domains``: count and diversity of returned sources.
-- ``cost_offpeak_usd``: web requests at their flat price plus chat tokens at DeepSeek off-peak rates.
+- ``cost_offpeak_usd``: the envelope's billed cost (runs are off-peak only), falling back to a
+  token recount when the envelope has none.
 - ``wall_s`` and ``words``.
 
 Usage: ``python evals/metrics.py evals/results/<run>`` prints the per-depth summary as JSON.
@@ -82,8 +83,17 @@ def _host(url: str) -> str:
 
 
 def offpeak_cost(record: dict[str, Any]) -> float:
-    """Recompute a record's cost: flat web requests plus chat tokens at off-peak rates."""
-    breakdown = (record.get("envelope") or {}).get("cost_breakdown") or {}
+    """A record's billed cost: the envelope figure when present, else a token recount.
+
+    The recount reads ``chat_usage`` and cannot see reasoning tokens, so it undercounts
+    thinking-heavy tiers (about 1.8x at ``high``). The envelope is authoritative, and paid runs happen
+    off-peak only, so its figure is the off-peak price.
+    """
+    envelope = record.get("envelope") or {}
+    billed = envelope.get("cost_usd")
+    if isinstance(billed, (int, float)) and billed > 0:
+        return round(float(billed), 6)
+    breakdown = envelope.get("cost_breakdown") or {}
     web = float(breakdown.get("search", 0.0)) + float(breakdown.get("fetch", 0.0))
     llm = 0.0
     for call in record.get("chat_usage") or []:

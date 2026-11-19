@@ -57,7 +57,7 @@ async def _run(args: argparse.Namespace, dump_dir: Path) -> dict[str, Any]:
     return {
         "topic_id": args.topic_id,
         "topic": args.topic,
-        "tool": args.tool,
+        "tool": f"deepseek_{args.tool}",
         "depth": args.depth,
         "variant": args.variant,
         "repeat": args.repeat,

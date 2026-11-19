@@ -1,0 +1,463 @@
+{
+ "id": "engineering-solid-state-batteries",
+ "topic": "Solid-state batteries for electric vehicles: how they work, the main technical obstacles, and realistic commercialization timelines",
+ "status": "holdout",
+ "prepared": "2026-11-18",
+ "reviewed": "2026-11-18",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "A solid-state battery replaces the liquid electrolyte with a solid that acts as both ion conductor and separator, so lithium ions still shuttle between electrodes as in a conventional Li-ion cell; the main promise is enabling a lithium-metal anode (theoretical capacity 3860 mAh/g) and higher energy density, with projected 400-800 Wh/kg, though the highest values are largely theoretical.",
+   "importance": "core",
+   "sources": [
+    "https://www.mdpi.com/1996-1073/19/11/2659"
+   ],
+   "as_of": "2026-05",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "In a solid-state battery the solid electrolyte serves as both the ion conductor and the separator.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "Lithium ions move between anode and cathode during charge and discharge, as in conventional Li-ion cells, but through a solid electrolyte instead of a liquid.",
+     "main": false
+    },
+    {
+     "id": "k1c",
+     "fact": "Lithium metal is the preferred anode for solid-state batteries, with an ultrahigh theoretical capacity of 3860 mAh/g.",
+     "main": false
+    },
+    {
+     "id": "k1d",
+     "fact": "Without a liquid phase, solvent decomposition and the solid-electrolyte interphase (SEI) growth typical of Li-ion cells are eliminated, but mechanical stress from electrode volume changes remains a challenge.",
+     "main": false
+    },
+    {
+     "id": "k1e",
+     "fact": "A 2026 review projects solid-state energy densities of 400-800 Wh/kg against roughly 250-350 Wh/kg at cell level for lithium-ion, and describes values approaching 700-800 Wh/kg as largely theoretical.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k2",
+   "point": "Solid electrolyte families trade off conductivity and processability: sulfides (LGPS, argyrodite Li6PS5Cl) reach up to about 10 mS/cm but are moisture-sensitive and can release toxic H2S; oxides such as doped garnet LLZO reach roughly 0.1-1 mS/cm and are brittle with high grain-boundary resistance; PEO-type polymers conduct only about 0.001-0.01 mS/cm at room temperature and often need 60-100 C; composite cathodes need effective conductivities above 10 mS/cm for fast rates.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.mdpi.com/1996-1073/19/11/2659",
+    "https://publikationen.bibliothek.kit.edu/1000160945/157480014"
+   ],
+   "as_of": "2026-05",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "Sulfide solid electrolytes (such as LGPS and argyrodite Li6PS5Cl) have the highest room-temperature conductivity of the main families, up to about 10 mS/cm (10^-2 S/cm).",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "Sulfide electrolytes are moisture-sensitive and can release toxic H2S.",
+     "main": false
+    },
+    {
+     "id": "k2c",
+     "fact": "Doped garnet (LLZO) oxide electrolytes reach room-temperature conductivities of about 10^-3 to 10^-4 S/cm (0.1 to 1 mS/cm) and are brittle with high grain-boundary resistance.",
+     "main": false
+    },
+    {
+     "id": "k2d",
+     "fact": "PEO-based polymer electrolytes conduct about 10^-5 to 10^-6 S/cm (0.001 to 0.01 mS/cm) at room temperature and often require operation at 60-100 C.",
+     "main": false
+    },
+    {
+     "id": "k2e",
+     "fact": "Janek and Zeier state that solid electrolytes with effective conductivities in the cathode composite greater than 10 mS/cm are required for fast rates.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k3",
+   "point": "Lithium dendrites and short circuits remain a core obstacle: lithium can penetrate solid electrolytes at high current densities (sulfide electrolytes typically short at critical currents below about 1.5 mA/cm2, versus above 10 mA/cm2 for liquid electrolytes), and long-term stable, large-area lithium-metal anodes have not yet been proven.",
+   "importance": "core",
+   "sources": [
+    "https://www.mdpi.com/2673-3293/2/3/30",
+    "https://publikationen.bibliothek.kit.edu/1000160945/157480014"
+   ],
+   "as_of": "2023-02",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "Lithium dendrites can grow through solid electrolytes at relatively high current rates and cause cell short circuits.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "Sulfide solid electrolytes have relatively low critical currents (below about 1.5 mA/cm2) compared with liquid electrolytes (above 10 mA/cm2).",
+     "main": false
+    },
+    {
+     "id": "k3c",
+     "fact": "Voids formed during lithium stripping significantly increase the effective current density through poor lithium/solid-electrolyte contact, promoting dendrite formation on subsequent plating in Li6PS5Cl systems.",
+     "main": false
+    },
+    {
+     "id": "k3d",
+     "fact": "Janek and Zeier name dendrite growth, pore formation and decomposition reactions at the lithium-metal/solid-electrolyte interface as key challenges for high current densities and fast charge-discharge.",
+     "main": false
+    },
+    {
+     "id": "k3e",
+     "fact": "Janek and Zeier state that the ultimate proof of long-term stable, large-area lithium metal anodes is still missing.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k4",
+   "point": "Stack pressure is a double-edged design parameter in sulfide cells: too little pressure leaves poor solid-solid contact and high interfacial resistance, while too much causes lithium creep through pores and mechanical shorting (in Li|Li6PS5Cl|Li cells Doux et al. cycled stably for over 1000 h at 5 MPa, shorted after about 48 h at 25 MPa, and shorted immediately at 75 MPa).",
+   "importance": "secondary",
+   "sources": [
+    "https://escholarship.org/uc/item/6hp2m5bc"
+   ],
+   "as_of": "2020-01",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "Doux et al. (2020) found that in Li|Li6PS5Cl|Li symmetric cells a stack pressure of 5 MPa allowed plating and stripping for more than 1000 h without a short circuit.",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "Doux et al. found that at 25 MPa the symmetric cell shorted after about 48 h, with lithium creeping into electrolyte pores and propagating along grain boundaries.",
+     "main": false
+    },
+    {
+     "id": "k4c",
+     "fact": "Doux et al. found that at 75 MPa mechanical shorting occurred even before any plating and stripping, as lithium crept through interconnecting pores to form an electronic pathway.",
+     "main": false
+    },
+    {
+     "id": "k4d",
+     "fact": "Doux et al. measured symmetric-cell impedance above 500 ohm at 1 MPa, falling to about 110 ohm at 5 MPa and about 32 ohm at 25 MPa, showing poor interfacial contact at low pressure.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k5",
+   "point": "Cost is the decisive commercial obstacle: SNE Research puts solid-state batteries at $400-600 per kWh against roughly $81/kWh for LFP packs and $128/kWh for NMC packs as reported alongside that figure, and Gasgoo cites all-solid-state cells at about 1.6-2.2 yuan/Wh versus 0.39-0.5 yuan/Wh for LFP, driven by expensive sulfide electrolyte and lithium sulfide.",
+   "importance": "core",
+   "sources": [
+    "https://www.koreajoongangdaily.com/business/exclusive-global-clients-give-early-nod-to-samsung-sdis-solidstate-batteries-executive-says/12748083",
+    "https://autonews.gasgoo.com/articles/ev/all-solid-state-batteries-time-for-a-reality-check-2083020862696427521"
+   ],
+   "as_of": "2026-07",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "According to SNE Research, solid-state batteries cost between $400 and $600 per kWh.",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "The same report gives about $81 per kWh for lithium iron phosphate packs and about $128 per kWh for nickel-cobalt-manganese packs.",
+     "main": false
+    },
+    {
+     "id": "k5c",
+     "fact": "Gasgoo cites all-solid-state cell costs of about 1.6-2.2 yuan/Wh versus 0.39-0.5 yuan/Wh for lithium iron phosphate cells.",
+     "main": false
+    },
+    {
+     "id": "k5d",
+     "fact": "Gasgoo states that electrolyte makes up 70-80% of the cost of a sulfide all-solid-state cell and lithium sulfide 70-80% of the electrolyte cost.",
+     "main": false
+    },
+    {
+     "id": "k5e",
+     "fact": "Gasgoo states lithium sulfide costs about 2 million yuan per ton against an industry target of 500,000 yuan per ton.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k6",
+   "point": "'Semi-solid' is not all-solid-state: hybrid solid-liquid cells retain a liquid electrolyte fraction (Gasgoo reports 5-15% in commercial semi-solid cells, at 350-400 Wh/kg) and are what is being mass-produced in 2026, while China's national standard GB/T 43568-2026, effective 1 July 2026, classifies cells by liquid-electrolyte mass fraction into liquid, hybrid solid-liquid and all-solid-state and requires an all-solid-state cell to lose no more than 0.5% of its mass in a vacuum-drying test.",
+   "importance": "secondary",
+   "sources": [
+    "https://autonews.gasgoo.com/articles/ev/all-solid-state-batteries-time-for-a-reality-check-2083020862696427521",
+    "https://www.batterydesign.net/legislation-rules-and-regulations/gb-t-43568-2026/",
+    "https://cnevpost.com/2025/12/31/china-seeking-public-input-national-standard-ev-solid-state-battery/"
+   ],
+   "as_of": "2026-07",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "Gasgoo reports that semi-solid batteries retain 5% to 15% liquid electrolyte and reach energy densities of 350 to 400 Wh/kg.",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "China's national standard GB/T 43568-2026, 'Solid-state Battery for Electric Vehicle - Part 1: Terms and Classification', took effect on 1 July 2026.",
+     "main": false
+    },
+    {
+     "id": "k6c",
+     "fact": "The standard classifies cells by liquid-electrolyte mass fraction as liquid batteries (above 20%), hybrid solid-liquid batteries (5% to 20%) and all-solid-state batteries (below 5%), so 'semi-solid-state' is not one of its categories.",
+     "main": false
+    },
+    {
+     "id": "k6d",
+     "fact": "To count as all-solid-state under the standard a cell's weight loss must not exceed 0.5% after vacuum drying.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k7",
+   "point": "Toyota, with Idemitsu supplying sulfide solid electrolytes, has long targeted all-solid-state BEVs in 2027-28, and on 11 November 2026 said it is targeting introduction in a future model by the end of 2028; Idemitsu is building a large solid-electrolyte pilot plant (several hundred tons per year, completion 2027) and a lithium sulfide plant due June 2027.",
+   "importance": "core",
+   "sources": [
+    "https://www.idemitsu.com/jp/news/2025/260129_en.pdf",
+    "https://pressroom.toyota.com/toyota-powers-whats-next-in-mobility-and-manufacturing/"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "On 11 November 2026 Toyota said it is targeting introduction of all-solid-state batteries in a future model by the end of 2028.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "Idemitsu, collaborating with Toyota, aims to commercialise all-solid-state battery-equipped electric vehicles in 2027-2028.",
+     "main": false
+    },
+    {
+     "id": "k7c",
+     "fact": "Idemitsu made a final investment decision and began construction of a large pilot facility for solid electrolytes, with capacity of several hundred tons per year and construction to be completed in 2027.",
+     "main": false
+    },
+    {
+     "id": "k7d",
+     "fact": "Idemitsu's large-scale lithium sulfide production facility is progressing toward completion in June 2027.",
+     "main": false
+    },
+    {
+     "id": "k7e",
+     "fact": "The solid electrolytes from the Idemitsu pilot facility are intended for all-solid-state batteries for BEVs developed by Toyota.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k8",
+   "point": "Samsung SDI targets mass production of sulfide-based all-solid-state batteries in the second half of 2027 at its Ulsan plant in South Korea, with a target energy density above 900 Wh/L and samples already with potential EV, embodied-AI and humanoid-robot customers.",
+   "importance": "secondary",
+   "sources": [
+    "https://battery-news.de/en/2026/08/03/samsung-sdi-plans-mass-production-of-solid-state-batteries-starting-in-2027/",
+    "https://autonews.gasgoo.com/articles/news/samsung-sdi-to-start-mass-production-of-all-solid-state-batteries-in-2027-2083191483950661633"
+   ],
+   "as_of": "2026-08",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "Samsung SDI says mass production of its all-solid-state batteries is scheduled for the second half of 2027.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "Samsung SDI plans to mass-produce the batteries at its Ulsan plant in South Korea before expanding to overseas sites.",
+     "main": false
+    },
+    {
+     "id": "k8c",
+     "fact": "Samsung SDI is betting on sulfide-based solid electrolytes, with an announced energy density target exceeding 900 Wh/L.",
+     "main": false
+    },
+    {
+     "id": "k8d",
+     "fact": "Samsung SDI has delivered sample cells for evaluation to potential customers in the electric vehicle, embodied AI and humanoid robotics sectors.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k9",
+   "point": "Chinese makers are more cautious on timing: CATL's chairman said in June 2026 that all-solid-state technology is only at level 4 of 9 and volume production would not start until 2030, while CATL still targets small-scale production in 2027 and BYD plans small-scale sulfide production by 2027 with mainstream use by 2030; China's CSAE road map projects small-scale use by 2030 and large-scale adoption by 2035.",
+   "importance": "core",
+   "sources": [
+    "https://electrek.co/2026/06/25/catl-solid-state-battery-level-4-2030/",
+    "https://www.chinadaily.com.cn/a/202608/31/WS6a94e0c8e4b06d4aa055b5c5.html"
+   ],
+   "as_of": "2026-08",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "CATL founder and chairman Robin Zeng said in June 2026 that all-solid-state technology has reached only level four on a one-to-nine scale and that volume production would not start until 2030.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "CATL is still targeting small-scale all-solid-state production by 2027, with a planned capacity of 5 GWh.",
+     "main": false
+    },
+    {
+     "id": "k9c",
+     "fact": "Sun Huajun, chief technology officer of BYD Lithium Battery, said BYD plans to begin small-scale production of sulfide-based all-solid-state batteries by 2027, with use in mainstream EV models expected by 2030.",
+     "main": false
+    },
+    {
+     "id": "k9d",
+     "fact": "The China Society of Automotive Engineers road map, compiled under MIIT guidance, projects small-scale use of all-solid-state batteries by 2030 and large-scale adoption worldwide by 2035.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k10",
+   "point": "QuantumScape (anode-free lithium-metal design with a ceramic separator) has moved from pilot to scale-up planning: its Q3 2026 shareholder letter announces a 100 MWh production line with start of production targeted for 2028, aimed at its data-center and defense/aerospace verticals, and its 11 November 2026 Osprey platform claims, in early testing, 1,000 cycles at about 80% retention at one atmosphere and 10-80% charge in five minutes, with about 1,100 Wh/L only projected.",
+   "importance": "core",
+   "sources": [
+    "https://ir.quantumscape.com/static-files/d00eb7bb-65ea-4355-99c4-476435c5eea9",
+    "https://www.quantumscape.com/quantumscape-expands-commercial-roadmap-with-osprey-the-open-all-solid-state-platform-for-battery-development/"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "QuantumScape's Q3 2026 shareholder letter says a planned 100 MWh cell production line, with start of production targeted for 2028, will represent the first commercial-scale mass production of QS cells.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "The letter says the 100 MWh line's output is aimed at QuantumScape's QSDC (AI data center) and QSAS (defense, aerospace and advanced solutions) business verticals.",
+     "main": false
+    },
+    {
+     "id": "k10c",
+     "fact": "The Q3 2026 letter says the Eagle Line is fully operational and producing increased volumes of QSE-5 cells for customers.",
+     "main": false
+    },
+    {
+     "id": "k10d",
+     "fact": "In its 11 November 2026 Osprey release QuantumScape reported, from early testing, 1,000 full charge cycles with about 80% capacity retention, 10% to 80% charging in five minutes and operation at one atmosphere of pressure.",
+     "main": false
+    },
+    {
+     "id": "k10e",
+     "fact": "The Osprey energy density of up to about 1,100 Wh/L is described as projected, and QuantumScape cautions that early-testing results may not be replicable in commercial cell formats or at scale.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k11",
+   "point": "Real-world demonstration exists but is prototype-level: a lightly modified Mercedes EQS with Factorial lithium-metal solid-state cells drove 1,205 km from Stuttgart to Malmo at the end of August 2025 without charging, arriving with 137 km of range left, using pneumatic actuators to maintain cell contact pressure and with 25% more usable energy than the standard EQS battery at comparable size and weight.",
+   "importance": "secondary",
+   "sources": [
+    "https://group.mercedes-benz.com/technology/e-mobility/electric-drive/eqs-solid-state-battery.html"
+   ],
+   "as_of": "2025-09",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "A lightly modified Mercedes-Benz EQS with a lithium-metal solid-state battery completed a 1,205-km trip from Stuttgart to Malmo at the end of August 2025 without a charging stop.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "The vehicle arrived in Malmo with 137 km of remaining range.",
+     "main": false
+    },
+    {
+     "id": "k11c",
+     "fact": "The lithium-metal cells came from US manufacturer Factorial Energy and use its FEST (Factorial Electrolyte System Technology) technology.",
+     "main": false
+    },
+    {
+     "id": "k11d",
+     "fact": "The battery used pneumatic actuators that respond to cell volume changes to maintain the necessary contact pressure on the cells.",
+     "main": false
+    },
+    {
+     "id": "k11e",
+     "fact": "The usable energy content of the battery was increased by 25% while weight and size remained comparable to the standard EQS battery.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k12",
+   "point": "Realistic timelines: first limited-volume all-solid-state vehicles are planned for 2027-28, but mainstream scale is expected only after 2030 and possibly around 2035; 'small-batch 2027' means a line outputting thousands of cells mostly for testing or limited-edition luxury cars, and peer-reviewed assessment leaves open whether solid-state success will be niche or mass-market.",
+   "importance": "core",
+   "sources": [
+    "https://autonews.gasgoo.com/articles/ev/all-solid-state-batteries-time-for-a-reality-check-2083020862696427521",
+    "https://publikationen.bibliothek.kit.edu/1000160945/157480014"
+   ],
+   "as_of": "2026-07",
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "Gasgoo reports that leading enterprises plan small-batch installation of all-solid-state batteries in 2027 and entry into mass production by 2030.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "Changan Automobile vice president Deng Chenghao said 2030 is already a very optimistic expectation and the real point of large-scale application might be 2035.",
+     "main": false
+    },
+    {
+     "id": "k12c",
+     "fact": "Gasgoo states that 'small-batch mass production in 2027' means a production line able to stably output products in the thousands, most likely for automaker testing or limited-edition luxury cars.",
+     "main": false
+    },
+    {
+     "id": "k12d",
+     "fact": "Janek and Zeier write that they are confident solid-state batteries will see commercial success but that it is open whether this means specific niche applications or the mass market.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k13",
+   "point": "Safety is an unproven advantage: Janek and Zeier note that short circuits, toxic solid electrolytes and percolation of a liquid fraction add risks, that Li6PS5Cl-NCM composites have shown self-ignition above 150 C, and that no solid-state battery safety test standards yet exist, while QuantumScape claims its cells are thermally stable well over 300 C (a company claim).",
+   "importance": "secondary",
+   "sources": [
+    "https://publikationen.bibliothek.kit.edu/1000160945/157480014",
+    "https://ir.quantumscape.com/static-files/d00eb7bb-65ea-4355-99c4-476435c5eea9"
+   ],
+   "as_of": "2026-10",
+   "atoms": [
+    {
+     "id": "k13a",
+     "fact": "Janek and Zeier state that whether solid-state batteries offer increased safety still needs to be unequivocally proved.",
+     "main": true
+    },
+    {
+     "id": "k13b",
+     "fact": "Janek and Zeier list short circuits, the use of toxic solid electrolytes and percolation of a liquid fraction as possible additional safety risks.",
+     "main": false
+    },
+    {
+     "id": "k13c",
+     "fact": "Janek and Zeier cite reported self-ignition and thermal runaway of Li6PS5Cl-NCM composites above 150 C.",
+     "main": false
+    },
+    {
+     "id": "k13d",
+     "fact": "Janek and Zeier state that without safety test standards for solid-state batteries final conclusions cannot be made.",
+     "main": false
+    },
+    {
+     "id": "k13e",
+     "fact": "QuantumScape's Q3 2026 letter says its solid-state batteries have been shown thermally stable well over 300 C, versus conventional lithium-ion batteries not thermally stable above about 180 C.",
+     "main": false
+    }
+   ]
+  }
+ ]
+}

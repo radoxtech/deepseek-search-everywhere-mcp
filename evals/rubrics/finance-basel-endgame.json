@@ -1,0 +1,461 @@
+{
+ "id": "finance-basel-endgame",
+ "topic": "Basel III endgame in the United States: what the capital rules require, how the proposals changed, and their implementation status",
+ "status": "holdout",
+ "prepared": "2026-11-18",
+ "reviewed": "2026-11-18",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "The Basel Committee finalised the post-crisis Basel III reforms (the 'Basel III endgame') on 7 December 2017: more robust, risk-sensitive standardised approaches for credit and operational risk, constraints on internally modelled approaches, a finalised leverage ratio and a revised capital floor, all aimed at reducing excessive variability of risk-weighted assets.",
+   "importance": "core",
+   "sources": [
+    "https://www.bis.org/bcbs/publ/d424.htm"
+   ],
+   "as_of": "2017-12",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "The Basel Committee published the finalised post-crisis Basel III reforms (the 'endgame') on 7 December 2017.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "The stated goal of the reforms is to reduce excessive variability of risk-weighted assets (RWA).",
+     "main": false
+    },
+    {
+     "id": "k1c",
+     "fact": "The reforms make the standardised approaches for credit risk and operational risk more robust and risk-sensitive.",
+     "main": false
+    },
+    {
+     "id": "k1d",
+     "fact": "The reforms constrain the use of internally modelled approaches.",
+     "main": false
+    },
+    {
+     "id": "k1e",
+     "fact": "The reforms add a revised capital floor and a finalised leverage ratio.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k2",
+   "point": "The original US proposal (27 July 2023, Federal Reserve, FDIC and OCC) would have raised aggregate common equity tier 1 (CET1) requirements of affected bank holding companies by 16 percent; it applied generally to banks with $100 billion or more in total assets, with transition from 1 July 2025 and full compliance from 1 July 2028.",
+   "importance": "core",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/bcreg20230727a.htm"
+   ],
+   "as_of": "2023-07",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "The 2023 Basel III endgame proposal was estimated to increase aggregate CET1 capital requirements of affected bank holding companies by 16 percent.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "The proposal was issued jointly by the Federal Reserve, FDIC and OCC on 27 July 2023.",
+     "main": false
+    },
+    {
+     "id": "k2c",
+     "fact": "The 2023 proposal applied generally to banks with $100 billion or more in total assets; community banks would not have been affected.",
+     "main": false
+    },
+    {
+     "id": "k2d",
+     "fact": "The comment deadline for the 2023 proposal was 30 November 2023.",
+     "main": false
+    },
+    {
+     "id": "k2e",
+     "fact": "Under the 2023 proposal large banks would begin transitioning on 1 July 2025, with full compliance starting 1 July 2028.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k3",
+   "point": "On 10 September 2024 Vice Chair for Supervision Michael Barr signalled that the 2023 proposal would be substantially revised: re-proposals would raise G-SIB aggregate CET1 requirements by 9 percent, with other large banks mainly affected through recognition of unrealised securities gains and losses (about 3 to 4 percent over the long run), after comments that elevated residential and retail risk weights overstated risk.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/speech/barr20240910a.htm"
+   ],
+   "as_of": "2024-09",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "In a 10 September 2024 speech Michael Barr, then Vice Chair for Supervision, said the planned re-proposals would increase aggregate CET1 requirements for G-SIBs by 9 percent.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "Barr said the increase for other large (non-G-SIB) banks would come mainly from including unrealised gains and losses on securities, equivalent to a 3 to 4 percent increase in capital requirements over the long run.",
+     "main": false
+    },
+    {
+     "id": "k3c",
+     "fact": "Barr said the remaining non-G-SIB firms still subject to the rule would see a 0.5 percent increase in capital requirements.",
+     "main": false
+    },
+    {
+     "id": "k3d",
+     "fact": "Barr said the re-proposal would lower the proposed risk weights for loans secured by residential real estate and loans to retail customers, after commenters argued the elevated risk weights would overstate the risk of these loans given their loss history.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k4",
+   "point": "On 19 March 2026 the Federal Reserve, FDIC and OCC issued three proposals that replace the 2023 plan (which was formally rescinded): a Basel III proposal for the largest banks, a revised standardized approach for other banks, and a Fed-only G-SIB surcharge proposal; comments were due 18 June 2026, and the Fed voted 6-1 to advance them (Barr dissenting).",
+   "importance": "core",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/bcreg20260319a.htm",
+    "https://www.freshfields.com/en/our-thinking/blogs/a-fresh-take/basel-iii-endgame-take-two-8-key-takeaways-from-the-federal-banking-agencies-c-102mnm3"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "On 19 March 2026 the Fed, FDIC and OCC issued three capital proposals (Basel III for the largest banks, a revised standardized approach for other banks, and a G-SIB surcharge revision).",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "The agencies formally rescinded the 2023 Basel III endgame proposals when issuing the new proposals.",
+     "main": false
+    },
+    {
+     "id": "k4c",
+     "fact": "Comments on all three 2026 proposals were due 18 June 2026.",
+     "main": false
+    },
+    {
+     "id": "k4d",
+     "fact": "The Federal Reserve Board voted 6-1 to advance the proposals, with Governor Michael Barr the sole dissent.",
+     "main": false
+    },
+    {
+     "id": "k4e",
+     "fact": "The G-SIB surcharge proposal is issued by the Federal Reserve Board alone; the other two are joint proposals.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k5",
+   "point": "Under the March 2026 re-proposal, Category I and II firms (the eight US G-SIBs plus one other large institution; Category II is $700 billion or more in assets or $75 billion or more in cross-jurisdictional activity) would calculate one set of risk-based ratios under an 'expanded risk-based approach' replacing the advanced approaches, whereas the 2023 plan covered Category I-IV firms and kept a dual-stack calculation; other banks may opt in.",
+   "importance": "core",
+   "sources": [
+    "https://www.freshfields.com/en/our-thinking/blogs/a-fresh-take/basel-iii-endgame-take-two-8-key-takeaways-from-the-federal-banking-agencies-c-102mnm3",
+    "https://www.fdic.gov/board/board-memo-regulatory-capital-rule-category-i-and-ii-banking-organizations-banking"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "Under the March 2026 Basel III proposal, Category I and II firms would calculate a single set of risk-based capital ratios under the 'expanded risk-based approach' (ERBA), instead of both standardized and advanced-approaches ratios.",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "The Basel III proposal would be mandatory only for Category I and II firms, which comprise the eight US G-SIBs plus one additional large institution.",
+     "main": false
+    },
+    {
+     "id": "k5c",
+     "fact": "Other banking organizations could elect to use ERBA; a later change in election between ERBA and the standardized approach would take effect 12 months after written notice to the firm's primary federal supervisor.",
+     "main": false
+    },
+    {
+     "id": "k5d",
+     "fact": "The 2023 proposal covered Category I-IV firms (banks with $100 billion or more in assets) and would have kept the dual-stack calculation, under which a firm holds capital against the more stringent of two sets of ratios.",
+     "main": false
+    },
+    {
+     "id": "k5e",
+     "fact": "Category II standards apply to banking organizations with at least $700 billion in total consolidated assets or at least $75 billion in cross-jurisdictional activity.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k6",
+   "point": "Federal Reserve staff estimate the 2026 package modestly lowers capital requirements: the Basel III proposal raises aggregate CET1 requirements of Category I and II firms by 1.4 percent and the G-SIB surcharge proposal lowers them by 3.8 percent (net -2.4 percent), or -4.8 percent including proposed stress-test changes; Category III and IV firms fall 3.0 percent (5.2 percent with stress-test changes) and smaller banks 7.8 percent.",
+   "importance": "core",
+   "sources": [
+    "https://www.federalreserve.gov/aboutthefed/boardmeetings/files/board-memo-basel-gsib-standardized-approach-20260319.pdf"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "Fed staff estimate that the proposals plus proposed stress-test changes would lower aggregate CET1 requirements of Category I and II firms by 4.8 percent.",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "Fed staff estimate the Basel III proposal raises Category I and II CET1 requirements by 1.4 percent and the G-SIB surcharge proposal lowers them by 3.8 percent, a net decrease of 2.4 percent.",
+     "main": false
+    },
+    {
+     "id": "k6c",
+     "fact": "The 1.4 percent increase stems from higher requirements for trading activities, mostly offset by lower requirements for traditional lending.",
+     "main": false
+    },
+    {
+     "id": "k6d",
+     "fact": "Fed staff estimate the standardized approach proposal lowers CET1 requirements of Category III and IV firms by 3.0 percent (a 6.1 percent decrease from the revised RWA calculation and a 3.1 percent increase from AOCI recognition), or 5.2 percent including stress-test changes.",
+     "main": false
+    },
+    {
+     "id": "k6e",
+     "fact": "Fed staff estimate the standardized approach proposal lowers CET1 requirements of banking organizations with less than $100 billion in assets by 7.8 percent.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k7",
+   "point": "The expanded risk-based approach removes internal models from credit risk (varying requirements with loan-to-value ratios for real estate), replaces models-based operational risk with a standardised requirement based on income and expense items, rebuilds market risk (expected shortfall replacing value-at-risk) and adds a CVA risk requirement.",
+   "importance": "core",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/files/fact-sheet-20260319.pdf",
+    "https://www.fdic.gov/board/board-memo-regulatory-capital-rule-category-i-and-ii-banking-organizations-banking"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "The proposal would remove the use of internal models from the credit risk framework and vary requirements with loan-to-value ratios for most real estate exposures.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "The models-based approach to operational risk would be replaced by a standardised approach that uses income and expense items to proxy operational risk.",
+     "main": false
+    },
+    {
+     "id": "k7c",
+     "fact": "In the market risk framework, the models-based measure would replace value-at-risk with an expected shortfall measure, supplemented by a standardised fallback approach.",
+     "main": false
+    },
+    {
+     "id": "k7d",
+     "fact": "The market risk framework applies to Category I and II depository institution holding companies and to other firms with more than $5 billion in trading activity or trading activity at or above 10 percent of total assets.",
+     "main": false
+    },
+    {
+     "id": "k7e",
+     "fact": "The proposal adds a credit valuation adjustment (CVA) risk requirement, with client-facing derivative transactions exempt.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k8",
+   "point": "For banks not using ERBA the standardized approach proposal lowers the corporate risk weight from 100% to 95% and the residual-asset risk weight from 100% to 90%, sets loan-to-value-based residential mortgage risk weights (25% to 75% where repayment does not depend on property cash flows, 35% to 110% where it does), and replaces the CET1 deduction for mortgage servicing assets with a 250% risk weight for all banking organizations.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/files/fact-sheet-20260319.pdf",
+    "https://www.arnoldporter.com/en/perspectives/advisories/2026/03/agencies-capital-proposals-seek-to-reduce-regulatory-burden",
+    "https://www.debevoise.com/insights/publications/2026/03/federal-banking-agencies-basel-iii-endgame-mullig"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "The standardized approach proposal would reduce the corporate exposure risk weight from 100 percent to 95 percent.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "The proposal would reduce the risk weight for residual assets (those not assigned another risk weight) from 100 percent to 90 percent.",
+     "main": false
+    },
+    {
+     "id": "k8c",
+     "fact": "The threshold-based CET1 deduction for mortgage servicing assets would be removed for all banking organizations, including community bank leverage ratio filers, and replaced with a 250 percent risk weight.",
+     "main": false
+    },
+    {
+     "id": "k8d",
+     "fact": "Residential mortgage risk weights would range from as low as 25 percent to as high as 110 percent depending on the loan-to-value ratio and on whether repayment depends on cash flows generated by the property.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k9",
+   "point": "Category III and IV firms (generally $100 billion to under $700 billion in assets) would have to recognise most AOCI elements in regulatory capital, phased in over five years; Fed staff put the long-run effect at +3.1 percent of CET1 requirements, and firms that opt into ERBA take on the same AOCI treatment.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/files/fact-sheet-20260319.pdf",
+    "https://www.federalreserve.gov/aboutthefed/boardmeetings/files/board-memo-basel-gsib-standardized-approach-20260319.pdf"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "The standardized approach proposal would require Category III and IV banking organizations to recognise most AOCI elements in regulatory capital.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "Category III and IV firms are generally those with $100 billion or more but less than $700 billion in total assets.",
+     "main": false
+    },
+    {
+     "id": "k9c",
+     "fact": "The AOCI recognition would be phased in over five years.",
+     "main": false
+    },
+    {
+     "id": "k9d",
+     "fact": "Fed staff estimate AOCI recognition raises Category III and IV CET1 requirements by 3.1 percent, using a long-run average of the ratio of AOCI to securities amortized cost for bank holding companies from 1996 through 2025.",
+     "main": false
+    },
+    {
+     "id": "k9e",
+     "fact": "Firms that opt into ERBA would be subject to the same capital definition as Category I and II firms, including the treatment of AOCI.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k10",
+   "point": "The G-SIB surcharge proposal revises method 2 coefficients with an automatic annual adjustment for growth and inflation, removes the RWA denominator from the short-term wholesale funding indicator and sets its weight at 20 percent, uses annual averages instead of year-end values, and assigns surcharges in 10 basis point instead of 50 basis point increments.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/files/fact-sheet-20260319.pdf",
+    "https://www.federalreserve.gov/aboutthefed/boardmeetings/files/board-memo-basel-gsib-standardized-approach-20260319.pdf"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "The proposal would modify the G-SIB surcharge method 2 coefficients and add an automatic mechanism adjusting them for economic growth and inflation.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "The proposal would remove the risk-weighted assets denominator from the short-term wholesale funding indicator and set its weighting at 20 percent.",
+     "main": false
+    },
+    {
+     "id": "k10c",
+     "fact": "Certain systemic indicators would be calculated as annual averages of daily or monthly values rather than year-end point-in-time values.",
+     "main": false
+    },
+    {
+     "id": "k10d",
+     "fact": "Surcharges would be assigned in 10 basis point increments instead of 50 basis point increments.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k11",
+   "point": "A separate final rule on the enhanced supplementary leverage ratio (eSLR), issued 25 November 2025 and effective 1 April 2026 (optional from 1 January 2026), lowers Tier 1 requirements of affected US G-SIB holding companies by less than 2 percent in aggregate and caps the eSLR standard for their depository subsidiaries at 1 percent.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/bcreg20251125b.htm"
+   ],
+   "as_of": "2025-11",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "The agencies issued the final eSLR rule on 25 November 2025, effective 1 April 2026, with banking organizations able to elect the modified standards from 1 January 2026.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "Tier 1 capital requirements for affected bank holding companies fall by less than 2 percent in aggregate under the eSLR final rule.",
+     "main": false
+    },
+    {
+     "id": "k11c",
+     "fact": "For depository institution subsidiaries the eSLR standard is capped at 1 percent, so the overall leverage requirement is no more than 4 percent.",
+     "main": false
+    },
+    {
+     "id": "k11d",
+     "fact": "The eSLR rule applies to US G-SIB holding companies and their subsidiary depository institutions.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k12",
+   "point": "As of 18 November 2026 none of the three 2026 proposals is final: the comment period closed 18 June 2026; the OCC and FDIC sent final capital rules to the Office of Management and Budget on 13 November 2026 and they remain pending EO 12866 review with no published timeline; the agencies proposed no effective date for the Basel III re-proposal and sought comment on timing, while the G-SIB surcharge proposal would take effect two calendar quarters after a final rule is adopted.",
+   "importance": "core",
+   "sources": [
+    "https://www.reginfo.gov/public/do/eoDetails?rrid=1599615",
+    "https://www.debevoise.com/insights/publications/2026/03/federal-banking-agencies-basel-iii-endgame-mullig"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "The OCC and FDIC submitted final capital rules to the Office of Management and Budget for EO 12866 review on 13 November 2026, and the submissions were still listed as pending review as of 18 November 2026.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "The OCC submissions comprise RIN 1557-AF52 (Category I and II banking organizations and optional adoption for others) and RIN 1557-AF49 (regulatory capital and the standardized approach for risk-weighted assets); the FDIC submission is RIN 3064-AG23.",
+     "main": false
+    },
+    {
+     "id": "k12c",
+     "fact": "The agencies did not propose an effective date for the Basel III re-proposal and specifically sought public comment on timing and transition.",
+     "main": false
+    },
+    {
+     "id": "k12d",
+     "fact": "The G-SIB surcharge proposal would take effect two calendar quarters after the date a final rule is adopted.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k13",
+   "point": "Dissent and critique: Governor Barr says the proposals contain over 20 material downward deviations from Basel III and that the surcharge proposal cuts G-SIB CET1 requirements by 3.8 percent ($33 billion), while Vice Chair for Supervision Bowman calls the elimination of internal models for credit risk the most significant deviation from the international standard, one that leaves US banks with higher capital charges than international peers.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.federalreserve.gov/newsevents/pressreleases/barr-statement-20260319.htm",
+    "https://www.federalreserve.gov/newsevents/pressreleases/bowman-statement-20260319.htm"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k13a",
+     "fact": "Governor Barr said the proposal contains over 20 material downward deviations from the Basel III standard.",
+     "main": true
+    },
+    {
+     "id": "k13b",
+     "fact": "Barr said the G-SIB surcharge proposal would cut CET1 capital requirements for the largest banks by 3.8 percent, or $33 billion.",
+     "main": false
+    },
+    {
+     "id": "k13c",
+     "fact": "Barr said the proposal would have the short-term wholesale funding component account for 20 percent of G-SIBs' aggregate method 2 scores, although the component has made up approximately 30 percent of firms' method 2 scores.",
+     "main": false
+    },
+    {
+     "id": "k13d",
+     "fact": "Barr said that together with the finalised eSLR changes the package means a decrease in tier 1 capital requirements of 6.0 percent, or $60 billion.",
+     "main": false
+    },
+    {
+     "id": "k13e",
+     "fact": "Vice Chair for Supervision Bowman described the elimination of internal models for credit risk as the most significant deviation from the international standard in the Basel III proposal, a deviation that results in higher capital charges for US banks than for their international peers.",
+     "main": false
+    }
+   ]
+  }
+ ]
+}

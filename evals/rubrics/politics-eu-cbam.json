@@ -11,7 +11,24 @@
    "sources": [
     "https://taxation-customs.ec.europa.eu/carbon-border-adjustment-mechanism_en"
    ],
-   "as_of": "2026-11"
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "CBAM puts a carbon price on imports of cement, iron and steel, aluminium, fertilisers, electricity and hydrogen.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "CBAM is meant to counter carbon leakage.",
+     "main": false
+    },
+    {
+     "id": "k1c",
+     "fact": "Under CBAM, importers buy and surrender certificates matching embedded emissions.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k2",
@@ -20,7 +37,24 @@
    "sources": [
     "https://icapcarbonaction.com/en/news/eu-cbam-enters-compliance-phase-and-outlines-path-ahead"
    ],
-   "as_of": "2026-01"
+   "as_of": "2026-01",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "CBAM certificate prices track EU ETS allowance auction prices.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "In 2026, CBAM certificate prices are quarterly averages of EU ETS allowance auction prices.",
+     "main": false
+    },
+    {
+     "id": "k2c",
+     "fact": "From 2027, CBAM certificate prices are weekly averages of EU ETS allowance auction prices.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k3",
@@ -30,7 +64,19 @@
     "https://www.reedsmith.com/our-insights/blogs/viewpoints/102lr9t/what-you-need-to-know-as-cbam-simplification-comes-into-effect/",
     "https://taxation-customs.ec.europa.eu/carbon-border-adjustment-mechanism_en"
    ],
-   "as_of": "2026-01"
+   "as_of": "2026-01",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "The CBAM reporting-only transitional period ran from 1 October 2023 to end-2025.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "The definitive CBAM regime with financial obligations began on 1 January 2026.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k4",
@@ -40,7 +86,24 @@
     "https://www.reedsmith.com/our-insights/blogs/viewpoints/102lr9t/what-you-need-to-know-as-cbam-simplification-comes-into-effect/",
     "https://www.ey.com/en_gl/technical/tax-alerts/eu-adopts-cbam-omnibus-regulation"
    ],
-   "as_of": "2025-10"
+   "as_of": "2025-10",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "The Omnibus simplification of CBAM came into force on 20 October 2025.",
+     "main": false
+    },
+    {
+     "id": "k4b",
+     "fact": "The CBAM Omnibus simplification replaced the EUR 150 exemption with a 50-tonne annual per-importer threshold.",
+     "main": true
+    },
+    {
+     "id": "k4c",
+     "fact": "Importers above CBAM's 50-tonne annual threshold need authorised declarant status.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k5",
@@ -50,7 +113,19 @@
     "https://icapcarbonaction.com/en/news/eu-cbam-enters-compliance-phase-and-outlines-path-ahead",
     "https://www.reedsmith.com/our-insights/blogs/viewpoints/102lr9t/what-you-need-to-know-as-cbam-simplification-comes-into-effect/"
    ],
-   "as_of": "2026-01"
+   "as_of": "2026-01",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "CBAM certificate sales start on 1 February 2027 for 2026 imports.",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "The first annual CBAM declaration and surrender is due 30 September 2027 (moved from 31 May).",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k6",
@@ -60,7 +135,24 @@
     "https://cbamguide.com/news/2026-07-17-eu-ets-phase-5-revision-slows-cbam-phase-in/",
     "https://icapcarbonaction.com/en/news/eu-cbam-enters-compliance-phase-and-outlines-path-ahead"
    ],
-   "as_of": "2026-07"
+   "as_of": "2026-07",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "CBAM phases in as EU ETS free allocation is phased out.",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "The 2026 and 2027 CBAM factors are 97.5% and 95%.",
+     "main": false
+    },
+    {
+     "id": "k6c",
+     "fact": "EU ETS free allocation for CBAM sectors reaches zero in 2034 under current law.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k7",
@@ -70,7 +162,19 @@
     "https://www.ey.com/en_gl/technical/tax-alerts/eu-adopts-cbam-omnibus-regulation",
     "https://icapcarbonaction.com/en/news/eu-cbam-enters-compliance-phase-and-outlines-path-ahead"
    ],
-   "as_of": "2026-01"
+   "as_of": "2026-01",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "Carbon prices paid in the country of origin can be deducted from CBAM obligations if verified.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "Default emissions values apply under CBAM where actual data are lacking.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k8",
@@ -79,7 +183,24 @@
    "sources": [
     "https://icapcarbonaction.com/en/news/eu-cbam-enters-compliance-phase-and-outlines-path-ahead"
    ],
-   "as_of": "2026-01"
+   "as_of": "2026-01",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "The Commission has proposed extending CBAM to about 180 downstream steel and aluminium products from 2028.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "The Commission has proposed anti-circumvention measures for CBAM.",
+     "main": false
+    },
+    {
+     "id": "k8c",
+     "fact": "The Commission's CBAM downstream-extension and anti-circumvention measures were proposals, not adopted law.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k9",
@@ -89,7 +210,24 @@
     "https://cbamguide.com/news/2026-07-17-eu-ets-phase-5-revision-slows-cbam-phase-in/",
     "https://www.hsfkramer.com/insights/2026-08/eu-ets-review-key-proposed-changes-to-the-eus-carbon-market"
    ],
-   "as_of": "2026-07"
+   "as_of": "2026-07",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "On 17 July 2026 the Commission proposed (COM(2026) 616) slowing the EU ETS free allocation phase-out to 2038.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "The Commission's July 2026 proposal to slow the free allocation phase-out is still under negotiation.",
+     "main": false
+    },
+    {
+     "id": "k9c",
+     "fact": "The Commission's July 2026 proposal to slow the free allocation phase-out would raise CBAM importer obligations from 2028.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k10",
@@ -99,7 +237,24 @@
     "https://gmk.center/en/infographic/how-countries-around-the-world-are-responding-to-the-eu-cbam-june-2025/",
     "https://climatechangenews.com/2025/12/03/trade-breaks-into-agenda-of-un-climate-talks-but-will-it-have-teeth/"
    ],
-   "as_of": "2025-12"
+   "as_of": "2025-12",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "China, India, South Africa and Russia criticise CBAM as unfair or discriminatory.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "Russia filed a WTO case against CBAM in 2025.",
+     "main": false
+    },
+    {
+     "id": "k10c",
+     "fact": "Poland challenged CBAM at the EU Court of Justice.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k11",
@@ -108,7 +263,24 @@
    "sources": [
     "https://climatechangenews.com/2025/12/03/trade-breaks-into-agenda-of-un-climate-talks-but-will-it-have-teeth/"
    ],
-   "as_of": "2025-12"
+   "as_of": "2025-12",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "At COP30 governments agreed only to trade-and-climate dialogues over three years.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "The COP30 trade-and-climate outcome came after references to unilateral trade measures were downgraded.",
+     "main": false
+    },
+    {
+     "id": "k11c",
+     "fact": "The EU rejects the label 'unilateral trade measure' for CBAM.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k12",
@@ -117,7 +289,24 @@
    "sources": [
     "https://cbamguide.com/news/2026-07-30-india-eu-fta-cbam-annexure-work-plan/"
    ],
-   "as_of": "2026-07"
+   "as_of": "2026-07",
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "The India-EU FTA gave India no CBAM exemption.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "The India-EU FTA gave India a dedicated CBAM annexure and work plan.",
+     "main": false
+    },
+    {
+     "id": "k12c",
+     "fact": "The India-EU FTA includes a clause extending any future EU CBAM flexibility to India (per an Indian official).",
+     "main": false
+    }
+   ]
   }
  ]
 }

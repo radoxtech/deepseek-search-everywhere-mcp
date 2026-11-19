@@ -33,8 +33,8 @@ DEPTH_COST_USD = {"low": 0.003, "medium": 0.008, "high": 0.012, "max": 0.031}
 DEPTH_TIME_S = {"low": 6, "medium": 29, "high": 39, "max": 110}
 
 
-def load_topics(selected: str) -> list[dict[str, str]]:
-    topics = json.loads((HERE / "topics.json").read_text(encoding="utf-8"))["topics"]
+def load_topics(selected: str, file: str = "topics.json") -> list[dict[str, str]]:
+    topics = json.loads((HERE / file).read_text(encoding="utf-8"))["topics"]
     if selected == "all":
         return topics
     wanted = set(selected.split(","))
@@ -50,7 +50,7 @@ def frozen_record(name: str, topic_id: str, depth: str, repeat: int) -> Path | N
 def plan(args: argparse.Namespace) -> list[dict[str, Any]]:
     jobs = []
     for repeat in range(1, args.repeats + 1):
-        for topic in load_topics(args.topics):
+        for topic in load_topics(args.topics, args.topics_file):
             for depth in args.depths.split(","):
                 job = {
                     "topic_id": topic["id"],
@@ -108,6 +108,7 @@ def main() -> None:
     )
     parser.add_argument("--name", default="baseline")
     parser.add_argument("--topics", default="all")
+    parser.add_argument("--topics-file", default="topics.json", help="topic list inside evals/")
     parser.add_argument("--depths", default="low,medium,high,max")
     parser.add_argument("--variant", default="baseline")
     parser.add_argument("--repeats", type=int, default=2)

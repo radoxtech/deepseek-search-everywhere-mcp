@@ -58,14 +58,14 @@ def _rubric(topic_id: str) -> dict[str, Any]:
     return json.loads((judge.RUBRICS / f"{topic_id}.json").read_text(encoding="utf-8"))
 
 
-def _pack(record: dict[str, Any]) -> str:
+def _pack(record: dict[str, Any], use_atoms: bool = False) -> str:
     env = record.get("envelope") or {}
     report = env.get("report") if env.get("ok") and env.get("status") == "done" else None
     return "\n".join(
         [
             KEYPOINT_INSTRUCTIONS,
             f"\n# Topic\n{record['topic']}\n",
-            f"# Key points\n{judge._rubric_text(record['topic_id'])}\n",
+            f"# Key points\n{judge._rubric_text(record['topic_id'], use_atoms=use_atoms)}\n",
             f"# Report\n{report or '(the job failed and returned no report)'}\n",
             "# Evidence (cited sentences and passages of the cited sources)\n",
             "\n".join(judge._evidence(record)) + "\n",
@@ -82,7 +82,7 @@ def build(args: argparse.Namespace) -> None:
     (out / "packs").mkdir(parents=True, exist_ok=True)
     (out / "verdicts").mkdir(exist_ok=True)
     topics = set(args.topic or [])
-    mapping: dict[str, Any] = {"sides": args.side, "packs": {}}
+    mapping: dict[str, Any] = {"sides": args.side, "atoms": args.atoms, "packs": {}}
     for side in args.side:
         for (topic_id, repeat), record in sorted(judge._records(*judge._parse_side(side)).items()):
             if topics and topic_id not in topics:
@@ -90,7 +90,7 @@ def build(args: argparse.Namespace) -> None:
             if args.repeats and repeat > args.repeats:
                 continue
             pid = pack_id(side, topic_id, repeat)
-            (out / "packs" / f"{pid}.md").write_text(_pack(record), encoding="utf-8")
+            (out / "packs" / f"{pid}.md").write_text(_pack(record, args.atoms), encoding="utf-8")
             mapping["packs"][pid] = {
                 "side": side,
                 "topic_id": topic_id,
@@ -99,6 +99,38 @@ def build(args: argparse.Namespace) -> None:
             }
     (out / "_packs.json").write_text(json.dumps(mapping, indent=2), encoding="utf-8")
     print(f"{len(mapping['packs'])} packs in {out}")
+
+
+def atom_scores(verdict: dict[str, Any], rubric: dict[str, Any]) -> dict[str, float]:
+    """Atom-level scores: each key point counts by the share of its atoms the report states."""
+    points = verdict.get("points") or {}
+    by_point: dict[str, list[dict[str, Any]]] = {}
+    for a in judge.atoms(rubric):
+        by_point.setdefault(a["point"], []).append(a)
+
+    def share(atoms_: list[dict[str, Any]], *, supported: bool = False) -> float:
+        hits = [
+            bool((points.get(a["id"]) or {}).get("covered"))
+            and (not supported or (points.get(a["id"]) or {}).get("supported") is True)
+            for a in atoms_
+        ]
+        return sum(hits) / len(hits)
+
+    core = [k["id"] for k in rubric["key_points"] if k["importance"] == "core"]
+    every = [k["id"] for k in rubric["key_points"]]
+
+    def mean(ids: list[str], **kw: bool) -> float:
+        return statistics.fmean(share(by_point[i], **kw) for i in ids) if ids else 0.0
+
+    main = [next((a for a in by_point[i] if a.get("main")), by_point[i][0]) for i in core]
+    return {
+        "core": mean(core),
+        "all": mean(every),
+        "core_supported": mean(core, supported=True),
+        "unsupported": float(len(verdict.get("unsupported") or [])),
+        "core_main": statistics.fmean(share([a]) for a in main) if main else 0.0,
+        "core_full": statistics.fmean(float(share(by_point[i]) == 1.0) for i in core) if core else 0.0,
+    }
 
 
 def verdict_scores(verdict: dict[str, Any], rubric: dict[str, Any]) -> dict[str, float]:
@@ -136,12 +168,23 @@ def score(args: argparse.Namespace) -> None:
         if verdict is None:
             missing.append(pid)
             continue
-        scores = verdict_scores(verdict, _rubric(info["topic_id"]))
+        scorer = atom_scores if mapping.get("atoms") else verdict_scores
+        scores = scorer(verdict, _rubric(info["topic_id"]))
         scores["cost_offpeak_usd"] = info["metrics"]["cost_offpeak_usd"]
         scores["wall_s"] = info["metrics"]["wall_s"] or 0.0
         scores["words"] = float(info["metrics"].get("words") or 0)
         per.setdefault(info["side"], {}).setdefault(info["topic_id"], []).append(scores)
-    keys = ("core", "all", "core_supported", "unsupported", "cost_offpeak_usd", "wall_s", "words")
+    keys: tuple[str, ...] = (
+        "core",
+        "all",
+        "core_supported",
+        "unsupported",
+        "cost_offpeak_usd",
+        "wall_s",
+        "words",
+    )
+    if mapping.get("atoms"):
+        keys += ("core_main", "core_full")
     sides: dict[str, Any] = {}
     for side, topics in per.items():
         flat = [s for runs in topics.values() for s in runs]
@@ -160,6 +203,11 @@ def score(args: argparse.Namespace) -> None:
             k: _mean([sides[side]["by_topic"][t][k] - sides[reference]["by_topic"][t][k] for t in common])
             for k in keys[:4]
         }
+        # What one extra percentage point of coverage costs, in US dollars per report.
+        delta_core = deltas[side]["core"] * 100
+        delta_cost = sides[side]["cost_offpeak_usd"] - sides[reference]["cost_offpeak_usd"]
+        deltas[side]["cost_per_point_usd"] = round(delta_cost / delta_core, 6) if delta_core > 0 else None
+        deltas[side]["delta_cost_usd"] = round(delta_cost, 6)
     summary = {
         "reference": reference,
         "missing_verdicts": missing,
@@ -180,6 +228,7 @@ def main() -> None:
     b.add_argument("--topic", action="append", help="limit to these topic ids")
     b.add_argument("--repeats", type=int, default=0, help="only repeats up to this number (0 = all)")
     b.add_argument("--out", required=True)
+    b.add_argument("--atoms", action="store_true", help="judge the atomic facts of the key points")
     s = sub.add_parser("score")
     s.add_argument("cmp")
     args = parser.parse_args()

@@ -11,7 +11,29 @@
    "sources": [
     "https://www.postgresql.org/docs/17/release-17.html"
    ],
-   "as_of": "2024-09"
+   "as_of": "2024-09",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "PostgreSQL 17 added incremental file-system backups via pg_basebackup --incremental.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "PostgreSQL 17 added the new pg_combinebackup tool.",
+     "main": false
+    },
+    {
+     "id": "k1c",
+     "fact": "PostgreSQL 17 added WAL summarization.",
+     "main": false
+    },
+    {
+     "id": "k1d",
+     "fact": "PostgreSQL 17 was released on 2024-09-26.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k2",
@@ -21,7 +43,24 @@
     "https://www.postgresql.org/docs/17/continuous-archiving.html",
     "https://www.postgresql.org/docs/17/release-17.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "The PostgreSQL server tracks changed blocks through WAL summary files, which record block numbers modified within an LSN range.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "PostgreSQL WAL summary files are produced by the WAL summarizer.",
+     "main": false
+    },
+    {
+     "id": "k2c",
+     "fact": "PostgreSQL WAL summary files are kept under pg_wal/summaries.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k3",
@@ -30,7 +69,24 @@
    "sources": [
     "https://www.postgresql.org/docs/17/runtime-config-wal.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "The PostgreSQL setting summarize_wal is off by default.",
+     "main": false
+    },
+    {
+     "id": "k3b",
+     "fact": "summarize_wal cannot run with wal_level=minimal.",
+     "main": false
+    },
+    {
+     "id": "k3c",
+     "fact": "summarize_wal must be enabled for PostgreSQL incremental backups; without it they cannot be taken.",
+     "main": true
+    }
+   ]
   },
   {
    "id": "k4",
@@ -39,7 +95,24 @@
    "sources": [
     "https://www.postgresql.org/docs/17/runtime-config-wal.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "The PostgreSQL setting wal_summary_keep_time defaults to 10 days.",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "WAL summaries must cover the whole LSN range since the prior backup, or the PostgreSQL incremental backup fails.",
+     "main": false
+    },
+    {
+     "id": "k4c",
+     "fact": "wal_summary_keep_time should be set above the gap between dependent backups.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k5",
@@ -49,7 +122,24 @@
     "https://www.postgresql.org/docs/17/app-pgbasebackup.html",
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "pg_basebackup --incremental takes the backup_manifest of a prior backup from the same server and uploads it.",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "For pg_basebackup --incremental, the server sends only the blocks changed since the prior backup.",
+     "main": false
+    },
+    {
+     "id": "k5c",
+     "fact": "pg_basebackup --incremental works only with server version 17 or later.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k6",
@@ -58,7 +148,19 @@
    "sources": [
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "Incremental backups replace some relation files with incremental files holding only changed blocks plus reconstruction metadata.",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "Non-relation files are copied in full in PostgreSQL incremental backups.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k7",
@@ -68,7 +170,29 @@
     "https://www.postgresql.org/docs/17/app-pgcombinebackup.html",
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "A PostgreSQL incremental backup cannot be restored directly.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "pg_combinebackup must merge the full backup and all intermediate incrementals into a synthetic full backup (output directory given with -o).",
+     "main": false
+    },
+    {
+     "id": "k7c",
+     "fact": "The backups passed to pg_combinebackup must be listed oldest to newest.",
+     "main": false
+    },
+    {
+     "id": "k7d",
+     "fact": "After pg_combinebackup has produced the synthetic full backup, normal PostgreSQL recovery follows.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k8",
@@ -78,7 +202,29 @@
     "https://www.postgresql.org/docs/17/app-pgcombinebackup.html",
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "PostgreSQL does not track dependencies between backups.",
+     "main": false
+    },
+    {
+     "id": "k8b",
+     "fact": "Deleting any backup in a PostgreSQL incremental chain makes later incrementals unrestorable.",
+     "main": true
+    },
+    {
+     "id": "k8c",
+     "fact": "pg_combinebackup validates chain relationships but not data integrity.",
+     "main": false
+    },
+    {
+     "id": "k8d",
+     "fact": "pg_verifybackup should be used to check the data integrity of backups, since pg_combinebackup does not.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k9",
@@ -87,7 +233,24 @@
    "sources": [
     "https://www.postgresql.org/docs/17/app-pgcombinebackup.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "pg_combinebackup does not recompute page checksums.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "If checksum state changed between backups in the chain, pg_combinebackup output may hold invalid checksums.",
+     "main": false
+    },
+    {
+     "id": "k9c",
+     "fact": "A new full backup should be taken after changing the PostgreSQL data-checksum state.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k10",
@@ -96,7 +259,19 @@
    "sources": [
     "https://www.postgresql.org/docs/17/app-pgcombinebackup.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "pg_combinebackup copies files by default (--copy).",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "pg_combinebackup's --clone (reflinks) and --copy-file-range options can make reconstruction faster and save space where the OS and filesystem support them.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k11",
@@ -105,7 +280,19 @@
    "sources": [
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "A PostgreSQL incremental backup taken on a standby can fail if there was very little activity since the previous backup.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "An incremental backup on a low-activity PostgreSQL standby can fail because no new restartpoint may have been created since the previous backup.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k12",
@@ -114,7 +301,24 @@
    "sources": [
     "https://www.postgresql.org/docs/17/continuous-archiving.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "PostgreSQL incremental backups mainly benefit large databases with mostly unchanged data.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "WAL archiving and recovery are still required with PostgreSQL incremental backups.",
+     "main": false
+    },
+    {
+     "id": "k12c",
+     "fact": "For small or heavily modified PostgreSQL databases, full backups are simpler and similarly sized compared with incremental backups.",
+     "main": false
+    }
+   ]
   },
   {
    "id": "k13",
@@ -123,7 +327,14 @@
    "sources": [
     "https://www.postgresql.org/docs/17/app-pgcombinebackup.html"
    ],
-   "as_of": null
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k13a",
+     "fact": "The output of pg_combinebackup is a synthetic full backup that can itself be used as input to a later pg_combinebackup run in place of the chain it was built from.",
+     "main": true
+    }
+   ]
   },
   {
    "id": "k14",
@@ -132,7 +343,24 @@
    "sources": [
     "https://www.postgresql.org/docs/18/app-pgcombinebackup.html"
    ],
-   "as_of": "2025-09"
+   "as_of": "2025-09",
+   "atoms": [
+    {
+     "id": "k14a",
+     "fact": "PostgreSQL 18 added pg_combinebackup --link (-k), which hard-links files instead of copying them.",
+     "main": true
+    },
+    {
+     "id": "k14b",
+     "fact": "With pg_combinebackup --link, input and output must be on the same filesystem.",
+     "main": false
+    },
+    {
+     "id": "k14c",
+     "fact": "With pg_combinebackup --link, changes to either side can affect the other.",
+     "main": false
+    }
+   ]
   }
  ],
  "review": {
