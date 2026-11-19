@@ -263,6 +263,24 @@ TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
 }
 
 
+def _assert_tracing_off() -> None:
+    """Fail startup if an OpenTelemetry provider would receive spans.
+
+    mcp 2.x registers ``OpenTelemetryMiddleware`` on every server and leaves it in place
+    until an exporter is installed. This repository promises no telemetry, so a provider
+    that records spans is a configuration error, not a preference: it is caught here once
+    at startup instead of silently shipping tool names and request ids to a collector.
+    """
+    from opentelemetry import trace
+
+    with trace.get_tracer_provider().get_tracer(__name__).start_as_current_span("probe") as span:
+        if span.is_recording():
+            raise RuntimeError(
+                "An OpenTelemetry provider is registered and would export MCP spans. "
+                "This server runs without telemetry; remove the provider or its exporter."
+            )
+
+
 def create_server(**options: Any) -> MCPServer:
     """Build a new ``MCPServer`` instance with every tool registered.
 
@@ -274,6 +292,7 @@ def create_server(**options: Any) -> MCPServer:
     """
     options.setdefault("log_level", DEFAULT_LOG_LEVEL)
     options.setdefault("instructions", SERVER_INSTRUCTIONS)
+    _assert_tracing_off()
     server = MCPServer(SERVER_NAME, version=__version__, **options)
     for tool in TOOLS:
         description = inspect.cleandoc(tool.__doc__) if tool.__doc__ else None
