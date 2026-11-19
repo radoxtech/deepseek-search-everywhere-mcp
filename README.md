@@ -278,18 +278,20 @@ docker run -d --name deepseek-mcp -p 8000:8000 \
 |---|---|---|---|---|
 | Subqueries | 2 | 3 | 4 | 4, plus a gap-analysis round |
 | Results per subquery | 6 | 8 | 10 | 10 |
-| Sources read (K) | 6 | 10 | 16 | 24 |
+| Sources read (K) | 8 | 10 | 16 | 24 |
 | Characters per source page (cap) | 15,000 | 20,000 | 25,000 | 30,000 |
 | Total source context | 60,000 chars | 150,000 chars | 300,000 chars | 500,000 chars |
-| Reasoning in synthesis | off | on, effort `low` | on, effort `high` | on, effort `max` |
+| Reasoning in synthesis | off | on, effort `low` | on, effort `high` | on, effort `high` |
 | Synthesis `max_tokens` | 16,384 | 32,768 | 65,536 | 131,072 |
-| Report length target | about 400 words | about 800 | about 1,200 | about 1,800 |
-| Report length ceiling (+20%) | 480 | 960 | 1,440 | 2,160 |
-| Total deadline | 60 s | 90 s | 150 s | 240 s |
+| Report length target | about 1,000 words | about 1,600 | about 2,400 | about 3,200 |
+| Report length ceiling (+20%) | 1,200 | 1,920 | 2,880 | 3,840 |
+| Total deadline | 60 s | 150 s | 240 s | 360 s |
 
 When to pick each tier:
 
-- **`low`**: a quick factual overview or a sanity check with a handful of sources; fastest and cheapest.
+- **`low`**: a quick factual overview or a sanity check with a handful of sources; fastest and cheapest,
+  and deliberately incomplete: on a demanding rubric it states roughly 43% of the key facts against 50%
+  for `medium`, because two subqueries yield only six or seven usable pages.
 - **`medium`**: the default for most questions: comparisons, "how does X work", state of a technology.
 - **`high`**: decisions that depend on several viewpoints, such as architecture choices, vendor evaluations or regulatory questions.
 - **`max`**: broad or contested topics where coverage matters more than speed; the extra round looks for gaps in the first round and searches again.
@@ -366,16 +368,18 @@ Search and Fetch are billed by DeepSeek per successful request, not per returned
 
 Measured cost and wall time of one `deepseek_research` call per tier (live runs):
 
-| Depth | Typical cost | Typical time |
-|---|---|---|
-| `low` | about $0.003 | about 6 s |
-| `medium` | about $0.008 | about 18-29 s |
-| `high` | about $0.012 | about 39 s |
-| `max` | about $0.024-0.031 | about 50-110 s |
+| Depth | Typical cost | Typical time | Key facts stated |
+|---|---|---|---|
+| `low` | about $0.005 | about 12 s | about 43% |
+| `medium` | about $0.010 | about 55 s | about 50% |
+| `high` | about $0.027 | about 60 s | about 56% |
+| `max` | about $0.039 | about 70 s | about 62% |
 
 *Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-Other tools: `deepseek_search` and `deepseek_fetch` cost one request each ($0.00075); `content="full"` and `deepseek_fetch_many` add one request per page fetched; `deepseek_extract` costs about $0.002 per page (one fetch plus the LLM call). `rewrite=true` on the search tools adds one small `deepseek-flash` call.
+The cost is what a run actually spent, measured on six topics per tier; the coverage column comes from the
+same runs judged against hand-written rubrics, and it counts key facts stated, not advice or judgement.
+A tier above `medium` buys a few points of coverage for two to four times the price. `deepseek_search` and `deepseek_fetch` cost one request each ($0.00075); `content="full"` and `deepseek_fetch_many` add one request per page fetched; `deepseek_extract` costs about $0.002 per page (one fetch plus the LLM call). `rewrite=true` on the search tools adds one small `deepseek-flash` call.
 
 *Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 

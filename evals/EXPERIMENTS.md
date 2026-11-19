@@ -500,6 +500,35 @@ for 65% of its price.
 deliberately incomplete tier: cheap and quick, not a substitute for medium. Reaching 0.47 at low's price
 would need a larger pool, and the pool is set by the two queries, which `E03` showed is not a lever.
 
+### E17 — Does a third subquery lift `low`? (2026-11-19, reject)
+
+**Change.** `low` depth with `EVAL_SUBQUERIES=3` instead of its shipped 2, everything else as in E16's
+winner (K=8, 1000/1200 words).
+
+**Claim.** E16 showed `low` is limited by its pool, not its writer: two queries return about twelve
+candidates and dedupe plus the domain cap leave six or seven pages. A third query grows the pool by half
+for $0.00075 and should give the writer more to choose from.
+
+**Arms.** Live, 6 tuning topics, 1 repeat, against E16 arm B (2 queries, 0.433, $0.0053).
+
+**Result.**
+
+| topic | 2 queries | 3 queries | delta |
+|---|---|---|---|
+| it-passkeys | 0.514 | 0.171 | −34.3 |
+| it-pg-incremental-backup | 0.450 | 0.650 | +20.0 |
+| law-eu-ai-act-gpai | 0.629 | 0.800 | +17.1 |
+| medicine-glp1 | 0.387 | 0.226 | −16.1 |
+| nutrition-time-restricted-eating | 0.226 | 0.258 | +3.2 |
+| politics-eu-cbam | 0.394 | 0.364 | −3.0 |
+| **mean** | **0.433** | **0.411** | **−2.2** |
+
+Paired: −2.2 pp, sd 20.6, t −0.26. Pool 12 → 18 pages, but sources handed to the writer went 6.3 → 5.8:
+the extra pages landed in domains the cap already covered. Cost $0.0053 → $0.0063, wall 11.4 → 13.6 s.
+
+**Verdict: reject.** `low` keeps two subqueries. The 20.6 pp spread across six topics is larger than any
+effect measured in this project; with one repeat per arm it is the draw, not the third query.
+
 ## Ledger
 
 | date | what | deepseek $ |
@@ -520,7 +549,8 @@ would need a larger pool, and the pool is set by the two queries, which `E03` sh
 | 2026-11-18 | big pages at high, 6 reports | 0.104 |
 | 2026-11-18 | smoke tests (2) | 0.024 |
 | 2026-11-19 | low floor arms B and C, 12 reports | 0.068 |
-| **total** | | **2.379** |
+| 2026-11-19 | low with three subqueries, 6 reports | 0.038 |
+| **total** | | **2.417** |
 
 ## Traps worth remembering
 
