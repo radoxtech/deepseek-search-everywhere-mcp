@@ -52,7 +52,25 @@ STYLE_PROMPTS = {
         'Return only a json object: {{"queries": ["site:example.org ...", "..."]}}'
     ),
 }
-STYLES = ("old", "aspects", "questions", "evidence", "site", "topic")
+TOPIC_ANALYST_PROMPT = (
+    "You analyse a research question before anyone searches. Name what is ambiguous in it, what traps a "
+    "searcher falls into (paywalled results, outdated figures, several bodies sharing one name, vague "
+    "definitions), what a wrong answer would look like, and which parts a good answer must cover. "
+    'Return only json: {"ambiguities": [], "traps": [], "wrong_answers": [], "must_cover": []}'
+)
+PLAN_BUILDER_PROMPT = (
+    "You plan the searches for a research question, given an analysis of it. Write {n} aspects. Each "
+    "aspect needs: a short name, what the reader must learn from it, one web search query of 4 to 12 words, "
+    "and the success criteria that would tell a later check that the aspect is covered (figures, dates, "
+    "conditions, named mechanisms). Queries must be distinct and must not reuse the topic verbatim. "
+    'Return only json: {"aspects": [{"aspect": "", "looking_for": "", "query": "", "success_criteria": []}]}'
+)
+QUERY_SCREENER_PROMPT = (
+    "You review search queries before they are sent. For each query say whether it will return generic "
+    "pages, repeated pages or the wrong kind of source, and if so give a better query of 4 to 12 words. "
+    'Return only json: {"queries": ["..."]} with the final list, improved where needed.'
+)
+STYLES = ("old", "aspects", "questions", "evidence", "site", "topic", "planned")
 CONTENT_CHARS = 6000
 PRIMARY = frozenset(
     {"official", "specification", "documentation", "guideline", "rct", "meta-analysis", "systematic_review"}
@@ -71,6 +89,8 @@ async def plan_queries(style: str, topic: str, n: int) -> list[str]:
 
     if style == "topic":
         return [topic[:128]]
+    if style == "planned":
+        return await _planned_queries(topic, n)
     if style == "old":
         messages = [
             {"role": "system", "content": variants._OLD_DECOMPOSE_SYSTEM},
@@ -99,6 +119,44 @@ async def plan_queries(style: str, topic: str, n: int) -> list[str]:
     parsed, _ = dr.sanitize_json(res.get("content") or "")
     raw = parsed.get("queries") if isinstance(parsed, dict) else None
     return [q.strip()[:128] for q in raw or [] if isinstance(q, str) and q.strip()][:n] or [topic[:128]]
+
+
+async def _ask(system: str, user: str) -> dict[str, Any]:
+    """One reasoning call for the planning roles; returns the parsed JSON object."""
+    from deepseek_search_everywhere_mcp import deep_research as dr
+    from deepseek_search_everywhere_mcp import runtime
+
+    res = await runtime._chat_request(
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        thinking={"type": "enabled"},
+        model=runtime.REWRITE_MODEL,
+        max_tokens=2048,
+        response_format={"type": "json_object"},
+        timeout=45.0,
+        deadline=45.0,
+        attempts=1,
+    )
+    parsed, _ = dr.sanitize_json(res.get("content") or "")
+    return parsed if isinstance(parsed, dict) else {}
+
+
+async def _planned_queries(topic: str, n: int) -> list[str]:
+    """Plan in three steps: analyse the question, build aspects with criteria, screen the queries."""
+    brief = await _ask(TOPIC_ANALYST_PROMPT, f"Research question: {topic}")
+    plan = await _ask(
+        PLAN_BUILDER_PROMPT.replace("{n}", str(n)),
+        f"Research question: {topic}\nAnalysis: {json.dumps(brief)[:2000]}",
+    )
+    aspects = [a for a in plan.get("aspects") or [] if isinstance(a, dict)]
+    queries = [str(a.get("query") or "").strip() for a in aspects if a.get("query")]
+    if not queries:
+        return [topic[:128]]
+    screened = await _ask(
+        QUERY_SCREENER_PROMPT,
+        f"Research question: {topic}\nQueries: {json.dumps(queries)}",
+    )
+    final = [str(q).strip()[:128] for q in screened.get("queries") or [] if str(q).strip()]
+    return (final or queries)[:n]
 
 
 async def search_all(queries: list[str], topic: str, depth: str) -> list[dict[str, Any]]:
