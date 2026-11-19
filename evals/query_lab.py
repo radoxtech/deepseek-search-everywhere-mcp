@@ -70,7 +70,14 @@ QUERY_SCREENER_PROMPT = (
     "pages, repeated pages or the wrong kind of source, and if so give a better query of 4 to 12 words. "
     'Return only json: {"queries": ["..."]} with the final list, improved where needed.'
 )
-STYLES = ("old", "aspects", "questions", "evidence", "site", "topic", "planned")
+STYLES = ("old", "aspects", "questions", "evidence", "site", "topic", "planned", "seeded")
+SEED_SNIPPETS = 6
+SEED_CHARS = 500
+SEED_PROMPT = (
+    "Write {n} short web search queries that would show what the open web already says about this research "
+    "question. They are reconnaissance, not the final search: broad enough to surface the main sources. "
+    'Return only json: {{"queries": ["...", "..."]}}'
+)
 CONTENT_CHARS = 6000
 PRIMARY = frozenset(
     {"official", "specification", "documentation", "guideline", "rct", "meta-analysis", "systematic_review"}
@@ -91,6 +98,8 @@ async def plan_queries(style: str, topic: str, n: int) -> list[str]:
         return [topic[:128]]
     if style == "planned":
         return await _planned_queries(topic, n)
+    if style == "seeded":
+        return await _seeded_queries(topic, n)
     if style == "old":
         messages = [
             {"role": "system", "content": variants._OLD_DECOMPOSE_SYSTEM},
@@ -146,6 +155,52 @@ async def _planned_queries(topic: str, n: int) -> list[str]:
     plan = await _ask(
         PLAN_BUILDER_PROMPT.replace("{n}", str(n)),
         f"Research question: {topic}\nAnalysis: {json.dumps(brief)[:2000]}",
+    )
+    aspects = [a for a in plan.get("aspects") or [] if isinstance(a, dict)]
+    queries = [str(a.get("query") or "").strip() for a in aspects if a.get("query")]
+    if not queries:
+        return [topic[:128]]
+    screened = await _ask(
+        QUERY_SCREENER_PROMPT,
+        f"Research question: {topic}\nQueries: {json.dumps(queries)}",
+    )
+    final = [str(q).strip()[:128] for q in screened.get("queries") or [] if str(q).strip()]
+    return (final or queries)[:n]
+
+
+async def _seed_snippets(topic: str) -> list[dict[str, str]]:
+    """Two light searches, flattened into the finite list of snippets the plan builder gets to see."""
+    seed = await _ask(SEED_PROMPT.replace("{n}", "2"), f"Research question: {topic}")
+    queries = [str(q).strip()[:128] for q in seed.get("queries") or [] if str(q).strip()][:2] or [topic[:128]]
+    results = await search_all(queries, topic, "low")
+    snippets: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for r in results:
+        url = str(r.get("url") or "")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        body = str(r.get("content") or r.get("snippet") or "").strip()
+        if not body:
+            continue
+        snippets.append({"title": str(r.get("title") or "")[:200], "url": url, "text": body[:SEED_CHARS]})
+        if len(snippets) >= SEED_SNIPPETS:
+            break
+    return snippets
+
+
+async def _seeded_queries(topic: str, n: int) -> list[str]:
+    """Analyse, then plan with what the web already says in view, then screen the queries."""
+    brief = await _ask(TOPIC_ANALYST_PROMPT, f"Research question: {topic}")
+    snippets = await _seed_snippets(topic)
+    plan = await _ask(
+        PLAN_BUILDER_PROMPT.replace("{n}", str(n)),
+        (
+            f"Research question: {topic}\n"
+            f"Analysis: {json.dumps(brief)[:1500]}\n"
+            f"Pages already found on the web (title, url, text): {json.dumps(snippets)[:6000]}\n"
+            "Use them to see what exists and where the gaps are; the queries must still stand on their own."
+        ),
     )
     aspects = [a for a in plan.get("aspects") or [] if isinstance(a, dict)]
     queries = [str(a.get("query") or "").strip() for a in aspects if a.get("query")]
