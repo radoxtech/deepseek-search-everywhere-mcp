@@ -68,7 +68,8 @@ PLAN_BUILDER_PROMPT = (
 QUERY_SCREENER_PROMPT = (
     "You review search queries before they are sent. For each query say whether it will return generic "
     "pages, repeated pages or the wrong kind of source, and if so give a better query of 4 to 12 words. "
-    'Return only json: {"queries": ["..."]} with the final list, improved where needed.'
+    "Return exactly the same number of queries you were given, one for each input query, in the same "
+    'order, so the plan keeps its coverage. Return only json: {{"queries": ["..."]}}'
 )
 STYLES = ("old", "aspects", "questions", "evidence", "site", "topic", "planned", "seeded")
 SEED_SNIPPETS = 6
@@ -160,12 +161,37 @@ async def _planned_queries(topic: str, n: int) -> list[str]:
     queries = [str(a.get("query") or "").strip() for a in aspects if a.get("query")]
     if not queries:
         return [topic[:128]]
-    screened = await _ask(
-        QUERY_SCREENER_PROMPT,
-        f"Research question: {topic}\nQueries: {json.dumps(queries)}",
+    return await _screen_queries(topic, queries, n)
+
+
+async def _screen_queries(topic: str, queries: list[str], n: int) -> list[str]:
+    """Screen the plan's queries, but never let the screener thin the plan out.
+
+    A screener that returns fewer queries than it was given silently costs the style pages:
+    one query fetches ``count`` results, so three queries collapse to one third of the budget.
+    The repair tries once more for the same number, then falls back to the unscreened queries
+    padded from the plan, so every style is measured on the same number of searches.
+    """
+    asked = (
+        f"Research question: {topic}\nQueries ({len(queries)} of them, return {len(queries)}): "
+        f"{json.dumps(queries)}"
     )
-    final = [str(q).strip()[:128] for q in screened.get("queries") or [] if str(q).strip()]
-    return (final or queries)[:n]
+    final: list[str] = []
+    for attempt in range(2):
+        screened = await _ask(QUERY_SCREENER_PROMPT, asked)
+        answered = [str(q).strip()[:128] for q in screened.get("queries") or [] if str(q).strip()]
+        final = list(dict.fromkeys(final + answered))
+        if len(final) >= min(len(queries), n):
+            return final[:n]
+        if attempt == 0:
+            asked = (
+                f"Research question: {topic}\nReturn exactly {len(queries)} queries. "
+                f"Queries: {json.dumps(queries)}"
+            )
+    kept = list(dict.fromkeys(final + queries))
+    while len(kept) < n:
+        kept.append(topic[:128])
+    return kept[:n]
 
 
 async def _seed_snippets(topic: str) -> list[dict[str, str]]:
@@ -206,18 +232,27 @@ async def _seeded_queries(topic: str, n: int) -> list[str]:
     queries = [str(a.get("query") or "").strip() for a in aspects if a.get("query")]
     if not queries:
         return [topic[:128]]
-    screened = await _ask(
-        QUERY_SCREENER_PROMPT,
-        f"Research question: {topic}\nQueries: {json.dumps(queries)}",
-    )
-    final = [str(q).strip()[:128] for q in screened.get("queries") or [] if str(q).strip()]
-    return (final or queries)[:n]
+    return await _screen_queries(topic, queries, n)
 
 
-async def search_all(queries: list[str], topic: str, depth: str) -> list[dict[str, Any]]:
+async def search_all(
+    queries: list[str], topic: str, depth: str, n: int | None = None
+) -> list[dict[str, Any]]:
+    """Search every query, padding to ``n`` distinct queries so each style gets the same budget.
+
+    ``queries`` is a plan, and a plan that returns fewer queries would otherwise fetch fewer
+    pages, which compares budgets rather than plans. Padding repeats the topic itself, so the
+    extra searches are honest but carry no planning signal.
+    """
     from deepseek_search_everywhere_mcp import deep_research as dr
     from deepseek_search_everywhere_mcp import search_core
     from deepseek_search_everywhere_mcp.filters import MAX_QUERY
+
+    planned = list(dict.fromkeys(q for q in queries if q.strip()))
+    if n is not None:
+        while len(planned) < n:
+            planned.append(topic[:128])
+    queries = planned[: n or len(planned)]
 
     cfg = dr.DEPTH_CONFIG[depth]
     answers = await asyncio.gather(
@@ -268,7 +303,7 @@ async def run(args: argparse.Namespace) -> None:
             if path.exists():
                 continue
             queries = await plan_queries(style, topic, n)
-            results = await search_all(queries, topic, args.depth)
+            results = await search_all(queries, topic, args.depth, n)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
                 json.dumps({"style": style, "queries": queries, "results": results}, indent=1), "utf-8"
