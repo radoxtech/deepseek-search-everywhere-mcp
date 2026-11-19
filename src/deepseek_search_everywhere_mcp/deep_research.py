@@ -39,6 +39,9 @@ class ResearchJob:
     sources: str = "any"
     unverified: str = "flag"
     synthesis: str = "server"
+    kind: str = "research"
+    max_rounds: int = 3
+    max_cost_usd: float | None = None
     task: asyncio.Task[dict[str, Any]] | None = None
     completed_at: float | None = None
     result: dict[str, Any] | None = None
@@ -54,6 +57,7 @@ class ResearchJob:
     # Page 1 of the sources as first delivered (with the gathering cost), and whether it was delivered.
     client_sources_result: dict[str, Any] | None = None
     client_charged: bool = False
+    run: Any = None
 
     def normalize_key(self) -> tuple[str, str, str | None, str, str, str]:
         return (
