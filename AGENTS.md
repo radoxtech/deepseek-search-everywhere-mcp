@@ -103,6 +103,9 @@ measured by the harness in `evals/`; "feels better" is not a result.
   judge a change on the paired mean over six or more topics and require t > 2.
 - **History is append-only:** a later experiment supersedes an earlier one with a new entry and flips
   the ADR status to `superseded`, linking the successor. Never rewrite old numbers.
+- **Enforced by CI:** the `Eval gate` workflow fails a pull request that touches
+  `research_jobs.py`, `deep_research.py`, `search_core.py`, `gap_fill.py` or `settings.py` without changing
+  `evals/EXPERIMENTS.md`, unless the PR carries the `no-eval` label. release-please PRs are skipped.
 - Record in English, like the rest of the repository. The harness, its register and its ADRs are kept
   local for now (`evals/` is gitignored); when they are promoted into the repository, move the ADRs to
   `docs/adr/` and keep the ids so existing links survive.

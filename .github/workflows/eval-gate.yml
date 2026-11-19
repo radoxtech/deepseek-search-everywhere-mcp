@@ -1,0 +1,60 @@
+name: Eval gate
+
+# Any change to the research pipeline is an experiment and needs a record: a new entry in
+# evals/EXPERIMENTS.md, next to the variant that was run. The rule lives in AGENTS.md; this job makes it
+# enforceable. A PR that is deliberately not measured carries the `no-eval` label instead.
+#
+# release-please PRs are skipped: they only touch the version and the changelog.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  record:
+    if: >-
+      github.actor != 'release-please[bot]' &&
+      !startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require an experiment record for research changes
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_REF"
+          changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          research=$(printf '%s\n' "$changed" | grep -E '^src/deepseek_search_everywhere_mcp/(research_jobs|deep_research|search_core|gap_fill|settings)\.py$' || true)
+
+          if [ -z "$research" ]; then
+            echo "No research file changed; nothing to measure."
+            exit 0
+          fi
+          echo "Research files changed:"
+          printf '%s\n' "$research" | sed 's/^/  /'
+
+          if printf '%s\n' "$changed" | grep -qx 'evals/EXPERIMENTS.md'; then
+            echo "evals/EXPERIMENTS.md changed; the experiment is recorded."
+            exit 0
+          fi
+          if printf '%s\n' "$LABELS" | tr ',' '\n' | grep -qx 'no-eval'; then
+            echo "Label 'no-eval' present; the change is deliberately not measured."
+            exit 0
+          fi
+
+          echo "::error::Research files changed without an experiment record."
+          echo "Add an entry to evals/EXPERIMENTS.md (Change, Claim, Arms, Criterion, Result, Verdict),"
+          echo "or label the PR 'no-eval' if the change cannot change behaviour. See AGENTS.md."
+          exit 1
