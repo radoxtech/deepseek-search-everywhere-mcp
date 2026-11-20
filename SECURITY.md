@@ -21,9 +21,6 @@ Include a description, reproduction steps, and the affected version.
 ## API key handling
 
 - The DeepSeek API key is read from the `DEEPSEEK_API_KEY` environment variable.
-- The key may also be read from a credentials file named by `DEEPSEEK_AUTH_JSON`
-  (`{"deepseek": {"key": "..."}}`), used only when `DEEPSEEK_API_KEY` is unset. No other application's
-  config directory is consulted.
 - The key is sent only in the `Authorization` header to the configured DeepSeek API base URL (`DEEPSEEK_BASE_URL`).
 - Do not commit `.env` files or credentials. `.env.example` is the only env file tracked in the repository.
 

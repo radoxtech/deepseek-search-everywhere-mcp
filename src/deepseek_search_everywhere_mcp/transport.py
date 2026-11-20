@@ -10,7 +10,6 @@ import asyncio
 import json
 import math
 import os
-import pathlib
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -138,24 +137,12 @@ def _chat_headers(base: str) -> dict[str, str]:
 
 
 def _api_key() -> str:
-    """Return the DeepSeek key from ``DEEPSEEK_API_KEY`` or the file named by ``DEEPSEEK_AUTH_JSON``.
+    """Return the DeepSeek key from ``DEEPSEEK_API_KEY``, else ``""``.
 
-    Nothing is read from another application's config directory: a server that silently borrows a host
-    tool's credential behaves differently for each user and cannot be audited from its own settings.
+    The key comes from the environment and nowhere else: a server that reads a credential file
+    behaves differently for each user and cannot be audited from its own settings.
     """
-    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-    if key:
-        return key
-    configured = os.environ.get("DEEPSEEK_AUTH_JSON")
-    for candidate in [pathlib.Path(configured).expanduser()] if configured else []:
-        try:
-            data = json.loads(candidate.read_text())
-            found = (data.get("deepseek") or {}).get("key") or ""
-        except (OSError, ValueError):
-            continue
-        if found.strip():
-            return found.strip()
-    return ""
+    return os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
 
 def _scrub(envelope: dict[str, Any], key: str) -> dict[str, Any]:
@@ -261,7 +248,7 @@ async def request(
     chat = _is_chat_path(path)
     key = _chat_api_key() if chat else _api_key()
     if not key:
-        where = "DEEPSEEK_CHAT_API_KEY" if chat else "DEEPSEEK_API_KEY or a readable DEEPSEEK_AUTH_JSON"
+        where = "DEEPSEEK_CHAT_API_KEY" if chat else "DEEPSEEK_API_KEY"
         return _fail("missing_api_key", f"No key for {path}: set {where}.")
 
     base = _chat_base_url() if chat else _base_url()

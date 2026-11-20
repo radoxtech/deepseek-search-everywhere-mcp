@@ -44,7 +44,6 @@ def _reset_runtime_state_now() -> None:
 def _isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Strip real credentials and endpoints so no test can reach the network by accident."""
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent-auth.json"))
     monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
     monkeypatch.delenv("DEEPSEEK_MCP_CACHE", raising=False)

@@ -20,7 +20,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "DEEPSEEK_CHAT_API_KEY",
         "DEEPSEEK_CHAT_MODEL",
         "DEEPSEEK_CHAT_TIER",
-        "DEEPSEEK_AUTH_JSON",
     ):
         monkeypatch.delenv(name, raising=False)
 

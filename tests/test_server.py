@@ -136,23 +136,13 @@ def test_api_key_env_wins(monkeypatch):
     assert server._api_key() == "env-key"
 
 
-def test_api_key_auth_json_fallback(monkeypatch, tmp_path):
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    auth = tmp_path / "auth.json"
-    auth.write_text(json.dumps({"deepseek": {"key": "file-key"}}))
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(auth))
-    assert server._api_key() == "file-key"
-
-
 def test_api_key_missing(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     assert server._api_key() == ""
 
 
 def test_search_without_key_returns_error(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     result = asyncio.run(server._search("test", 1, None, False, None, 1000, 4000))
     assert result["error"]["reason"] == "missing_api_key"
 
@@ -371,7 +361,6 @@ def test_rewrite_with_missing_key_makes_no_chat_call(monkeypatch, tmp_path):
 
     monkeypatch.setattr(search_core, "_rewrite_query", boom)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     result = asyncio.run(server._search("test", 1, None, False, None, 1000, 4000, True, True))
     assert result["error"]["reason"] == "missing_api_key"
 

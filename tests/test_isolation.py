@@ -12,7 +12,6 @@ from deepseek_search_everywhere_mcp import server
 def test_environment_is_isolated():
     assert "DEEPSEEK_API_KEY" not in os.environ
     assert "MCP_BEARER_TOKEN" not in os.environ
-    assert not os.path.exists(os.environ["DEEPSEEK_AUTH_JSON"])
     assert server._base_url() == "https://api.deepseek.com"
     assert server._api_key() == ""
 
