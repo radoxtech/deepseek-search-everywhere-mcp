@@ -31,9 +31,9 @@ sys.path.insert(0, str(HERE.parent / "src"))
 
 import judge  # noqa: E402
 import query_lab  # noqa: E402
+from deepseek_search_everywhere_mcp.passages import select_passages  # noqa: E402
 
 from deepseek_search_everywhere_mcp import deep_research as dr  # noqa: E402
-from deepseek_search_everywhere_mcp.passages import select_passages  # noqa: E402
 
 METHODS = ("pages", "passages", "passages_num", "hybrid", "hybrid_num")
 VARIANTS = {

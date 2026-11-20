@@ -20,7 +20,16 @@ PACKAGE = "deepseek_search_everywhere_mcp"
 # Modules that may own process-wide state (cache entries, in-flight maps, rate-limit
 # buckets, the rewrite cache). Each one opts in by defining a ``reset_state()`` function;
 # modules that do not exist yet are skipped.
-STATEFUL_MODULES = ("cache", "deep_research", "ratelimit", "runtime", "server", "settings", "transport")
+STATEFUL_MODULES = (
+    "ai_client",
+    "cache",
+    "deep_research",
+    "ratelimit",
+    "runtime",
+    "server",
+    "settings",
+    "transport",
+)
 
 # The real key, captured once at import time before any fixture strips the environment.
 # Only tests marked ``live`` get it back, through the ``live_api_key`` fixture.
