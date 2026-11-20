@@ -15,15 +15,15 @@ from ..errors import _fail
 from ..research_jobs import _finished_job_envelope, _reuse_finished_result, _running_job_envelope
 from ..runtime import _timed
 
-MAX_TOPIC = 500
-DEPTH_ROUNDS: dict[str, int] = {"low": 1, "medium": 2, "high": 3, "max": 3}
+MAX_TOPIC = 4000
+DEPTH_ROUNDS: dict[str, int] = {"low": 1, "medium": 2, "high": 3, "max": 5}
 
 
 @_timed
 async def deepseek_deep_agent_research(
     topic: Annotated[
         str,
-        Field(description="Complex research topic or question to investigate (non-empty, max 500 chars)"),
+        Field(description="Complex research topic or question to investigate (non-empty, max 4000 chars)"),
     ],
     *,
     depth: Annotated[

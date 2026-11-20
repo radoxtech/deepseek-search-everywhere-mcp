@@ -181,3 +181,13 @@ async def test_max_chars_defaults_differ_for_one_url_and_a_list(upstream: Upstre
     # Each limit applies to page text; a truncation marker of a few characters may follow it.
     assert 20000 <= single["chars"] < 20100 and single["truncated"] is True
     assert 4000 <= len(listed["results"][0]["content"]) < 4100
+
+
+async def test_max_chars_explicit_scales_total_budget_for_list(upstream: Upstream) -> None:
+    upstream.pages[A] = {"ok": True, "data": {"title": "Page A", "content": "a" * 25000}}
+    upstream.pages[B] = {"ok": True, "data": {"title": "Page B", "content": "b" * 25000}}
+    res = await server.deepseek_fetch([A, B], max_chars=25000)
+    assert res["ok"] is True
+    assert len(res["results"][0]["content"]) >= 25000
+    assert len(res["results"][1]["content"]) >= 25000
+    assert sum(item["chars"] for item in res["results"]) >= 50000

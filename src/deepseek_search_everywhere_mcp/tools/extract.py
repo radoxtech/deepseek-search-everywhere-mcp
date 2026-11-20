@@ -160,6 +160,41 @@ async def _extract_page(
 
     parsed, err = sanitize_json(raw_text)
     if err or parsed is None:
+        # Retry with hint / expanded token budget if truncated
+        retry_tokens = min(32768, max_tokens * 2) if extraction_truncated else max_tokens
+        retry_prompt = (
+            "Previous extraction was truncated before completion. Output strictly valid JSON."
+            if extraction_truncated
+            else (
+                "Previous response was not valid JSON. Output strictly valid JSON matching "
+                "the requested structure without markdown code blocks or conversational text."
+            )
+        )
+        retry_res = await runtime._chat_request(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": raw_text or "{}"},
+                {"role": "user", "content": retry_prompt},
+            ],
+            thinking={"type": "disabled"},
+            model=REWRITE_MODEL,
+            temperature=0,
+            max_tokens=retry_tokens,
+            response_format={"type": "json_object"},
+            timeout=timeout,
+            attempts=2,
+        )
+        if retry_res.get("ok") and retry_res.get("content"):
+            llm_cost += retry_res.get("cost_usd", 0.0)
+            parsed_retry, err_retry = sanitize_json(retry_res["content"])
+            if not err_retry and parsed_retry is not None:
+                parsed = parsed_retry
+                err = None
+                raw_text = retry_res["content"]
+                extraction_truncated = retry_res.get("finish_reason") == "length"
+
+    if err or parsed is None:
         err_code = "extraction_truncated" if extraction_truncated else "extraction_failed"
         err_msg = (
             "Extraction response was truncated before valid JSON could be completed."

@@ -31,14 +31,14 @@ from ..runtime import (
     _timed,
 )
 
-MAX_TOPIC = 500
+MAX_TOPIC = 4000
 
 
 @_timed
 async def deepseek_quick_research(
     topic: Annotated[
         str,
-        Field(description="Complex research topic or question to investigate (non-empty, max 500 chars)"),
+        Field(description="Complex research topic or question to investigate (non-empty, max 4000 chars)"),
     ],
     *,
     depth: Annotated[

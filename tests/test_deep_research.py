@@ -48,8 +48,9 @@ def test_select_synthesis_context_caps_at_sources_and_chars():
     ]
     selected_low = select_synthesis_context(sources, depth="low")
     assert len(selected_low) == deep_research.DEPTH_CONFIG["low"].k_sources
+    cap_low = deep_research.DEPTH_CONFIG["low"].total_source_chars
     total_chars_low = sum(len(s["content"]) for s in selected_low)
-    assert total_chars_low <= 60000
+    assert total_chars_low <= cap_low
     assert [s["id"] for s in selected_low] == list(range(1, len(selected_low) + 1))
 
     huge_sources = [
@@ -57,7 +58,7 @@ def test_select_synthesis_context_caps_at_sources_and_chars():
         for i in range(1, 30)
     ]
     selected_huge = select_synthesis_context(huge_sources, depth="low")
-    assert sum(len(s["content"]) for s in selected_huge) <= 60000
+    assert sum(len(s["content"]) for s in selected_huge) <= cap_low
 
 
 def test_build_synthesis_messages():
@@ -1537,7 +1538,7 @@ def test_synthesis_message_carries_plan_index_metadata_and_closing_reminder() ->
     assert "[source 1, continued]" in text
     tail = text[text.rindex("word word") :]
     assert "Research Topic: Effect of X on Y" in tail and "official requirements" in tail
-    assert "exactly 3 sections" in tail
+    assert f"exactly {deep_research.SECTION_COUNTS['medium']} sections" in tail
     assert "2026-11-18" not in system["content"]
 
 

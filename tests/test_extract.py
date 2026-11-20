@@ -38,6 +38,13 @@ def test_sanitize_json_with_code_fences_and_preamble():
     assert parsed == {"status": "active"}
 
 
+def test_sanitize_json_recovers_trailing_commas():
+    raw = '{"queries": ["q1", "q2",], "status": "ok",}'
+    parsed, err = sanitize_json(raw)
+    assert err is None
+    assert parsed == {"queries": ["q1", "q2"], "status": "ok"}
+
+
 def test_sanitize_json_invalid():
     parsed, err = sanitize_json("No json here at all")
     assert parsed is None

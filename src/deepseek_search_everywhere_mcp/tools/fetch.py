@@ -72,7 +72,11 @@ async def deepseek_fetch(
     return await _fetch_list(
         url,
         max_chars_per_url=LIST_MAX_CHARS if max_chars is None else max_chars,
-        max_total_chars=DEFAULT_MAX_TOTAL_CHARS,
+        max_total_chars=(
+            DEFAULT_MAX_TOTAL_CHARS
+            if max_chars is None
+            else max(DEFAULT_MAX_TOTAL_CHARS, max_chars * len(url))
+        ),
         query=query,
         refresh=refresh,
     )

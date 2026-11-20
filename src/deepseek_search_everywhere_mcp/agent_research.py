@@ -31,7 +31,7 @@ from .research_jobs import (
     _stage,
 )
 
-MAX_ROUNDS = 3
+MAX_ROUNDS = 5
 
 
 async def run_agent_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
@@ -196,39 +196,69 @@ async def _agent_synthesize_report_plan(
         lang=run.lang,
     )
     system = base[0]["content"]
-    facts = [_plan_fact(a) for a in list(run.aspects)[:10]]
+    facts = [_plan_fact(a) for a in list(run.aspects)[:20]]
     shown = json.dumps(
         [
             {"id": s.get("id"), "title": s.get("title"), "says": _source_digest(s.get("content") or "")}
             for s in context
         ]
-    )[:7000]
+    )[:40000]
 
     timeout = max(10.0, run.remaining() - 2.0)
+    plan_messages = [
+        {"role": "system", "content": REPORT_PLAN_PROMPT},
+        {
+            "role": "user",
+            "content": f"Question: {run.topic}\nFacts: {json.dumps(facts)}\nSources: {shown}",
+        },
+    ]
     plan_res = await runtime._chat_request(
-        messages=[
-            {"role": "system", "content": REPORT_PLAN_PROMPT},
-            {
-                "role": "user",
-                "content": f"Question: {run.topic}\nFacts: {json.dumps(facts)}\nSources: {shown}",
-            },
-        ],
+        messages=plan_messages,
         thinking={"type": "disabled"},
         temperature=0.0,
         model=REWRITE_MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         response_format={"type": "json_object"},
         timeout=min(25.0, timeout),
         deadline=timeout,
-        attempts=1,
+        attempts=2,
     )
     cost = float(plan_res.get("cost_usd", 0.0) or 0.0)
     parsed, _ = sanitize_json(plan_res.get("content") or "")
-    if not isinstance(parsed, dict):
-        return await _research_synthesize(run, context, synth_step)
-
-    plan = _validate_plan(parsed)
+    plan = _validate_plan(parsed) if isinstance(parsed, dict) else {"sections": []}
     sections = plan["sections"]
+    if not sections and run.remaining() > 15.0:
+        retry_plan = await runtime._chat_request(
+            messages=[
+                *plan_messages,
+                {"role": "assistant", "content": plan_res.get("content") or "{}"},
+                {
+                    "role": "user",
+                    "content": (
+                        "Previous response was not valid JSON or was missing 'sections'. "
+                        "Output strictly valid JSON with 'subquestions', 'sections' (each with "
+                        "'title', 'answers', 'facts'), and 'unsupported'."
+                    ),
+                },
+            ],
+            thinking={"type": "disabled"},
+            temperature=0.0,
+            model=REWRITE_MODEL,
+            max_tokens=8192,
+            response_format={"type": "json_object"},
+            timeout=min(20.0, run.remaining() - 2.0),
+            deadline=run.deadline_at,
+            attempts=2,
+        )
+        if retry_plan.get("ok"):
+            cost += float(retry_plan.get("cost_usd", 0.0) or 0.0)
+            parsed_retry, _ = sanitize_json(retry_plan.get("content") or "")
+            if isinstance(parsed_retry, dict):
+                plan_retry = _validate_plan(parsed_retry)
+                if plan_retry and plan_retry.get("sections"):
+                    plan = plan_retry
+                    sections = plan["sections"]
+
     if not sections:
         return await _research_synthesize(run, context, synth_step)
 
@@ -238,21 +268,38 @@ async def _agent_synthesize_report_plan(
         if run.remaining() < 5.0:
             break
         ask = REPORT_ASK.format(words=per_section_words)
+        section_messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": base[1]["content"] + f"\n\n{ask}\nSection: {sec['title']}"},
+        ]
         res = await runtime._chat_request(
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": base[1]["content"] + f"\n\n{ask}\nSection: {sec['title']}"},
-            ],
+            messages=section_messages,
             thinking={"type": "disabled"} if not run.cfg.thinking else {"type": "enabled"},
             model=REWRITE_MODEL,
             max_tokens=run.cfg.max_tokens,
             timeout=max(5.0, run.remaining() - 2.0),
             deadline=run.deadline_at,
-            attempts=1,
+            attempts=2,
         )
         cost += float(res.get("cost_usd", 0.0) or 0.0)
         text = _strip_heading((res.get("content") or "").strip())
-        if text and res.get("finish_reason") != "length":
+        if (not text or res.get("finish_reason") == "length") and run.remaining() > 8.0:
+            retry_sec = await runtime._chat_request(
+                messages=section_messages,
+                thinking={"type": "disabled"},
+                temperature=0.0,
+                model=REWRITE_MODEL,
+                max_tokens=run.cfg.max_tokens,
+                timeout=max(5.0, run.remaining() - 2.0),
+                deadline=run.deadline_at,
+                attempts=2,
+            )
+            if retry_sec.get("ok"):
+                cost += float(retry_sec.get("cost_usd", 0.0) or 0.0)
+                sec_text = _strip_heading((retry_sec.get("content") or "").strip())
+                if sec_text:
+                    text = sec_text
+        if text:
             parts.append((str(sec["title"]), text))
 
     if not parts:

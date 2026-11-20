@@ -201,7 +201,7 @@ class PlanningRoles:
 
     async def plan_report(self, topic: str, facts: list[str], sources: list[dict[str, Any]]) -> ReportPlan:
         """Structure report into sub-questions and supported sections."""
-        src_repr = json.dumps(sources)[:6000]
+        src_repr = json.dumps(sources)[:40000]
         messages = [
             {"role": "system", "content": REPORT_PLAN_PROMPT},
             {

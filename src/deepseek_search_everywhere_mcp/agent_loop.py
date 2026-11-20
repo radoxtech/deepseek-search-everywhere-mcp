@@ -19,13 +19,13 @@ class ResearchAgent(Agent):
     """Orchestrated agent loop with hard step limits and budget awareness."""
 
     LOOP_BUFFER = 0  # Run in strict lockstep so budget checks have teeth
-    MAX_STEPS = 10
+    MAX_STEPS = 15
 
     def __init__(
         self,
         *,
         tools: Sequence[Any] | None = None,
-        max_steps: int = 10,
+        max_steps: int = 15,
         budget_tracker: Any = None,
         deadline_at: float | None = None,
     ) -> None:

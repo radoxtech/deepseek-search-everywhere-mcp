@@ -73,7 +73,7 @@ from .tools.agent import deepseek_agent_deep_research, deepseek_deep_agent_resea
 from .tools.balance import deepseek_check_balance
 from .tools.extract import deepseek_extract
 from .tools.fetch import deepseek_fetch
-from .tools.research import deepseek_check_research, deepseek_quick_research, deepseek_research
+from .tools.research import MAX_TOPIC, deepseek_check_research, deepseek_quick_research, deepseek_research
 from .tools.search import MAX_QUERIES, deepseek_search
 from .transport import _base_url
 
@@ -89,6 +89,7 @@ __all__ = [
     "MAX_PRE_PROCESSING_CHARS",
     "MAX_QUERIES",
     "MAX_QUERY",
+    "MAX_TOPIC",
     "REWRITE_MODEL",
     "ResearchJob",
     "SEARCH_PATH",
