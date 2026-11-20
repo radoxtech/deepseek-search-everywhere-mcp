@@ -628,6 +628,31 @@ gaps are always stated, and two independent runs produced no duplicate headings.
 `answer-first` is small on off-topic sections (one heading) but complete on the two properties that were
 absent: openings that answer, and a stated gap section.
 
+### E25 — Context-adaptive multilingual prompt guidance (2026-11-20, keep)
+
+**Change.** Update decomposition, gap analysis, report planning, and synthesis prompts for multilingual
+awareness:
+- In `build_decomposition_messages` and `DECOMPOSE_SYSTEM_PROMPT`: replace hardcoded `English` fallback
+  with context-adaptive language guidance (local language for domestic matters/regulations, English for
+  global technical specs and academic papers; keep standardized acronyms and library names intact).
+- In `_gap_queries`: eliminate hardcoded English template words (`data`, `figures`, `report`) that polluted
+  non-English gap queries.
+- In `REPORT_PLAN_PROMPT`: enforce section title language consistency with the original question while
+  integrating multilingual evidence.
+- In `build_synthesis_system_prompt`: explicitly preserve standard industry terminology and legal identifiers.
+
+**Claim.** Eliminating English-only query forcing on domestic non-English topics and removing clumsy English
+suffixes in gap queries prevents query degradation in DeepSeek Search API while preserving high-authority
+English queries for global technical aspects.
+
+**Arms.** Static contract, prompt formatting verification, unit tests across non-English and technical topics.
+
+**Result.** 6/6 targeted multilingual prompt tests pass; full test suite (1264 tests) passes with zero
+regressions.
+
+**Verdict: keep.** Improves retrieval precision on non-English domestic and hybrid technical topics at zero
+additional cost and zero added latency.
+
 ## Ledger
 
 | date | what | deepseek $ |

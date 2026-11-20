@@ -273,7 +273,9 @@ DECOMPOSE_SYSTEM_PROMPT = (
     "exists, otherwise name the issuing body and the document type; put a year only in a current query "
     "about the present state, never today's year in a query about a past version or study; no journal "
     'names, author names, "et al.", volume or page numbers; never a paraphrase of the topic or of '
-    "another query; no URLs; at most 100 characters; in the search language given in the user message.\n"
+    "another query; no URLs; at most 100 characters; match language to context: local language for "
+    "domestic laws, local entities or regional matters; English for global tech, specs, benchmarks "
+    "and academic papers; never translate standardized proper nouns, library names or acronyms.\n"
     "Return only a json object, with no code fences and no other text, in this form:\n"
     '{"aspects": ['
     '{"kind": "primary", "aspect": "what the specification requires", '
@@ -378,7 +380,8 @@ def build_synthesis_system_prompt(depth: str = "medium", *, client: bool = False
         "a gap from your own knowledge. The aspect list is a plan written before the search, not a "
         "source: take no fact, name or number from it.\n"
         f"8. LANGUAGE: write in the report language {given}. Sources may be in other languages: "
-        "translate the facts, and do not quote untranslated passages.\n"
+        "translate facts and explanations, but retain standard industry technical terms, library names, "
+        "proper nouns and legal identifiers in their accepted form.\n"
         "9. Do not include meta-commentary, introductory throat-clearing, or conversational filler. Never "
         f"address the reader as an AI assistant. {tools}\n"
         "10. Do NOT include a References or Sources list at the end; the numbers [n] refer to the source "
@@ -439,9 +442,14 @@ def build_decomposition_messages(
     The system prompt stays the same for every job (prefix cache); the date, the search language and
     the topic go in the user message.
     """
+    search_lang = (
+        _language_name(lang)
+        if lang
+        else "Topic's natural language (use English for global technical/academic terms)"
+    )
     content = (
         f"Today's date: {today or _today()}\n"
-        f"Search language: {_language_name(lang) if lang else 'English'}\n"
+        f"Search language: {search_lang}\n"
         f"Research topic: {topic}\n"
         f"Return exactly {max_queries} aspects as json."
     )

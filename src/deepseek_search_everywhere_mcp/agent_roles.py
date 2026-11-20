@@ -49,7 +49,9 @@ REPORT_PLAN_PROMPT = (
     "and what the gathered sources actually support:\n"
     "Split the question into sub-questions. Provide one section per supported sub-question in logical order. "
     "Do not add a section for generic background or definitions unless requested. "
-    "List any sub-questions that sources do not settle in unsupported. Return only JSON matching the schema."
+    "Write section titles in the language of the original question, integrating facts across multilingual "
+    "sources. List any sub-questions that sources do not settle in unsupported. "
+    "Return only JSON matching the schema."
 )
 
 

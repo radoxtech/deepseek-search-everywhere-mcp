@@ -98,7 +98,7 @@ def _gap_queries(
             continue
         wanted = (getattr(aspect, "looking_for", "") or "").strip()
         name = (getattr(aspect, "aspect", "") or "").strip()
-        for variant in (f"{wanted} data {topic}", f"{name} figures {topic}", f"{name} report {topic}"):
+        for variant in (f"{wanted} {topic}", f"{name} {wanted}", f"{name} {topic}"):
             candidate, _ = fit_query(" ".join(variant.split()))
             if candidate and candidate not in used and candidate not in queries:
                 queries.append(candidate)
