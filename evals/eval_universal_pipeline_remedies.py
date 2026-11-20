@@ -424,17 +424,21 @@ async def main() -> None:
         rubric = keypoints._rubric(tid)
         print(f"\n>>> Running Topic: {tid} ...")
 
-        ctx_file = ROOT / "evals" / t["context_file"]
-        ctx_data = json.loads(ctx_file.read_text(encoding="utf-8"))
-        base_context = (
-            ctx_data.get("dump", {}).get("synthesis_context")
-            or ctx_data.get("run", {}).get("dump", {}).get("synthesis_context")
-            or []
-        )
-
-        base_subqueries = (
-            ctx_data.get("run", {}).get("envelope", {}).get("subqueries") or ctx_data.get("subqueries") or []
-        )
+        base_context = []
+        base_subqueries = []
+        if "context_file" in t and (ROOT / "evals" / t["context_file"]).exists():
+            ctx_file = ROOT / "evals" / t["context_file"]
+            ctx_data = json.loads(ctx_file.read_text(encoding="utf-8"))
+            base_context = (
+                ctx_data.get("dump", {}).get("synthesis_context")
+                or ctx_data.get("run", {}).get("dump", {}).get("synthesis_context")
+                or []
+            )
+            base_subqueries = (
+                ctx_data.get("run", {}).get("envelope", {}).get("subqueries")
+                or ctx_data.get("subqueries")
+                or []
+            )
 
         for arm in args.arms:
             print(f"  -> Executing {arm} on {tid} ...")
