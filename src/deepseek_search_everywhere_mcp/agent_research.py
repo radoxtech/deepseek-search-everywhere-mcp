@@ -11,6 +11,9 @@ See ``plans/kontrakt-agent-deep-research.md`` for the decisions this implements.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
+import uuid
 from typing import Any
 
 from . import evidence, runtime
@@ -101,6 +104,170 @@ def _gap_queries(
                 queries.append(candidate)
                 break
     return queries[:max_queries]
+
+
+REPORT_ASK = (
+    "Write only this section, about {words} words. Start with the section's first sentence of prose; do "
+    "not write a heading, the system adds it. Use only the sources given. Every number carries the [n] "
+    "citation of the source that states it. If the sources say nothing usable for this section, write one "
+    "sentence saying so."
+)
+
+
+def _plan_fact(aspect: Any) -> str:
+    looking = (getattr(aspect, "looking_for", "") or "").strip()
+    name = (getattr(aspect, "aspect", "") or "").strip()
+    return looking or name or "the question as asked"
+
+
+def _source_digest(content: str) -> str:
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", content) if len(p.strip()) > 40]
+    scored = sorted(parts, key=lambda p: -sum(ch.isdigit() for ch in p))[:3]
+    return " ".join(scored)[:450] or content[:300]
+
+
+def _strip_heading(text: str) -> str:
+    lines = text.splitlines()
+    while lines and (not lines[0].strip() or lines[0].lstrip().startswith("#")):
+        lines.pop(0)
+    return "\n".join(lines).strip()
+
+
+def _gaps_sentence(unanswered: list[str], context: list[dict[str, Any]]) -> str:
+    if not unanswered:
+        return (
+            "The gathered sources cover every sub-question the report set out to answer "
+            f"({len(context)} sources)."
+        )
+    return " ".join(f"No source found that answers: {u}." for u in unanswered[:6])
+
+
+def _search_note(run: Any) -> str:
+    queries = [q for q in (getattr(run, "subqueries", None) or []) if q]
+    pages = len(getattr(run, "sources", None) or [])
+    asked = getattr(run, "requests_used", 0)
+    parts = []
+    if queries:
+        parts.append(f"searched {len(queries)} queries: " + "; ".join(f"“{q}”" for q in queries[:6]))
+    if pages:
+        parts.append(f"read {pages} sources")
+    if asked:
+        parts.append(f"{asked} upstream requests")
+    if not parts:
+        return ""
+    body = ", ".join(parts)
+    return f"> **How this was researched:** {body}. Claims cite the numbered sources below."
+
+
+def _validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    subs = [str(x).strip() for x in plan.get("subquestions") or [] if str(x).strip()]
+    kept: list[dict[str, Any]] = []
+    answered: set[int] = set()
+    dropped = 0
+    for sec in plan.get("sections") or []:
+        if not isinstance(sec, dict) or not str(sec.get("title") or "").strip():
+            continue
+        idx = [i for i in (sec.get("answers") or []) if isinstance(i, int) and 0 <= i < len(subs)]
+        if not idx:
+            dropped += 1
+            continue
+        kept.append({**sec, "answers": idx})
+        answered.update(idx)
+    unanswered = [subs[i] for i in range(len(subs)) if i not in answered]
+    return {"subquestions": subs, "sections": kept, "unanswered": unanswered, "dropped": dropped}
+
+
+async def _agent_synthesize_report_plan(
+    run: _ResearchRun,
+    context: list[dict[str, Any]],
+    synth_step: int,
+) -> tuple[dict[str, Any], float]:
+    """Synthesize the report from dynamic sub-questions (E20-E24) rather than fixed templates."""
+    from .agent_roles import REPORT_PLAN_PROMPT
+    from .deep_research import sanitize_json
+    from .research_jobs import REWRITE_MODEL, build_synthesis_messages
+
+    base = build_synthesis_messages(
+        run.topic,
+        context,
+        depth=run.depth,
+        nonce=uuid.uuid4().hex[:12],
+        aspects=run.aspects,
+        lang=run.lang,
+    )
+    system = base[0]["content"]
+    facts = [_plan_fact(a) for a in list(run.aspects)[:10]]
+    shown = json.dumps(
+        [
+            {"id": s.get("id"), "title": s.get("title"), "says": _source_digest(s.get("content") or "")}
+            for s in context
+        ]
+    )[:7000]
+
+    timeout = max(10.0, run.remaining() - 2.0)
+    plan_res = await runtime._chat_request(
+        messages=[
+            {"role": "system", "content": REPORT_PLAN_PROMPT},
+            {
+                "role": "user",
+                "content": f"Question: {run.topic}\nFacts: {json.dumps(facts)}\nSources: {shown}",
+            },
+        ],
+        thinking={"type": "disabled"},
+        temperature=0.0,
+        model=REWRITE_MODEL,
+        max_tokens=4096,
+        response_format={"type": "json_object"},
+        timeout=min(25.0, timeout),
+        deadline=timeout,
+        attempts=1,
+    )
+    cost = float(plan_res.get("cost_usd", 0.0) or 0.0)
+    parsed, _ = sanitize_json(plan_res.get("content") or "")
+    if not isinstance(parsed, dict):
+        return await _research_synthesize(run, context, synth_step)
+
+    plan = _validate_plan(parsed)
+    sections = plan["sections"]
+    if not sections:
+        return await _research_synthesize(run, context, synth_step)
+
+    per_section_words = max(120, int(run.cfg.target_words or 800) // len(sections))
+    parts: list[tuple[str, str]] = []
+    for sec in sections:
+        if run.remaining() < 5.0:
+            break
+        ask = REPORT_ASK.format(words=per_section_words)
+        res = await runtime._chat_request(
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": base[1]["content"] + f"\n\n{ask}\nSection: {sec['title']}"},
+            ],
+            thinking={"type": "disabled"} if not run.cfg.thinking else {"type": "enabled"},
+            model=REWRITE_MODEL,
+            max_tokens=run.cfg.max_tokens,
+            timeout=max(5.0, run.remaining() - 2.0),
+            deadline=run.deadline_at,
+            attempts=1,
+        )
+        cost += float(res.get("cost_usd", 0.0) or 0.0)
+        text = _strip_heading((res.get("content") or "").strip())
+        if text and res.get("finish_reason") != "length":
+            parts.append((str(sec["title"]), text))
+
+    if not parts:
+        return await _research_synthesize(run, context, synth_step)
+
+    report = "\n\n".join(f"## {name}\n\n{text}" for name, text in parts)
+    report += "\n\n## What the sources do not settle\n\n" + _gaps_sentence(plan["unanswered"], context)
+    note = _search_note(run)
+    if note:
+        report = note + "\n\n" + report
+    run.notes.append(
+        f"report-plan: {len(parts)} sections, {len(plan['unanswered'])} unanswered, "
+        f"{plan['dropped']} sections dropped for answering nothing"
+    )
+    return {"ok": True, "content": report, "finish_reason": "stop"}, cost
 
 
 async def _search_round(run: _ResearchRun, queries: list[str]) -> list[dict[str, Any]]:
@@ -244,7 +411,7 @@ async def run_agent(
     if (stopped := _research_cost_guard(run, context)) is not None:
         return stopped
 
-    synth_res, discarded_cost = await _research_synthesize(run, context, synth_step)
+    synth_res, discarded_cost = await _agent_synthesize_report_plan(run, context, synth_step)
     synth_cost = synth_res.get("cost_usd", 0.0) if synth_res.get("ok") else 0.0
     llm_cost = run.llm_cost + synth_cost + discarded_cost
     if not synth_res.get("ok") or not (synth_res.get("content") or "").strip():

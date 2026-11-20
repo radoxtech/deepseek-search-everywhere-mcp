@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from deepseek_search_everywhere_mcp import agent_research, runtime
@@ -200,3 +201,73 @@ async def test_agent_reports_when_every_page_is_empty(fake_upstream: Any) -> Non
     assert res["ok"] is False
     assert res["error"]["code"] == "page_unavailable"
     assert res["stopped_reason"] == "empty_pages"
+
+
+class ReportPlanUpstream(PlannedUpstream):
+    """An upstream returning a valid report-plan JSON on plan call, then section text."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.call_idx = 0
+
+    async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        from deepseek_search_everywhere_mcp import server
+
+        payload = kwargs.get("payload") or {}
+        if path == server.SEARCH_PATH:
+            self.searches.append(payload)
+            return {"ok": True, "data": {"results": self.PAGES}}
+        if path == "/v1/chat/completions":
+            self.chats.append(payload)
+            self.call_idx += 1
+            if self.call_idx == 1:
+                return {
+                    "ok": True,
+                    "data": {
+                        "choices": [{"message": {"role": "assistant", "content": json.dumps(self.PLAN)}}]
+                    },
+                }
+            if self.call_idx == 2:
+                plan_json = {
+                    "subquestions": ["How high is gate fidelity?", "What is the logical error rate?"],
+                    "sections": [
+                        {"title": "Gate Fidelity Achievements", "answers": [0], "facts": [0]},
+                    ],
+                    "unsupported": [1],
+                }
+                return {
+                    "ok": True,
+                    "data": {
+                        "choices": [{"message": {"role": "assistant", "content": json.dumps(plan_json)}}]
+                    },
+                }
+            return {
+                "ok": True,
+                "data": {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": "Two-qubit gate fidelity reached 99.9% in 2025 trials [1].",
+                            }
+                        }
+                    ]
+                },
+            }
+        return await super().__call__(method, path, **kwargs)
+
+
+async def test_agent_synthesize_report_plan(fake_upstream: Any) -> None:
+    fake = ReportPlanUpstream()
+    fake_upstream(fake)
+
+    res = await _run(_job())
+
+    assert res["ok"] is True
+    assert res["synthesized"] is True
+    report = res["report"]
+    assert "## Gate Fidelity Achievements" in report
+    assert "Two-qubit gate fidelity reached 99.9%" in report
+    assert "## What the sources do not settle" in report
+    assert "What is the logical error rate?" in report
+    assert "> **How this was researched:**" in report
