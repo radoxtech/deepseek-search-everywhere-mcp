@@ -30,6 +30,7 @@ from .research_jobs import (
     _ResearchRun,
     _stage,
 )
+from .snippets import prune_source_content
 
 MAX_ROUNDS = 5
 
@@ -187,9 +188,30 @@ async def _agent_synthesize_report_plan(
     from .deep_research import sanitize_json
     from .research_jobs import REWRITE_MODEL, build_synthesis_messages
 
+    query_terms: set[str] = set()
+    for text in (
+        run.topic,
+        *run.subqueries,
+        *(getattr(a, "aspect", "") for a in run.aspects),
+        *(getattr(a, "looking_for", "") for a in run.aspects),
+    ):
+        query_terms.update(w.lower() for w in re.findall(r"\w+", text) if len(w) >= 3)
+
+    synth_context = [
+        {
+            **src,
+            "content": prune_source_content(
+                src.get("content") or "",
+                query_terms=query_terms,
+                max_chars=8000,
+            ),
+        }
+        for src in context
+    ]
+
     base = build_synthesis_messages(
         run.topic,
-        context,
+        synth_context,
         depth=run.depth,
         nonce=uuid.uuid4().hex[:12],
         aspects=run.aspects,
@@ -200,7 +222,7 @@ async def _agent_synthesize_report_plan(
     shown = json.dumps(
         [
             {"id": s.get("id"), "title": s.get("title"), "says": _source_digest(s.get("content") or "")}
-            for s in context
+            for s in synth_context
         ]
     )[:40000]
 
@@ -263,25 +285,25 @@ async def _agent_synthesize_report_plan(
         return await _research_synthesize(run, context, synth_step)
 
     per_section_words = max(120, int(run.cfg.target_words or 800) // len(sections))
-    parts: list[tuple[str, str]] = []
-    for sec in sections:
-        if run.remaining() < 5.0:
-            break
+    sec_max_tokens = min(run.cfg.max_tokens, max(1200, per_section_words * 4))
+
+    async def _write_section(sec: dict[str, Any]) -> tuple[str, str, float]:
+        sec_title = str(sec.get("title") or "").strip()
         ask = REPORT_ASK.format(words=per_section_words)
         section_messages = [
             {"role": "system", "content": system},
-            {"role": "user", "content": base[1]["content"] + f"\n\n{ask}\nSection: {sec['title']}"},
+            {"role": "user", "content": base[1]["content"] + f"\n\n{ask}\nSection: {sec_title}"},
         ]
         res = await runtime._chat_request(
             messages=section_messages,
             thinking={"type": "disabled"} if not run.cfg.thinking else {"type": "enabled"},
             model=REWRITE_MODEL,
-            max_tokens=run.cfg.max_tokens,
-            timeout=max(5.0, run.remaining() - 2.0),
+            max_tokens=sec_max_tokens,
+            timeout=max(10.0, run.remaining() - 2.0),
             deadline=run.deadline_at,
             attempts=2,
         )
-        cost += float(res.get("cost_usd", 0.0) or 0.0)
+        sec_cost = float(res.get("cost_usd", 0.0) or 0.0)
         text = _strip_heading((res.get("content") or "").strip())
         if (not text or res.get("finish_reason") == "length") and run.remaining() > 8.0:
             retry_sec = await runtime._chat_request(
@@ -289,18 +311,28 @@ async def _agent_synthesize_report_plan(
                 thinking={"type": "disabled"},
                 temperature=0.0,
                 model=REWRITE_MODEL,
-                max_tokens=run.cfg.max_tokens,
+                max_tokens=sec_max_tokens,
                 timeout=max(5.0, run.remaining() - 2.0),
                 deadline=run.deadline_at,
-                attempts=2,
+                attempts=1,
             )
             if retry_sec.get("ok"):
-                cost += float(retry_sec.get("cost_usd", 0.0) or 0.0)
+                sec_cost += float(retry_sec.get("cost_usd", 0.0) or 0.0)
                 sec_text = _strip_heading((retry_sec.get("content") or "").strip())
                 if sec_text:
                     text = sec_text
-        if text:
-            parts.append((str(sec["title"]), text))
+        return sec_title, text, sec_cost
+
+    section_tasks = [_write_section(sec) for sec in sections]
+    section_results = await asyncio.gather(*section_tasks, return_exceptions=True)
+
+    parts: list[tuple[str, str]] = []
+    for item in section_results:
+        if isinstance(item, tuple) and len(item) == 3:
+            sec_title, text, sec_cost = item
+            cost += sec_cost
+            if text:
+                parts.append((sec_title, text))
 
     if not parts:
         return await _research_synthesize(run, context, synth_step)
