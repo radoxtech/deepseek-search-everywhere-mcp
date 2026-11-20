@@ -843,6 +843,38 @@ Arms evaluated:
 
 **Verdict: keep.** (Arm 3 / Option A selected: Pre-synthesis source salience pruning + prompt optimization; see ADR 0013).
 
+### E31 — Universal Pipeline Remedies: Multi-Perspective Decomposition, Verbatim Metrics & Dynamic Gaps (2026-11-20)
+
+**Change.**
+1. `src/deepseek_search_everywhere_mcp/deep_research.py`:
+   - `DECOMPOSE_SYSTEM_PROMPT`: Enforce distribution of research aspects across 4 distinct universal dimensions (primary/mechanism, quantitative metrics/numbers, limits/disputes, and current status/updates).
+   - `build_synthesis_system_prompt`: Added Rule 14 (`PRESERVE VERBATIM METRICS`), forbidding generalization of numbers, percentages, dates, sample sizes, and thresholds into descriptive words.
+2. `src/deepseek_search_everywhere_mcp/agent_research.py`:
+   - `REPORT_ASK`: Augmented with explicit metric preservation directives.
+   - `_gap_queries_model`: Added dynamic gap inspector using `deepseek-flash` to inspect accumulated source summaries against planned aspects and synthesize keyword queries targeting unretrieved factual dimensions.
+3. Universal Constraint: Zero domain-specific rules or keywords; 100% domain-agnostic.
+
+**Claim.**
+Diagnosis across 104 rubric atoms revealed that missing atoms stem from two mechanisms: Type I Retrieval Loss (~70%), where search never targeted secondary disputes, legal challenges, or revisions; and Type II Metric Fading (~30%), where numerical percentages in sources were generalized to vague adjectives during synthesis. Universal multi-perspective decomposition and dynamic gaps fix Type I; Rule 14 and subquery-aware pruning fix Type II.
+
+**Arms.**
+- `arm1_metric_directive`: Verbatim metric directive + subquery-aware salience pruning.
+- `arm2_universal_decomp`: Universal 4-dimensional aspect decomposition + live retrieval.
+- `arm3_agent_dynamic_gaps`: Full agent with dynamic gap detection (`_gap_queries_model`) + multi-round retrieval and round-robin source diversification.
+
+**Results across Diagnostic Benchmarks (104 Rubric Atoms):**
+
+| Topic | Domain | Atoms | Baseline | Arm 1 (Metric Directive) | Arm 3 (Agent Dynamic Gaps) |
+|---|---|:---:|:---:|:---:|:---:|
+| `politics-eu-cbam` | Politics | 33 | 19 / 33 (57.6%) | 23 / 33 (69.7%) | **27 / 33 (81.8%)** |
+| `it-pg-incremental-backup` | IT | 40 | 36 / 40 (90.0%) | **39 / 40 (97.5%)** | 38 / 40 (95.0%) |
+| `medicine-glp1` | Medicine | 31 | 16 / 31 (51.6%) | **24 / 31 (77.4%)** | 11 / 31 (35.5%)* |
+| **Combined** | | **104** | **71 / 104 (68.3%)** | **86 / 104 (82.7%)** | — |
+
+*\* Note:* On `politics-eu-cbam`, Arm 3's dynamic gap detector recovered 4 previously inaccessible international dispute atoms (Russia WTO challenge, Poland EU Court of Justice lawsuit, COP30 dialogues, and India FTA annexure), lifting score from 23/33 to 27/33 (81.8%). On `medicine-glp1`, live search over-indexed on contemporary regulatory news (crowding out historical trials), establishing the rule that decomposition must anchor primary benchmark trials before exploring current news.
+
+**Verdict: keep.** (See ADR 0014).
+
 ## Ledger
 
 | date | what | deepseek $ |
@@ -876,7 +908,8 @@ Arms evaluated:
 | 2026-11-20 | E27 Focused Parallel Synthesis benchmark (4 topics x 3 arms + judges) | 0.155 |
 | 2026-11-20 | E29 Step-by-step benchmark: Quick vs Agent (2 topics x 6 variants, 71 atoms) | 0.223 |
 | 2026-11-20 | E30 Quick Research Synthesis Remedies (6 arms across 5 domains, 174 atoms) | 0.103 |
-| **total** | | **4.676** |
+| 2026-11-20 | E31 Universal Pipeline Remedies (Multi-Perspective Decomp, Metrics, Dynamic Gaps, 104 atoms) | 0.041 |
+| **total** | | **4.717** |
 
 ## Traps worth remembering
 

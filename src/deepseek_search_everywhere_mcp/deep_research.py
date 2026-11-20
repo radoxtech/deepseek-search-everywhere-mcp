@@ -265,8 +265,10 @@ DECOMPOSE_SYSTEM_PROMPT = (
     "- limits: limitations, risks, criticism, failure cases or open disputes\n"
     "- current: the latest status, changes, versions or deadlines as of today's date\n"
     "- mechanism: how it works or how it is defined\n"
-    "The first aspect is always of kind primary. Then choose the kinds that matter most for the topic, "
-    "a different kind for each aspect while kinds remain.\n"
+    "The first aspect is always of kind primary. For comprehensive coverage, ensure the chosen aspects "
+    "distribute across distinct kinds: include measured metrics or rates (numbers), open controversies, "
+    "limits or disputes (limits), and the present status or recent revisions (current). Never generate "
+    "multiple aspects that cover the same general conceptual explanation.\n"
     "Query rules: 3 to 8 keywords, not a sentence; use the names a specialist would search for (proper "
     "names, parameter or setting names, study names, document titles) rather than the wording of the "
     "topic; use a number or identifier (article, version, registry id) only when you are certain it "
@@ -399,7 +401,11 @@ def build_synthesis_system_prompt(depth: str = "medium", *, client: bool = False
         f"13. OPEN WITH THE ANSWER: the first sentence of the report states, in one line, what the "
         "evidence shows about the question. Background, definitions and history may follow inside the "
         "same section, but only after that sentence. A reader who stops after the first sentence must "
-        "know the answer."
+        "know the answer.\n"
+        "14. PRESERVE VERBATIM METRICS: never generalize numbers, percentages, rates, dates, sample sizes, "
+        "doses, or statutory thresholds into descriptive words (e.g., do not write 'frequent', 'rare', or "
+        "'substantial' when the source provides '44%', '1 in 10,000', or '€100M'). Always report the exact "
+        "numerical figures verbatim alongside their source citations [n]."
     )
 
 

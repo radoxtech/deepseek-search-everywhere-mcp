@@ -17,10 +17,17 @@ import uuid
 from typing import Any
 
 from . import evidence, runtime
-from .deep_research import DEPTH_CONFIG, ResearchJob, apply_token_guard, select_synthesis_context
+from .deep_research import (
+    DEPTH_CONFIG,
+    ResearchJob,
+    apply_token_guard,
+    sanitize_json,
+    select_synthesis_context,
+)
 from .errors import _fail
 from .filters import fit_query
 from .research_jobs import (
+    REWRITE_MODEL,
     _finalize_report,
     _report_job_progress,
     _research_cost_guard,
@@ -107,11 +114,86 @@ def _gap_queries(
     return queries[:max_queries]
 
 
+UNIVERSAL_GAP_PROMPT = (
+    "You are a research gap detector. Given the research topic, planned aspects that lack evidence, "
+    "and summaries of preliminary findings: identify what critical factual dimensions (specific numbers, "
+    "recent disputes, official updates, or technical edge cases) are STILL MISSING.\n"
+    "Output up to 3 specialist keyword search queries targeting these missing dimensions.\n"
+    "Output strictly valid JSON with 'queries': [str]."
+)
+
+
+async def _gap_queries_model(
+    run: _ResearchRun,
+    blocks: list[dict[str, Any]],
+    used: set[str],
+    results: list[dict[str, Any]],
+    max_queries: int = 3,
+) -> list[str]:
+    """Find search queries for aspects lacking evidence using deepseek-flash, with fallback."""
+    empty_aspects = [
+        getattr(a, "aspect", "") for a, b in zip(run.aspects, blocks, strict=False) if not b.get("sentences")
+    ]
+    if not empty_aspects:
+        empty_aspects = [
+            getattr(a, "aspect", "")
+            for a, b in zip(run.aspects, blocks, strict=False)
+            if not b.get("numbers")
+        ]
+    if not empty_aspects:
+        return _gap_queries(run.aspects, blocks, used, topic=run.topic, max_queries=max_queries)
+
+    summary_lines = [
+        f"- {s.get('title')}: {(s.get('content') or '')[:250]}" for s in results[:12] if s.get("title")
+    ]
+    summary_text = "\n".join(summary_lines)
+    user_prompt = (
+        f"Research topic: {run.topic}\n"
+        f"Aspects still lacking clear evidence: {', '.join(empty_aspects)}\n"
+        f"Executed queries: {', '.join(used)}\n"
+        f"Preliminary findings summary:\n{summary_text}\n\n"
+        f"Output up to {max_queries} new search queries as JSON targeting the missing evidence."
+    )
+    timeout = min(15.0, max(5.0, run.remaining() - 20.0))
+    try:
+        res = await runtime._chat_request(
+            messages=[
+                {"role": "system", "content": UNIVERSAL_GAP_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            thinking={"type": "disabled"},
+            temperature=0.0,
+            model=REWRITE_MODEL,
+            max_tokens=1024,
+            response_format={"type": "json_object"},
+            timeout=timeout,
+            deadline=run.deadline_at,
+            attempts=1,
+        )
+        if res.get("ok"):
+            run.llm_cost += float(res.get("cost_usd", 0.0) or 0.0)
+            parsed, _ = sanitize_json(res.get("content") or "{}")
+            queries = parsed.get("queries") if isinstance(parsed, dict) else []
+            clean_queries: list[str] = []
+            for q in queries:
+                if isinstance(q, str) and q.strip():
+                    fitted, _ = fit_query(q.strip())
+                    if fitted and fitted not in used and fitted not in clean_queries:
+                        clean_queries.append(fitted)
+            if clean_queries:
+                return clean_queries[:max_queries]
+    except Exception:
+        pass
+
+    return _gap_queries(run.aspects, blocks, used, topic=run.topic, max_queries=max_queries)
+
+
 REPORT_ASK = (
     "Write only this section, about {words} words. Start with the section's first sentence of prose; do "
     "not write a heading, the system adds it. Use only the sources given. Every number carries the [n] "
-    "citation of the source that states it. If the sources say nothing usable for this section, write one "
-    "sentence saying so."
+    "citation of the source that states it. Preserve verbatim numerical rates, percentages and dates rather "
+    "than generalizing into descriptive words. If the sources say nothing usable for this section, write "
+    "one sentence saying so."
 )
 
 
@@ -449,7 +531,7 @@ async def run_agent(
         if budget is not None and spent + estimate_cost(depth, 1) > budget:
             stopped_reason = "budget"
             break
-        queries = _gap_queries(run.aspects, blocks, used, topic=run.topic, max_queries=3)
+        queries = await _gap_queries_model(run, blocks, used, results, max_queries=3)
         if not queries:
             stopped_reason = "no_gaps"
             break

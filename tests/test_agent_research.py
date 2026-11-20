@@ -206,12 +206,11 @@ async def test_agent_reports_when_every_page_is_empty(fake_upstream: Any) -> Non
 class ReportPlanUpstream(PlannedUpstream):
     """An upstream returning a valid report-plan JSON on plan call, then section text."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.call_idx = 0
-
     async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         from deepseek_search_everywhere_mcp import server
+        from deepseek_search_everywhere_mcp.agent_research import UNIVERSAL_GAP_PROMPT
+        from deepseek_search_everywhere_mcp.agent_roles import REPORT_PLAN_PROMPT
+        from deepseek_search_everywhere_mcp.deep_research import DECOMPOSE_SYSTEM_PROMPT
 
         payload = kwargs.get("payload") or {}
         if path == server.SEARCH_PATH:
@@ -219,15 +218,20 @@ class ReportPlanUpstream(PlannedUpstream):
             return {"ok": True, "data": {"results": self.PAGES}}
         if path == "/v1/chat/completions":
             self.chats.append(payload)
-            self.call_idx += 1
-            if self.call_idx == 1:
+            msgs = payload.get("messages", [])
+            sys_msg = msgs[0].get("content", "") if msgs else ""
+            if sys_msg == DECOMPOSE_SYSTEM_PROMPT:
                 return {
                     "ok": True,
                     "data": {
                         "choices": [{"message": {"role": "assistant", "content": json.dumps(self.PLAN)}}]
                     },
                 }
-            if self.call_idx == 2:
+            if sys_msg == UNIVERSAL_GAP_PROMPT:
+                gap_data = {"queries": ["surface code logical error rate per cycle"]}
+                choice = {"message": {"role": "assistant", "content": json.dumps(gap_data)}}
+                return {"ok": True, "data": {"choices": [choice]}}
+            if sys_msg == REPORT_PLAN_PROMPT:
                 plan_json = {
                     "subquestions": ["How high is gate fidelity?", "What is the logical error rate?"],
                     "sections": [
