@@ -444,7 +444,7 @@ Details:
 - **Daily budget** covers Search, Fetch and LLM costs and resets per UTC day; once reached, calls fail with `budget_exceeded`. The state lives in `budget.json` under `DEEPSEEK_STATE_DIR` (default `~/.cache/deepseek-search-everywhere-mcp`).
 - **Domain lists** (`DEEPSEEK_SOURCE_DENYLIST`, `DEEPSEEK_FETCH_ALLOW_DOMAINS`, `DEEPSEEK_FETCH_DENY_DOMAINS`) are comma-separated; an entry matches the host and its subdomains, and an entry containing `*` is a glob matched against the whole host. `DEEPSEEK_SOURCE_DENYLIST` defaults to empty because library-proxy hosts (EZproxy, libproxy) are automatically rewritten to canonical publisher URLs instead of rejected.
 - **Entropy check** (`1`, `true` or `yes`) rejects queries and URL paths that contain a token longer than 32 characters with high entropy.
-- **Legacy key file**: `DEEPSEEK_AUTH_JSON` points to an opencode credentials file (`{"deepseek": {"key": "..."}}`); without it the server tries `~/.local/share/opencode/auth.json`.
+- **Key file**: `DEEPSEEK_AUTH_JSON` points to a credentials file (`{"deepseek": {"key": "..."}}`), used only when `DEEPSEEK_API_KEY` is unset. Nothing is read from other applications' config directories.
 
 Command-line options of `deepseek-search-everywhere-mcp`: `--transport {stdio,streamable-http}` (default `stdio`), `--host` (default `127.0.0.1`), `--port` (default `8000`), `--path` (default `/mcp`), `--check` (verify credentials and print the balance; stdio only) and `--version`.
 

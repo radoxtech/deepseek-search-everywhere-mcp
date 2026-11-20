@@ -29,10 +29,12 @@ from .errors import (
 )
 from .ratelimit import CHAT, RateLimiter, RateLimitExceeded
 from .settings import (
+    active_chat_pricing,
     get_pricing_period,
     get_settings,
 )
 from .transport import _api_key as _api_key  # patch point: callers use runtime._api_key
+from .transport import _chat_model as _chat_model  # patch point: chat host may rename models
 from .transport import request as _request  # patch point: callers use runtime._request
 
 CHAT_TIMEOUT = 8.0
@@ -280,7 +282,7 @@ async def _chat_request(
             )
 
     payload: dict[str, Any] = {
-        "model": model,
+        "model": _chat_model(model),
         "messages": messages,
         "thinking": thinking,
         "stream": False,
@@ -294,8 +296,12 @@ async def _chat_request(
     if reasoning_effort is not None:
         payload["reasoning_effort"] = reasoning_effort
 
-    period = get_pricing_period()
-    rates = settings.llm_pricing.peak if period == "peak" else settings.llm_pricing.off_peak
+    pricing = active_chat_pricing()
+    period = "flat" if pricing.flat is not None else get_pricing_period()
+    if pricing.flat is not None:
+        rates = pricing.flat
+    else:
+        rates = pricing.peak if period == "peak" else pricing.off_peak
 
     try:
         result = await _request(

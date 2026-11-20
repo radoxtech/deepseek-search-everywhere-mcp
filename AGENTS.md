@@ -129,7 +129,6 @@ measured by the harness in `evals/`; "feels better" is not a result.
 - SSRF checks are static: never resolve DNS locally (the page is fetched remotely by DeepSeek).
 - Errors are never cached.
 - No telemetry.
-- Keep the legacy opencode `auth.json` credential fallback.
 
 ## Branching & workflow
 
