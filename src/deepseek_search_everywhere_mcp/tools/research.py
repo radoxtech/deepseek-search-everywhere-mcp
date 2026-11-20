@@ -1,4 +1,4 @@
-"""The deepseek_research and deepseek_check_research tools (job start, join, reuse and collection)."""
+"""The deepseek_quick_research and deepseek_check_research tools (job start, join, reuse and collection)."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ MAX_TOPIC = 500
 
 
 @_timed
-async def deepseek_research(
+async def deepseek_quick_research(
     topic: Annotated[
         str,
         Field(description="Complex research topic or question to investigate (non-empty, max 500 chars)"),
@@ -56,51 +56,42 @@ async def deepseek_research(
     lang: Annotated[
         str | None,
         Field(
-            description="Language code such as 'en' or 'pt-BR' to restrict search sources to (default None)"
-        ),
-    ] = None,
-    refresh: Annotated[
-        bool,
-        Field(description="Bypass local cache and perform fresh research pipeline (default False)"),
-    ] = False,
-    unverified: Annotated[
-        Literal["flag", "drop"],
-        Field(
             description=(
-                "Sentences with numbers not found in their sources: 'flag' marks them (default), "
-                "'drop' removes them"
+                "Language code for sources (e.g. 'en', 'de', 'pl'). Prefer 'en' for tech/science docs; "
+                "set code for local laws/markets."
             )
         ),
-    ] = "flag",
+    ] = None,
     synthesis: Annotated[
         Literal["server", "client"],
         Field(
             description=(
-                "Who writes the report: 'server' (default) or 'client' (you get ranked sources, "
-                "write it, server verifies it)"
+                "Report author: 'server' (default) or 'client' (subagent orchestrators like "
+                "Claude Code+Opus: you write, server checks)."
             )
         ),
     ] = "server",
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass local cache and perform fresh research pipeline (default False)"),
+    ] = False,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
-    """Research a topic across the web and get a cited report in one call.
+    """Research a topic across the web and get a cited report in one quick single pass.
 
     The server searches several angles, reads 6-24 sources and returns a compact report whose [n]
-    citations match the ids in the sources array. About $0.003 (depth "low") to $0.03 ("max"). depth:
-    "low" quick overview, "medium" (default) most questions, "high" decisions with several viewpoints,
-    "max" broad or contested topics. sources="academic" favours peer-reviewed papers, "technical"
-    official docs, specs and repos. Numbers missing from their cited source are marked [unverified]. If
-    status is "running", poll deepseek_check_research with the job_id; never restart it. With
-    synthesis="client" the job returns status "needs_input" (step "report") with the ranked sources in
-    pages; send your report as answer= and the server verifies citations and numbers. At most 3 jobs run
-    at once.
+    citations match source ids. About $0.003 (depth "low") to $0.03 ("max"). depth: "low" quick
+    overview, "medium" (default) most questions, "high" decisions, "max" broad topics.
+    sources="academic" favours papers, "technical" official docs and repos. Numbers missing from sources
+    are marked [unverified]. If status is "running", poll deepseek_check_research with job_id. With
+    synthesis="client" the job returns status "needs_input" (step "report") with sources in pages; send
+    your report as answer= to verify citations. At most 3 jobs run at once.
 
-    When NOT to use: one fact or a few independent queries (deepseek_search), known URLs
-    (deepseek_fetch), or fields as JSON (deepseek_extract).
+    When NOT to use: one fact (deepseek_search), known URLs (deepseek_fetch), fields as JSON
+    (deepseek_extract), or multi-round investigative research (deepseek_deep_agent_research).
 
     Returns: {"ok": True, "status": "done"|"running"|"needs_input", "job_id"?, "report": str,
-    "sources": [{id, title, url, date, doi, source_type, ...}], "unverified_numbers": [...],
-    "cost_usd": float}.
+    "sources": [{id, title, url, ...}], "unverified_numbers": [...], "cost_usd": float}.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:
@@ -115,10 +106,6 @@ async def deepseek_research(
             f"Invalid sources preference '{sources}'. Expected one of: any, academic, technical.",
             param="sources",
         )
-    if unverified not in {"flag", "drop"}:
-        return _fail(
-            "bad_request", f"unverified must be 'flag' or 'drop', got {unverified!r}.", param="unverified"
-        )
     if synthesis not in {"server", "client"}:
         return _fail(
             "bad_request", f"synthesis must be 'server' or 'client', got {synthesis!r}.", param="synthesis"
@@ -128,13 +115,12 @@ async def deepseek_research(
     store = get_job_store(ttl=settings.research_job_ttl, max_active=settings.research_max_jobs)
     store.prune_expired(runtime._clock())
 
-    key = {"sources": sources, "unverified": unverified, "synthesis": synthesis}
+    key = {"sources": sources, "unverified": "flag", "synthesis": synthesis}
     existing = store.find_active_match(clean_topic, depth, lang, **key)
     if existing is None and not refresh:
         finished = store.find_finished_match(clean_topic, depth, lang, runtime._clock(), **key)
         if finished is not None and finished.result is not None:
             if finished.has_client_sources and finished.client_sources_result is not None:
-                # Another caller gets the sources to write its own report, never someone else's report.
                 finished.completed_at = runtime._clock()
                 return _reuse_finished_result(finished.client_sources_result)
             return _reuse_finished_result(finished.result)
@@ -157,7 +143,7 @@ async def deepseek_research(
             depth=depth,
             lang=lang,
             sources=sources,
-            unverified=unverified,
+            unverified="flag",
             synthesis=synthesis,
             created_at=runtime._clock(),
             ctx=ctx,
@@ -191,10 +177,17 @@ async def deepseek_research(
         job.ctx = None
 
 
+# Alias for backwards compatibility
+deepseek_research = deepseek_quick_research
+
+
 async def deepseek_check_research(
     job_id: Annotated[
         str,
-        Field(description="Unique UUID identifier of the research job to poll (from deepseek_research)"),
+        Field(
+            description="Unique UUID identifier of the research job to poll (from deepseek_quick_research "
+            "or deepseek_deep_agent_research)"
+        ),
     ],
     *,
     page: Annotated[
@@ -203,19 +196,19 @@ async def deepseek_check_research(
     ] = None,
     answer: Annotated[
         str | dict[str, Any] | None,
-        Field(description="Input for a job with status needs_input; its step says what (default None)"),
+        Field(description="Input report text for a job with status needs_input (default None)"),
     ] = None,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Continue a research job: poll it, read its sources, or answer when it needs input.
 
-    Free ($0.00); waits up to 45 s per call. Returns the finished report (status "done"),
-    progress while the job runs ("running": call again with the same job_id) or job_not_found
-    once it expired. Status "needs_input" names a step: for step "report" (synthesis="client"),
+    Free ($0.00); waits up to 45 s per call. Returns the finished report (status 'done'),
+    progress while the job runs ('running': call again with the same job_id) or job_not_found
+    once it expired. Status 'needs_input' names a step: for step 'report' (synthesis='client'),
     page= reads the next page of sources and answer= submits your report with [id] citations for
-    verification. Sending the same answer again costs nothing.
+    verification. Never restart a running job; poll it with this tool.
 
-    When NOT to use: to start research (deepseek_research). Never restart a running job; poll it.
+    When NOT to use: to start research (deepseek_quick_research or deepseek_deep_agent_research).
 
     Returns: {"ok": True, "status": "done"|"running"|"needs_input", "step"?: str, "job_id": str, ...}.
     """
@@ -231,7 +224,7 @@ async def deepseek_check_research(
     if job is None:
         return _fail(
             "job_not_found",
-            "Research job not found or expired. Restart the research with deepseek_research.",
+            "Research job not found or expired. Restart the research with deepseek_quick_research.",
         )
     if answer is not None:
         if page is not None:
@@ -240,7 +233,7 @@ async def deepseek_check_research(
             return _fail("bad_request", "For step 'report', answer must be the report text.", param="answer")
         return await _verify_client_report(job, answer)
     if job.has_client_sources and job.task is not None and job.task.done():
-        job.completed_at = runtime._clock()  # a client still reading or writing keeps the job
+        job.completed_at = runtime._clock()
         if page is not None:
             return _client_page(job, page)
         return _client_page(job, 1) if job.awaiting_report else _finished_job_envelope(job, "polled")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+from deepseek_search_everywhere_mcp import fetch_core
 from deepseek_search_everywhere_mcp.boilerplate import remove_boilerplate
 from deepseek_search_everywhere_mcp.server import (
     MAX_PRE_PROCESSING_CHARS,
@@ -103,8 +104,8 @@ async def test_fetch_content_capped_and_windowing_notes(fake_upstream) -> None:
     assert any("capped" in note.lower() for note in res["notes"])
 
     # 2. Windowing with offset beyond the capped limit returns empty content and a clear note
-    res_window = await server.deepseek_fetch(
-        "https://example.com/huge", offset=2_500_000, max_chars=1000, refresh=True
+    res_window = await fetch_core._fetch(
+        "https://example.com/huge", True, 1000, offset=2_500_000, refresh=True
     )
     assert res_window["ok"] is True
     assert res_window.get("content_capped") is True

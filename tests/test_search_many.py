@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from deepseek_search_everywhere_mcp import search_core, server
+from deepseek_search_everywhere_mcp.tools.search import _search_list
 
 
 def _install_fake_search(fake_upstream: Any, results_map: dict[str, list[dict[str, Any]]]) -> list[dict]:
@@ -164,7 +165,7 @@ def test_search_many_exception_redacts_secrets(monkeypatch):
     ],
 )
 def test_search_many_invalid_count_and_caps(kwargs, expected_code):
-    res = asyncio.run(server.deepseek_search(["q"], **kwargs))
+    res = asyncio.run(_search_list(["q"], **kwargs))
     assert res["ok"] is False
     assert res["error"]["reason"] == expected_code
 
@@ -184,7 +185,7 @@ def test_search_many_deadline_timeout(fake_upstream):
         return {"ok": True, "data": {"results": []}}
 
     fake_upstream(slow_request)
-    res = asyncio.run(server.deepseek_search(["slow_q"], deadline=0.01))
+    res = asyncio.run(_search_list(["slow_q"], deadline=0.01))
     assert res["ok"] is True
     assert res["partial"] is True
     assert res["failed_count"] == 1
@@ -202,7 +203,7 @@ def test_search_many_partial_on_slow_query(fake_upstream):
         return {"ok": True, "data": {"results": [{"title": "Fast", "url": "https://fast.test"}]}}
 
     fake_upstream(mixed_request)
-    res = asyncio.run(server.deepseek_search(["fast_q", "slow_q"], deadline=0.05))
+    res = asyncio.run(_search_list(["fast_q", "slow_q"], deadline=0.05))
     assert res["ok"] is True
     assert res["partial"] is True
     assert res["count"] == 2
@@ -229,7 +230,7 @@ def test_search_many_enforces_payload_budget_without_duplicate_searches(fake_ups
     _install_fake_search(fake_upstream, results_map)
 
     result = asyncio.run(
-        server.deepseek_search(["alpha", "beta", "gamma"], count=6, content="full", max_total_chars=2000)
+        _search_list(["alpha", "beta", "gamma"], count=6, content="full", max_total_chars=2000)
     )
     assert result["ok"] is True
     assert "searches" not in result

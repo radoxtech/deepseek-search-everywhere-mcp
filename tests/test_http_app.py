@@ -93,7 +93,7 @@ def test_initialize_reports_server_instructions(client: TestClient) -> None:
     response = _post_initialize(client, AUTH)
     instructions = response.json()["result"].get("instructions")
     assert instructions is not None
-    assert "Default to deepseek_research" in instructions
+    assert "deepseek_quick_research" in instructions
     assert 'sources="academic"' in instructions
     assert 'sources="technical"' in instructions
 

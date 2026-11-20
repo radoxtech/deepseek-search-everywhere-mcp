@@ -144,26 +144,30 @@ def test_src_error_codes_belong_to_closed_set() -> None:
 
 @pytest.mark.asyncio
 async def test_filter_validation_errors_produce_valid_envelopes() -> None:
-    from deepseek_search_everywhere_mcp import server
+    from deepseek_search_everywhere_mcp import search_core
 
     # 1. exclude_terms with whitespace -> bad_term
-    r1 = await server.deepseek_search("test", exclude_terms=["two words"])
+    r1 = await search_core._search(
+        "test", 5, None, "snippets", None, 20000, 20000, exclude_terms=["two words"]
+    )
     assert r1["ok"] is False
     assert r1["error"]["reason"] == "bad_term"
 
     # 2. exact_phrases with internal quotes -> bad_phrase
-    r2 = await server.deepseek_search("test", exact_phrases=['a"b'])
+    r2 = await search_core._search("test", 5, None, "snippets", None, 20000, 20000, exact_phrases=['a"b'])
     assert r2["ok"] is False
     assert r2["error"]["reason"] == "bad_phrase"
 
     # 3. oversized filters -> filters_too_long
     many_domains = [f"domain{i}.com" for i in range(20)]
-    r3 = await server.deepseek_search("test", include_domains=many_domains)
+    r3 = await search_core._search(
+        "test", 5, None, "snippets", None, 20000, 20000, include_domains=many_domains
+    )
     assert r3["ok"] is False
     assert r3["error"]["reason"] == "filters_too_long"
 
     # 4. bad date -> bad_date
-    r4 = await server.deepseek_search("test", after="invalid-date")
+    r4 = await search_core._search("test", 5, None, "snippets", None, 20000, 20000, after="invalid-date")
     assert r4["ok"] is False
     assert r4["error"]["reason"] == "bad_date"
 
@@ -199,7 +203,7 @@ async def test_all_tools_validation_errors_return_error_envelopes() -> None:
     assert res["ok"] is False
     assert res["error"]["code"] in CLOSED_ERROR_CODES
 
-    res = await server.deepseek_fetch("http://example.com", offset=-1)
+    res = await server.deepseek_fetch("http://example.com", max_chars=0)
     assert res["ok"] is False
     assert res["error"]["code"] in CLOSED_ERROR_CODES
 
@@ -267,13 +271,10 @@ def test_unknown_reason_keeps_the_internal_error_action(caplog: pytest.LogCaptur
         ("deepseek_search", ("",), {}, "query"),
         ("deepseek_search", ("q",), {"count": 0}, "count"),
         ("deepseek_search", ("q",), {"lang": "polish"}, "lang"),
-        ("deepseek_search", ("q",), {"exclude_terms": ["two words"]}, "exclude_terms"),
-        ("deepseek_search", ("q",), {"exact_phrases": ['a"b']}, "exact_phrases"),
-        ("deepseek_search", ("q",), {"after": "invalid-date"}, "after"),
         ("deepseek_search", ([],), {}, "query"),
         ("deepseek_fetch", ("",), {}, "url"),
         ("deepseek_fetch", ("ftp://example.com",), {}, "url"),
-        ("deepseek_fetch", ("https://example.com",), {"offset": -1}, "offset"),
+        ("deepseek_fetch", ("https://example.com",), {"max_chars": 0}, "max_chars"),
         ("deepseek_fetch", ([],), {}, "url"),
         ("deepseek_extract", ("https://example.com",), {}, "fields"),
         ("deepseek_research", ("",), {}, "topic"),

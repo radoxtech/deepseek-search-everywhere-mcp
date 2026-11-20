@@ -393,6 +393,7 @@ async def _extract_list(
 
 SINGLE_MAX_CHARS = 40000  # default max_chars for one URL
 LIST_MAX_CHARS = 20000  # default max_chars per URL for a list
+DEFAULT_MAX_TOTAL_CHARS = 60000
 
 
 @_timed
@@ -414,34 +415,22 @@ async def deepseek_extract(
         str | None,
         Field(description="Optional natural-language guidance for extraction (default None)"),
     ] = None,
-    max_chars: Annotated[
-        int | None,
-        Field(description="Max page characters for the extractor (default 40000; 20000 per URL for a list)"),
-    ] = None,
-    max_total_chars: Annotated[
-        int,
-        Field(description="Max total page characters across a list of URLs (default 60000)"),
-    ] = 60000,
     refresh: Annotated[
         bool,
-        Field(description="Bypass local cache and fetch fresh pages from upstream (default False)"),
+        Field(description="Bypass local cache and fetch fresh pages (default False)"),
     ] = False,
-    deadline: Annotated[
-        float | None,
-        Field(description="Deadline in seconds for a list of URLs; finished results are returned"),
-    ] = None,
 ) -> dict[str, Any]:
     """Pull specific fields or a JSON schema out of web pages, each value backed by a verbatim quote.
 
     Use it for structured data (prices, names, dates, specs) instead of prose, from one URL or the
     same fields from up to 10 URLs in parallel. $0.00075 per URL for the fetch plus about
-    $0.001-0.003 of LLM tokens per page. One URL reads up to 40,000 chars (max_chars); a list reads
-    up to 20,000 per URL and 60,000 in total (max_total_chars), keeps input order and reports a
+    $0.001-0.003 of LLM tokens per page. One URL reads up to 40,000 chars; a list reads
+    up to 20,000 per URL and 60,000 in total, keeps input order and reports a
     failed URL in place. Pass fields= (names) or schema= (JSON schema), not both. A value whose
     evidence quote is not in the page is returned as null with a note. Output is sanitized.
 
-    When NOT to use: reading prose (deepseek_fetch), finding pages (deepseek_search), or a topic
-    report (deepseek_research).
+    When NOT to use: reading prose (deepseek_fetch), finding pages (deepseek_search), or an in-depth
+    investigation (deepseek_quick_research or deepseek_deep_agent_research).
 
     Returns for one URL: {"ok": True, "data": {...}, "evidence": {...}, "extraction_truncated": bool,
     "cost_usd": float}. For a list: {"ok": True, "results": [{"url": str, "ok": bool, "data": {...},
@@ -453,7 +442,7 @@ async def deepseek_extract(
             fields=fields,
             schema=schema,
             instruction=instruction,
-            max_chars=SINGLE_MAX_CHARS if max_chars is None else max_chars,
+            max_chars=SINGLE_MAX_CHARS,
             refresh=refresh,
         )
     return await _extract_list(
@@ -461,8 +450,8 @@ async def deepseek_extract(
         fields=fields,
         schema=schema,
         instruction=instruction,
-        max_chars_per_url=LIST_MAX_CHARS if max_chars is None else max_chars,
-        max_total_chars=max_total_chars,
+        max_chars_per_url=LIST_MAX_CHARS,
+        max_total_chars=DEFAULT_MAX_TOTAL_CHARS,
         refresh=refresh,
-        deadline=deadline,
+        deadline=None,
     )

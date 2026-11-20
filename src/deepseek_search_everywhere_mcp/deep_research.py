@@ -1842,7 +1842,10 @@ DUPLICATE_MIN_NUMBERS = 6
 
 
 def drop_duplicate_sources(
-    sources: Sequence[dict[str, Any]], target_lang: str | None
+    sources: Sequence[dict[str, Any]],
+    target_lang: str | None,
+    *,
+    allow_english: bool = False,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Drop translations and reprints, then move sources in another language behind the rest.
 
@@ -1852,6 +1855,12 @@ def drop_duplicate_sources(
     """
     kept: list[tuple[dict[str, Any], set[str], str | None]] = []
     dropped = 0
+    if allow_english and target_lang:
+        primary_langs = {target_lang, "en"}
+    elif target_lang:
+        primary_langs = {target_lang}
+    else:
+        primary_langs = set()
     for s in sources:
         content = s.get("content") or ""
         prints = _number_fingerprint(content)
@@ -1872,8 +1881,8 @@ def drop_duplicate_sources(
         other_lang = kept[twin][2]
         if target_lang and lang == target_lang and other_lang not in (None, target_lang):
             kept[twin] = (s, prints, lang)
-    same = [s for s, _, lang in kept if not (target_lang and lang and lang != target_lang)]
-    other = [s for s, _, lang in kept if target_lang and lang and lang != target_lang]
+    same = [s for s, _, lang in kept if not (primary_langs and lang and lang not in primary_langs)]
+    other = [s for s, _, lang in kept if primary_langs and lang and lang not in primary_langs]
     return same + other, dropped, len(other)
 
 
@@ -1941,7 +1950,10 @@ def select_synthesis_context(
             reverse=True,
         )
     target_lang = (lang or "").strip().lower()[:2] or text_language(topic, min_hits=2) or "en"
-    valid_sources, duplicates, moved = drop_duplicate_sources(valid_sources, target_lang)
+    allow_english = sources_pref in ("technical", "academic") or not lang
+    valid_sources, duplicates, moved = drop_duplicate_sources(
+        valid_sources, target_lang, allow_english=allow_english
+    )
     if notes is not None and duplicates:
         notes.append(f"Dropped {duplicates} source(s) that repeat another source (translation or reprint).")
     if notes is not None and moved:

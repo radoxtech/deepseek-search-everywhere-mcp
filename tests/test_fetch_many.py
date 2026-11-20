@@ -12,6 +12,7 @@ import pytest
 from deepseek_search_everywhere_mcp import fetch_core, server
 from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
+from deepseek_search_everywhere_mcp.tools.fetch import _fetch_list
 
 A = "https://example.com/a"
 B = "https://example.org/b"
@@ -100,7 +101,7 @@ async def test_bad_batch_size_is_rejected_without_upstream_calls(upstream: Upstr
 
 async def test_budget_caps_total_chars(upstream: Upstream) -> None:
     urls = [A, B, C]
-    result = await server.deepseek_fetch(urls, max_chars=4000, max_total_chars=100)
+    result = await _fetch_list(urls, max_chars_per_url=4000, max_total_chars=100, query=None)
     total = sum(item["chars"] for item in result["results"])
     assert total <= 100
     assert all(item["chars"] == len(item["content"]) for item in result["results"])
@@ -171,16 +172,6 @@ async def test_unexpected_exception_is_logged_redacted(
 async def test_tool_is_registered() -> None:
     tools = {tool.name for tool in await server.mcp.list_tools()}
     assert "deepseek_fetch" in tools and "deepseek_fetch_many" not in tools
-
-
-@pytest.mark.parametrize(("name", "value"), [("section", 1), ("offset", 0), ("find_text", "Body")])
-async def test_single_url_selectors_are_rejected_for_a_list(
-    upstream: Upstream, name: str, value: Any
-) -> None:
-    result = await server.deepseek_fetch([A, B], **{name: value})
-    assert result["ok"] is False
-    assert (result["error"]["code"], result["error"]["param"]) == ("invalid_input", name)
-    assert upstream.calls == []
 
 
 async def test_max_chars_defaults_differ_for_one_url_and_a_list(upstream: Upstream) -> None:

@@ -101,12 +101,12 @@ async def test_client_report_is_verified_like_a_server_report(fake_upstream: Any
     assert polled["status"] == "done" and polled["report"] == done["report"]
 
 
-async def test_client_report_drop_mode_removes_unverified_sentences(fake_upstream: Any) -> None:
-    res = await _awaiting(fake_upstream, unverified="drop")
+async def test_client_report_flags_unverified_sentences(fake_upstream: Any) -> None:
+    res = await _awaiting(fake_upstream)
     done = await server.deepseek_check_research(
         res["job_id"], answer="Surface codes provide fault tolerance [1]. Fidelity reached 97% [2]."
     )
-    assert "97%" not in done["report"] and "Surface codes" in done["report"]
+    assert "[unverified]" in done["report"] and "Surface codes" in done["report"]
     assert done["unverified_number_count"] == 1
 
 
@@ -308,7 +308,7 @@ async def test_tool_surface_stays_at_seven_tools() -> None:
     tools = await server.mcp.list_tools()
     assert len(tools) == 7
     names = {t.name: t for t in tools}
-    research_params = names["deepseek_research"].input_schema["properties"]
+    research_params = names["deepseek_quick_research"].input_schema["properties"]
     check_params = names["deepseek_check_research"].input_schema["properties"]
     assert research_params["synthesis"]["default"] == "server"
     assert check_params["page"]["default"] is None and check_params["answer"]["default"] is None

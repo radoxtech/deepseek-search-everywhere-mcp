@@ -34,65 +34,17 @@ from ..search_core import (
 )
 
 MAX_QUERIES = 5  # most queries one deepseek_search call runs
+DEFAULT_MAX_TOTAL_CHARS = 20000
 
 
 async def _search_one(
     query: str,
     *,
-    count: Annotated[
-        int, Field(description=f"Number of ranked results to return (1-{MAX_COUNT}, default 5)")
-    ] = 5,
-    content: Annotated[
-        Literal["snippets", "full"],
-        Field(
-            description="Result format: 'snippets' (default: snippet, else summary capped at 400 chars) "
-            "or 'full' (gap-filled text)"
-        ),
-    ] = "snippets",
-    lang: Annotated[
-        str | None,
-        Field(description="Restrict results to a language code such as 'en' or 'pt-BR' (default None)"),
-    ] = None,
-    max_total_chars: Annotated[
-        int,
-        Field(description="Max total characters of page text across results (default 20000)"),
-    ] = 20000,
-    rewrite: Annotated[
-        bool,
-        Field(
-            description=(
-                "Translate the query to English with deepseek-flash; skipped when lang is set (default False)"
-            )
-        ),
-    ] = False,
-    exclude_terms: Annotated[
-        list[str] | None,
-        Field(description="Terms that must not appear in search results (default None)"),
-    ] = None,
-    exact_phrases: Annotated[
-        list[str] | None,
-        Field(description="Phrases that must appear verbatim in search results (default None)"),
-    ] = None,
-    after: Annotated[
-        str | None,
-        Field(description="Filter results published on or after YYYY-MM-DD date (default None)"),
-    ] = None,
-    before: Annotated[
-        str | None,
-        Field(description="Filter results published on or before YYYY-MM-DD date (default None)"),
-    ] = None,
-    include_domains: Annotated[
-        list[str] | None,
-        Field(description="Restrict search to specific domains or sites (default None)"),
-    ] = None,
-    exclude_domains: Annotated[
-        list[str] | None,
-        Field(description="Exclude specific domains from search results (default None)"),
-    ] = None,
-    refresh: Annotated[
-        bool,
-        Field(description="Bypass local cache and fetch fresh results from API (default False)"),
-    ] = False,
+    count: int = 5,
+    content: Literal["snippets", "full"] = "snippets",
+    lang: str | None = None,
+    max_total_chars: int = DEFAULT_MAX_TOTAL_CHARS,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     """Run one query: the single-query branch of ``deepseek_search``."""
     if max_total_chars < 1:
@@ -107,20 +59,20 @@ async def _search_one(
         per_result,
         max_total_chars,
         dedupe=True,
-        rewrite=rewrite,
-        exclude_terms=exclude_terms,
-        exact_phrases=exact_phrases,
-        after=after,
-        before=before,
-        include_domains=include_domains,
-        exclude_domains=exclude_domains,
+        rewrite=False,
+        exclude_terms=None,
+        exact_phrases=None,
+        after=None,
+        before=None,
+        include_domains=None,
+        exclude_domains=None,
         refresh=refresh,
         summary_chars=None,
         strip_boilerplate=True,
     )
     if res.get("ok") and (content == "full" or content is True):
         fill = await _fill_gaps(
-            res.get("results") or [], per_result, max_total_chars, refresh, strip_boilerplate=True
+            res.get("results") or [], per_result, max_total_chars, refresh=refresh, strip_boilerplate=True
         )
         if fill.requests_used:
             res["requests_used"] = (0 if res.get("cached") else 1) + fill.requests_used
@@ -187,64 +139,29 @@ async def deepseek_search(
     ] = "snippets",
     lang: Annotated[
         str | None,
-        Field(description="Restrict results to a language code such as 'en' or 'pt-BR' (default None)"),
-    ] = None,
-    max_total_chars: Annotated[
-        int,
-        Field(description="Max total characters of page text, shared by all queries (default 20000)"),
-    ] = 20000,
-    rewrite: Annotated[
-        bool,
         Field(
             description=(
-                "Translate the query to English with deepseek-flash; skipped when lang is set (default False)"
+                "Language code for sources (e.g. 'en', 'de', 'pl'). Prefer 'en' for tech/science docs; "
+                "set code for local laws/markets."
             )
         ),
-    ] = False,
-    exclude_terms: Annotated[
-        list[str] | None,
-        Field(description="Terms that must not appear in search results (default None)"),
-    ] = None,
-    exact_phrases: Annotated[
-        list[str] | None,
-        Field(description="Phrases that must appear verbatim in search results (default None)"),
-    ] = None,
-    after: Annotated[
-        str | None,
-        Field(description="Filter results published on or after YYYY-MM-DD date (default None)"),
-    ] = None,
-    before: Annotated[
-        str | None,
-        Field(description="Filter results published on or before YYYY-MM-DD date (default None)"),
-    ] = None,
-    include_domains: Annotated[
-        list[str] | None,
-        Field(description="Restrict search to specific domains or sites (default None)"),
-    ] = None,
-    exclude_domains: Annotated[
-        list[str] | None,
-        Field(description="Exclude specific domains from search results (default None)"),
     ] = None,
     refresh: Annotated[
         bool,
-        Field(description="Bypass local cache and fetch fresh results from API (default False)"),
+        Field(description="Bypass local cache and fetch fresh results (default False)"),
     ] = False,
-    deadline: Annotated[
-        float | None,
-        Field(description="Deadline in seconds for a list of queries; finished results are returned"),
-    ] = None,
 ) -> dict[str, Any]:
     """Search the live web: ranked results with snippets or full page text, for one query or up to 5.
 
     Primary search and retrieval tool for current facts, news, docs and sources. query is one string (<=
     128 chars, operators and filters included) or a list of up to 5 run in parallel to cover several
     angles (duplicates run once, extras listed in skipped_queries). $0.00075 per query. Snippets by
-    default; content="full" returns page text up to max_total_chars (default 20,000, shared by a list)
-    and adds $0.00075 for each page whose text it has to fetch. Results are deduplicated, dated (date,
-    date_source) and sanitized as untrusted content.
+    default; content="full" returns page text up to 20,000 characters (shared by a list) and adds
+    $0.00075 for each page whose text it has to fetch. Results are deduplicated, dated (date, date_source)
+    and sanitized as untrusted content.
 
-    When NOT to use: a known URL (deepseek_fetch), fields as JSON (deepseek_extract), or a question
-    that needs several sources (deepseek_research).
+    When NOT to use: a known URL (deepseek_fetch), fields as JSON (deepseek_extract), or an in-depth
+    investigation (deepseek_quick_research or deepseek_deep_agent_research).
 
     Returns for one query: {"ok": True, "results": [{title, url, date, snippet, content?}], "count": int,
     "cost_usd": float, "notes": [...]}. For a list: {"ok": True, "results": [{"query": str, "ok": bool,
@@ -256,17 +173,28 @@ async def deepseek_search(
             count=count,
             content=content,
             lang=lang,
-            max_total_chars=max_total_chars,
-            rewrite=rewrite,
-            exclude_terms=exclude_terms,
-            exact_phrases=exact_phrases,
-            after=after,
-            before=before,
-            include_domains=include_domains,
-            exclude_domains=exclude_domains,
             refresh=refresh,
         )
-    queries = query
+    return await _search_list(
+        query,
+        count=count,
+        content=content,
+        lang=lang,
+        refresh=refresh,
+    )
+
+
+async def _search_list(
+    queries: list[str],
+    *,
+    count: int = 5,
+    content: Literal["snippets", "full"] = "snippets",
+    lang: str | None = None,
+    refresh: bool = False,
+    deadline: float | None = None,
+    max_total_chars: int = DEFAULT_MAX_TOTAL_CHARS,
+) -> dict[str, Any]:
+    """Run multiple queries in parallel: the list branch of ``deepseek_search``."""
     if isinstance(content, bool):
         content = "full" if content else "snippets"
     if content not in ("snippets", "full"):
@@ -307,13 +235,6 @@ async def deepseek_search(
             content=content,
             lang=lang,
             max_total_chars=per_query_chars,
-            rewrite=rewrite,
-            exclude_terms=exclude_terms,
-            exact_phrases=exact_phrases,
-            after=after,
-            before=before,
-            include_domains=include_domains,
-            exclude_domains=exclude_domains,
             refresh=refresh,
         )
 

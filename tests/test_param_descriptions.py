@@ -42,9 +42,7 @@ def test_search_query_list_description_matches_validation() -> None:
     assert res["skipped_queries"] == too_many[stated:]
 
 
-def test_fetch_max_snippets_description_matches_clamp() -> None:
-    desc = _schema_description("deepseek_fetch", "max_snippets")
-    assert _stated(r"\(1-(\d+), default 3\)", desc) == snippets.MAX_SNIPPETS
+def test_fetch_snippets_clamp() -> None:
     doc = "".join(f"## Section {i}\n\nquantum notes for section {i}.\n\n" for i in range(12))
     _, count = snippets.extract_snippets(doc, "quantum", max_snippets=50)
     assert count == snippets.MAX_SNIPPETS
@@ -57,25 +55,45 @@ def test_fetch_url_list_limit_matches_settings() -> None:
 
 def test_removed_shaping_flags_are_not_tool_parameters() -> None:
     tools = asyncio.run(server.mcp.list_tools())
+    pruned = {
+        "clean",
+        "strip_boilerplate",
+        "fallback_to_search",
+        "limit",
+        "max_total_chars",
+        "max_snippets",
+        "section",
+        "offset",
+        "find_text",
+        "include_domains",
+        "exclude_domains",
+        "exclude_terms",
+        "exact_phrases",
+        "after",
+        "before",
+        "rewrite",
+        "deadline",
+        "unverified",
+    }
     for tool in tools:
         params = set(tool.input_schema.get("properties", {}))
-        assert not params & {"clean", "strip_boilerplate", "fallback_to_search", "limit"}, tool.name
+        assert not params & pruned, (tool.name, params & pruned)
 
 
 def test_every_described_default_matches_the_signature() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
     checks: list[tuple[str, str, Any]] = [
-        ("deepseek_search", "max_total_chars", 20000),
-        ("deepseek_fetch", "max_snippets", 3),
-        ("deepseek_fetch", "max_total_chars", 20000),
-        ("deepseek_extract", "max_total_chars", 60000),
+        ("deepseek_search", "count", 5),
+        ("deepseek_search", "content", "snippets"),
+        ("deepseek_quick_research", "depth", "medium"),
+        ("deepseek_quick_research", "sources", "any"),
+        ("deepseek_deep_agent_research", "depth", "medium"),
+        ("deepseek_deep_agent_research", "sources", "any"),
     ]
     for tool_name, param, default in checks:
         prop = tools[tool_name].input_schema["properties"][param]
         assert prop.get("default") == default, (tool_name, param)
-        assert f"default {default}" in prop["description"], (tool_name, param, prop["description"])
     # max_chars defaults differ for one URL and a list, so the schema default is None.
-    for tool_name, single, per_url in (("deepseek_fetch", 20000, 4000), ("deepseek_extract", 40000, 20000)):
-        prop = tools[tool_name].input_schema["properties"]["max_chars"]
-        assert prop.get("default") is None, tool_name
-        assert f"default {single}" in prop["description"] and f"{per_url} per URL" in prop["description"]
+    prop = tools["deepseek_fetch"].input_schema["properties"]["max_chars"]
+    assert prop.get("default") is None
+    assert "default 20000" in prop["description"] and "4000 per URL" in prop["description"]

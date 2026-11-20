@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from deepseek_search_everywhere_mcp import fetch_core, server
+from deepseek_search_everywhere_mcp import fetch_core, search_core, server
 from deepseek_search_everywhere_mcp.boilerplate import remove_boilerplate, rules_for
 
 # A shortened, anonymised Reddit thread as DeepSeek returns it: English page, Chinese site UI.
@@ -86,7 +86,7 @@ def test_search_strips_before_budgets_and_shares_the_cache(fake_upstream):
     assert result["chars"] == len(result["content"])
 
     budget = len(remove_boilerplate(THREAD, REDDIT_URL))
-    cut = asyncio.run(server.deepseek_search("q", count=1, content="full", max_total_chars=budget))
+    cut = asyncio.run(search_core._search("q", 1, None, "full", None, budget, budget))
     assert cut["results"][0]["content"] == result["content"]
     assert server.TRUNCATED_NOTE not in cut["notes"]
 

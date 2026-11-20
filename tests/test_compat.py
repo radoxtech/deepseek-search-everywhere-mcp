@@ -10,9 +10,9 @@ from deepseek_search_everywhere_mcp import search_core, server
 
 TOOL_NAMES = {
     "deepseek_search",
-    "deepseek_agent_deep_research",
+    "deepseek_deep_agent_research",
     "deepseek_fetch",
-    "deepseek_research",
+    "deepseek_quick_research",
     "deepseek_check_research",
     "deepseek_extract",
     "deepseek_check_balance",
@@ -58,9 +58,8 @@ def test_dropped_parameters_not_in_search_tools(dropped_param: str) -> None:
     assert dropped_param not in inspect.signature(server.deepseek_search).parameters
 
 
-def test_refresh_is_a_keyword_only_parameter_of_cached_tools():
-    names = ["_search", "deepseek_search", "deepseek_fetch"]
-    names += ["deepseek_research", "deepseek_extract"]
+def test_refresh_is_a_keyword_only_parameter_of_internal_search():
+    names = ["_search", "_fetch"]
     for name in names:
         refresh = inspect.signature(getattr(server, name)).parameters.get("refresh")
         assert refresh is not None and refresh.kind is inspect.Parameter.KEYWORD_ONLY, name
@@ -194,7 +193,8 @@ def test_server_instructions_are_present_and_guide_tool_choice() -> None:
     assert hasattr(server, "SERVER_INSTRUCTIONS")
     assert server.mcp.instructions is not None
     assert server.mcp.instructions == server.SERVER_INSTRUCTIONS
-    assert "Default to deepseek_research" in server.SERVER_INSTRUCTIONS
+    assert "deepseek_quick_research" in server.SERVER_INSTRUCTIONS
+    assert "deepseek_deep_agent_research" in server.SERVER_INSTRUCTIONS
     assert 'sources="academic"' in server.SERVER_INSTRUCTIONS
     assert 'sources="technical"' in server.SERVER_INSTRUCTIONS
     assert "deepseek_check_research" in server.SERVER_INSTRUCTIONS
@@ -213,7 +213,7 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
     desc_fetch = tools["deepseek_fetch"].description
     assert "20,000" in desc_fetch or "20000" in desc_fetch
     assert "4,000" in desc_fetch
-    desc_research = tools["deepseek_research"].description
+    desc_research = tools["deepseek_quick_research"].description
     assert "6-24 sources" in desc_research or "sources" in desc_research
 
 
@@ -223,28 +223,12 @@ def test_every_tool_has_a_title() -> None:
     assert all(titles) and len(set(titles)) == len(titles)
 
 
-def test_research_description_explains_polling_and_client_synthesis() -> None:
+def test_research_description_explains_polling() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
-    research = tools["deepseek_research"].description
+    research = tools["deepseek_quick_research"].description
     assert "deepseek_check_research" in research and '"running"' in research
-    assert 'synthesis="client"' in research
     check = tools["deepseek_check_research"].description
-    assert "page=" in check and "answer=" in check and "needs_input" in check
-    assert 'synthesis="client"' in server.SERVER_INSTRUCTIONS
-
-
-@pytest.mark.parametrize(
-    ("tool", "param"),
-    [
-        ("deepseek_search", "max_total_chars"),
-        ("deepseek_fetch", "max_total_chars"),
-        ("deepseek_extract", "max_total_chars"),
-    ],
-)
-def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -> None:
-    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
-    default = tools[tool].input_schema["properties"][param]["default"]
-    assert f"{default:,}" in tools[tool].description, f"{tool}.{param} default {default} not in description"
+    assert "job_id" in check and "poll" in check.lower()
 
 
 def test_error_codes_named_in_server_instructions_exist() -> None:

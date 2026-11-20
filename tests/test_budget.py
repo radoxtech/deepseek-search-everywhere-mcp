@@ -244,7 +244,7 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
     # Launch 20 mixed concurrent requests (search, fetch)
     tasks = []
     for i in range(10):
-        tasks.append(server.deepseek_search(f"query_{i}", refresh=True, rewrite=False))
+        tasks.append(server.deepseek_search(f"query_{i}", refresh=True))
         tasks.append(server.deepseek_fetch(f"http://example.com/page_{i}", refresh=True))
 
     results = await asyncio.gather(*tasks)
