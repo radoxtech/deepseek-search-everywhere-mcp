@@ -156,6 +156,14 @@ measured by the harness in `evals/`; "feels better" is not a result.
 - Versions are bumped only by release-please. Never edit the version in `pyproject.toml` or `server.json` by hand.
 - `CHANGELOG.md` entries after 0.2.0 are generated; do not edit them manually.
 
+## Chat host override (development only)
+
+`DEEPSEEK_CHAT_BASE_URL`, `DEEPSEEK_CHAT_API_KEY`, `DEEPSEEK_CHAT_MODEL` and `DEEPSEEK_CHAT_TIER` move
+chat completions to a cheaper OpenAI-compatible host; search and fetch stay on DeepSeek, which is the only
+host serving the search API. It exists to keep experiment costs down and is deliberately **not** described
+in the README: README prices stay DeepSeek off-peak, the documented default. When the host changes, cost
+accounting switches to that host's flat rate, because `cost_usd` must reflect what was billed.
+
 ## Security
 
 - Never read, print or commit `.env` or API keys.
