@@ -55,17 +55,23 @@ async def deepseek_deep_agent_research(
 ) -> dict[str, Any]:
     """Research a topic with an autonomous agent that plans, verifies and stops when rounds stop paying.
 
-    The plan is written first, then each round is measured: a round that adds no fact carrying a figure,
-    closes no gap and brings no new source ends the loop. The depth tier controls how much the writer
-    may say and how many sources it reads. About $0.015-0.025 at depth 'medium'. Returns the plan,
-    the per-round gains and why the loop stopped.
+    Autonomous multi-round agent (~45-90s, ~$0.008-$0.025). Plans an aspect matrix, audits factual
+    gains per round, queries gaps dynamically, and autostops when evidence saturates.
 
-    When NOT to use: a single question where one pass is enough (deepseek_quick_research), one fact
-    (deepseek_search), known URLs (deepseek_fetch), or fields as JSON (deepseek_extract).
+    When to use:
+    - Contested, adversarial, or litigious topics where single-pass search misses opposing claims
+      (e.g., trade disputes, antitrust lawsuits, regulatory challenges).
+    - Investigations where missing factual dimensions must be discovered across rounds.
+    - When you need explicit tracking of open questions ("What the sources do not settle").
+
+    When NOT to use:
+    - Standard technical documentation, specs, or consensus overviews (use deepseek_quick_research;
+      it achieves 95%+ coverage in 30s at a third of the cost).
+    - Single facts (deepseek_search), known URLs (deepseek_fetch), or JSON (deepseek_extract).
 
     Returns: {"ok": True, "status": "done"|"running", "job_id"?, "report": str, "sources": [...],
     "plan": [...], "rounds": [...], "facts_per_round": [...], "estimate_usd": float,
-    "stopped_reason": str, "cost_usd": float}. Poll a running job with deepseek_check_research.
+    "stopped_reason": str, "cost_usd": float}. Poll running jobs with deepseek_check_research.
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:

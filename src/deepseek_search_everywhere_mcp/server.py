@@ -151,12 +151,17 @@ __all__ = [
 SERVER_INSTRUCTIONS: Final[str] = (
     "DeepSeek Search Everywhere: live web search, page reading, structured extraction and cited deep"
     " research.\n\n"
-    "Choose your research tool for topics that need synthesis across multiple sources:\n"
-    "- deepseek_quick_research: fast single-pass deep research across several search angles (~30-60s).\n"
-    "  Reads 6-24 sources and returns a compact report with [n] citations mapped to `sources`\n"
-    "  ($0.003-$0.03).\n"
-    "- deepseek_deep_agent_research: autonomous multi-round agent with planning, evidence verification,\n"
-    "  and stopping when rounds stop paying (~60-180s, ~$0.015-$0.025).\n"
+    "Choose your research tool carefully to match the inquiry type and avoid unnecessary agent cost:\n"
+    "- deepseek_quick_research: fast, single-pass cited deep research (~25-35s, $0.003-$0.01).\n"
+    "  Use for well-scoped questions, technical specifications, documentation, architecture choices,\n"
+    "  library comparisons, or consensus state-of-the-art overviews. Reads 6-24 sources and returns a\n"
+    "  concise report with [n] citations. Do NOT run deepseek_deep_agent_research on standard technical\n"
+    "  docs—deepseek_quick_research achieves 95%+ factual coverage in half the time at a third of the cost.\n"
+    "- deepseek_deep_agent_research: autonomous multi-round research agent (~45-90s, $0.008-$0.025).\n"
+    "  Use ONLY for complex, contested, multi-sided, adversarial, litigious, political, or forensic topics\n"
+    "  (e.g., cross-border trade disputes, regulatory antitrust lawsuits, conflicting safety reviews).\n"
+    "  Its iterative gap detector uncovers counter-arguments, lawsuits, and opposing views that\n"
+    "  single-pass search misses.\n"
     "- deepseek_check_research: poll any running research job with job_id until done ($0.00).\n\n"
     'Choosing depth: "low" quick overview, "medium" (default) most questions, "high" decisions\n'
     'with several viewpoints, "max" broad or contested topics where coverage matters most.\n'

@@ -79,16 +79,17 @@ async def deepseek_quick_research(
 ) -> dict[str, Any]:
     """Research a topic across the web and get a cited report in one quick single pass.
 
-    The server searches several angles, reads 6-24 sources and returns a compact report whose [n]
-    citations match source ids. About $0.003 (depth "low") to $0.03 ("max"). depth: "low" quick
-    overview, "medium" (default) most questions, "high" decisions, "max" broad topics.
-    sources="academic" favours papers, "technical" official docs and repos. Numbers missing from sources
-    are marked [unverified]. If status is "running", poll deepseek_check_research with job_id. With
-    synthesis="client" the job returns status "needs_input" (step "report") with sources in pages; send
-    your report as answer= to verify citations. At most 3 jobs run at once.
+    Fast single-pass pipeline (~25-35s, $0.003-$0.01). Searches several angles, reads 6-24 sources,
+    and writes a cited report with [n] citations mapped to source ids. If status is "running", poll
+    deepseek_check_research with job_id. With synthesis="client", returns status "needs_input".
 
-    When NOT to use: one fact (deepseek_search), known URLs (deepseek_fetch), fields as JSON
-    (deepseek_extract), or multi-round investigative research (deepseek_deep_agent_research).
+    When to use:
+    - Well-scoped technical documentation, specs, architecture comparisons, and consensus overviews.
+    - Questions where rapid turnaround (~30s) and high factual precision matter most.
+
+    When NOT to use:
+    - Contested, adversarial, multi-jurisdictional legal disputes (use deepseek_deep_agent_research).
+    - Single facts (deepseek_search), known URLs (deepseek_fetch), or structured JSON (deepseek_extract).
 
     Returns: {"ok": True, "status": "done"|"running"|"needs_input", "job_id"?, "report": str,
     "sources": [{id, title, url, ...}], "unverified_numbers": [...], "cost_usd": float}.

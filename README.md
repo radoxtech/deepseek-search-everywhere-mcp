@@ -49,8 +49,8 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 | `deepseek_search` | Search the web for one query or up to 5 in parallel; returns ranked results with snippets or full page text | `query` (str or list of up to 5), `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `refresh` |
 | `deepseek_fetch` | Fetch one known URL or up to 10 in parallel as clean Markdown | `url` (str or list of up to 10), `query` (optional matching excerpts), `max_chars`, `refresh` |
 | `deepseek_extract` | Extract structured JSON from one page or up to 10 in parallel, backed by verbatim quotes | `url` (str or list of up to 10), `fields` or `schema`, `instruction`, `refresh` |
-| `deepseek_quick_research` | Fast single-pass deep research across multiple search angles: searches, reads sources and writes a cited report (~30–60s) | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `synthesis` (`server` or `client`; default `server`), `refresh` |
-| `deepseek_deep_agent_research` | Autonomous multi-round deep research agent: plans aspects, audits evidence, queries gaps and autostops when rounds saturate (~60–180s) | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `refresh` |
+| `deepseek_quick_research` | Fast single-pass deep research across multiple search angles: searches, reads sources and writes a cited report (~25–35s) | `topic` (max 4000 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `synthesis` (`server` or `client`; default `server`), `refresh` |
+| `deepseek_deep_agent_research` | Autonomous multi-round deep research agent: plans aspects, audits evidence, queries gaps and autostops when rounds saturate (~45–90s) | `topic` (max 4000 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `refresh` |
 | `deepseek_check_research` | Poll a running research job, read client-synthesis sources page by page, or submit your report for verification | `job_id`, `page`, `answer` |
 | `deepseek_check_balance` | Read-only: DeepSeek account balance and session metrics | none |
 
@@ -82,10 +82,10 @@ deepseek_check_balance()
 
 Pick the tool by what the task needs:
 
-| Task | Tool |
-|---|---|
-| Quick multi-source research report with citations (~30–60s) | `deepseek_quick_research` (`depth` `low` to `max`; `sources="academic"` or `"technical"`) |
-| Autonomous deep investigation with evidence gaps & autostop (~60–180s) | `deepseek_deep_agent_research` (`depth` `low` to `max`; `sources="academic"` or `"technical"`) |
+| Task | Tool | Recommended When |
+|---|---|---|
+| Single-pass multi-source research report with citations (~25–35s) | `deepseek_quick_research` | Technical docs, specs, library comparisons, established architecture, clear consensus overviews |
+| Autonomous deep investigation with evidence gaps & autostop (~45–90s) | `deepseek_deep_agent_research` | Contested disputes, multi-sided litigation, antitrust, regulatory battles, complex policies |
 | One fact, a recent event, a page to find (or up to 5 queries in parallel) | `deepseek_search` (snippets first, `content="full"` only when page text is needed) |
 | A known URL or batch of up to 10 URLs | `deepseek_fetch`; pass `query=` to get only the relevant excerpts |
 | Specific fields or a JSON schema from a page or batch of pages | `deepseek_extract` |
@@ -266,9 +266,9 @@ docker run -d --name deepseek-mcp -p 8000:8000 \
 
 ## Deep research
 
-Two research tools turn complex questions into cited, evidence-grounded reports:
-- **`deepseek_quick_research(topic, depth=...)`**: Fast single-pass research across several search angles (~30–60s). It decomposes the topic into subqueries, searches them concurrently, ranks and de-duplicates sources, reads the top pages, and writes a report whose `[n]` citations match the IDs in the returned `sources` array. By default synthesis runs on the server; with `synthesis="client"` the agent writes the report itself (see [Client-side synthesis](#client-side-synthesis)).
-- **`deepseek_deep_agent_research(topic, depth=...)`**: Autonomous multi-round research agent (~60–180s). It formulates an aspect plan, measures empirical evidence gains in an evidence matrix across successive rounds, formulates targeted gap queries, and autostops deterministically when additional searches no longer yield new figures or unvisited sources.
+Two research tools turn complex questions into cited, evidence-grounded reports. Choose carefully to avoid unnecessary agent cost and latency:
+- **`deepseek_quick_research(topic, depth=...)`**: Fast single-pass research across several search angles (~25–35s, ~$0.003–$0.01). It decomposes the topic into multi-perspective subqueries, searches concurrently, prunes page content, and writes a cited report. **Use for clear technical documentation, API specifications, tool comparisons, or consensus overviews.** Do NOT use deep agent research for clear technical questions—quick research delivers 95%+ factual coverage in half the time at a third of the cost.
+- **`deepseek_deep_agent_research(topic, depth=...)`**: Autonomous multi-round research agent (~45–90s, ~$0.008–$0.025). It formulates an aspect plan, measures empirical factual gains across successive rounds, dynamically generates gap queries for unretrieved perspectives, and autostops when evidence saturates. **Use specifically for complex, contested, adversarial, litigious, political, or forensic investigations** (e.g. cross-border trade disputes, regulatory challenges, antitrust lawsuits) where single-pass search misses opposing claims.
 
 ### Depth tiers
 
