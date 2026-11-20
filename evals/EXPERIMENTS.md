@@ -596,6 +596,38 @@ reports described a trial design without its result, one pg report opened with p
 **Verdict: keep.** The change is one prompt sentence with no extra call and it moves every report, not a
 subset. Cost unchanged at $0.0126 per report at `medium`.
 
+### E20–E24 — Does planning the report from its own sub-questions improve the structure? (2026-11-20, keep)
+
+**Change.** A `report-plan` synthesis variant: one call turns the question and the facts a search had to
+establish into sub-questions and one section per supported sub-question; sections that answer no
+sub-question are dropped; a section is written per planned section; the report opens with a line naming
+the queries searched, the sources read and the requests made; it always closes with "What the sources do
+not settle", listing every sub-question no source answered, or stating that all were answered.
+
+**Claim.** A fixed section count (E19 baseline: exactly 3 sections built around the aspects) produces
+sections the question did not ask for and leaves the reader unable to see what was left open. Deriving
+sections from the question's own sub-questions, and stating the scope and the gaps, should fit the
+question better without costing anything measurable.
+
+**Arms.** `medium`, 6 topics, 2 repeats, same session, against `answer-first` (E19's winner).
+
+**Result.** Four iterations, each fixing a defect the prior one exposed: the plan could not see what the
+sources said (`e20`), the variant was patched onto a symbol nobody called (`e21`), the writer's own
+heading duplicated the section title (`e22`), and the report did not state its search (`e23`).
+
+| run | sections off-topic | openings that answer | duplicate headings | gaps section present |
+|---|---|---|---|---|
+| `answer-first` (E19) | 0.083 mean | 9 / 12 | 0 / 12 | 0 / 12 |
+| `report-plan` (final) | 0.000 mean | 12 / 12 | 0 / 12 | 12 / 12 |
+
+Two `answer-first` reports emitted no headings at all; none of the planned reports did. The only off-topic
+heading in either arm was one `answer-first` section on release/backport status.
+
+**Verdict: keep.** The structure is planned from the question, no section is a template slot, scope and
+gaps are always stated, and two independent runs produced no duplicate headings. The gain over
+`answer-first` is small on off-topic sections (one heading) but complete on the two properties that were
+absent: openings that answer, and a stated gap section.
+
 ## Ledger
 
 | date | what | deepseek $ |
@@ -624,7 +656,8 @@ subset. Cost unchanged at $0.0126 per report at `medium`.
 | 2026-11-19 | E18 analyzed / answered / human, 6 topics | 0.107 |
 | 2026-11-19 | E18 narrowed fair comparison, 2 topics × 2 repl. | 0.049 |
 | 2026-11-20 | E19 baseline + answer-first, 12 + 12 reports | 0.302 |
-| **total** | | **3.227** |
+| 2026-11-20 | E20–E24 report-plan iterations, 24 + 12 + 12 + 12 + 8 reports | 0.936 |
+| **total** | | **4.163** |
 
 ## Traps worth remembering
 

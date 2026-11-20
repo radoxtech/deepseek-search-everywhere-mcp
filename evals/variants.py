@@ -405,6 +405,180 @@ ANSWER_FIRST_RULE = (
 )
 
 
+REPORT_PLAN_PROMPT = (
+    "You design the section structure of a research report. You are given the question, the facts a search "
+    "had to establish, and what the gathered sources actually support.\n"
+    "Split the question into the sub-questions a reader needs answered. Then give one section per "
+    "sub-question you can support, in the order a reader needs them, and name the facts each section rests "
+    "on. A sub-question the sources do not support gets no section and is listed as unsupported instead.\n"
+    "Do not add a section for background, history or definitions unless a sub-question asks for it. "
+    "Do not create a section that answers no sub-question.\n"
+    'Return only json: {{"subquestions": ["..."], "sections": [{{"title": "...", "answers": [0], '
+    '"facts": [1, 2]}}], "unsupported": [2]}}'
+)
+REPORT_ASK = (
+    "Write only this section, about {words} words. Start with the section's first sentence of prose; do "
+    "not write a heading, the system adds it. Use only the sources given. Every number carries the [n] "
+    "citation of the source that states it. If the sources say nothing usable for this section, write one "
+    "sentence saying so."
+)
+
+
+def _plan_fact(aspect: Any) -> str:
+    """The fact an aspect asks for, in the form the report planner can reason about."""
+    looking = (getattr(aspect, "looking_for", "") or "").strip()
+    name = (getattr(aspect, "aspect", "") or "").strip()
+    return looking or name or "the question as asked"
+
+
+def _source_digest(content: str) -> str:
+    """What a source actually asserts, cut to the sentences that carry a figure or a named thing."""
+    import re as _re
+
+    parts = [p.strip() for p in _re.split(r"(?<=[.!?])\s+", content) if len(p.strip()) > 40]
+    scored = sorted(parts, key=lambda p: -sum(ch.isdigit() for ch in p))[:3]
+    return " ".join(scored)[:450] or content[:300]
+
+
+def _validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Keep only sections that answer a sub-question, and name every sub-question left unanswered.
+
+    A section whose ``answers`` points at nothing is dropped rather than written: it would be a
+    template slot. A sub-question with no section is carried into the gaps section, so the report
+    always says what the sources did not settle.
+    """
+    subs = [str(x).strip() for x in plan.get("subquestions") or [] if str(x).strip()]
+    kept: list[dict[str, Any]] = []
+    answered: set[int] = set()
+    dropped = 0
+    for sec in plan.get("sections") or []:
+        if not isinstance(sec, dict) or not str(sec.get("title") or "").strip():
+            continue
+        idx = [i for i in (sec.get("answers") or []) if isinstance(i, int) and 0 <= i < len(subs)]
+        if not idx:
+            dropped += 1
+            continue
+        kept.append({**sec, "answers": idx})
+        answered.update(idx)
+    unanswered = [subs[i] for i in range(len(subs)) if i not in answered]
+    return {"subquestions": subs, "sections": kept, "unanswered": unanswered, "dropped": dropped}
+
+
+def _search_note(run: Any) -> str:
+    """One line stating what was searched and read, so the report shows its own scope."""
+    queries = [q for q in (getattr(run, "subqueries", None) or []) if q]
+    pages = len(getattr(run, "sources", None) or [])
+    asked = getattr(run, "requests_used", 0)
+    parts = []
+    if queries:
+        parts.append(f"searched {len(queries)} queries: " + "; ".join(f"“{q}”" for q in queries[:6]))
+    if pages:
+        parts.append(f"read {pages} sources")
+    if asked:
+        parts.append(f"{asked} upstream requests")
+    if not parts:
+        return ""
+    body = ", ".join(parts)
+    return f"> **How this was researched:** {body}. Claims cite the numbered sources below."
+
+
+def _strip_heading(text: str) -> str:
+    """Drop a markdown heading the writer added, because the section title is supplied by the plan."""
+    lines = text.splitlines()
+    while lines and (not lines[0].strip() or lines[0].lstrip().startswith("#")):
+        lines.pop(0)
+    return "\n".join(lines).strip()
+
+
+def _gaps_sentence(unanswered: list[str], context: list[dict[str, Any]]) -> str:
+    """One sentence per unanswered sub-question, or an explicit statement that nothing was left open."""
+    if not unanswered:
+        return (
+            "The gathered sources cover every sub-question the report set out to answer "
+            f"({len(context)} sources)."
+        )
+    return " ".join(f"No source found that answers: {u}." for u in unanswered[:6])
+
+
+def _report_plan() -> None:
+    """Plan the report from the question's own sub-questions, then write one section per sub-question."""
+    from deepseek_search_everywhere_mcp import deep_research as dr
+    from deepseek_search_everywhere_mcp import research_jobs, runtime
+
+    _long_deadline()
+    original = research_jobs.build_synthesis_messages
+    original_synth = research_jobs._research_synthesize
+
+    async def synthesize(
+        run: Any, context: list[dict[str, Any]], synth_step: int
+    ) -> tuple[dict[str, Any], float]:
+        import json as _json
+
+        base = original(run.topic, context, depth=run.depth, aspects=run.aspects, lang=run.lang)
+        system = base[0]["content"]
+        facts = [_plan_fact(a) for a in list(run.aspects)[:10]]
+        shown = _json.dumps(
+            [
+                {"id": s.get("id"), "title": s.get("title"), "says": _source_digest(s.get("content") or "")}
+                for s in context
+            ]
+        )[:7000]
+        plan_res = await runtime._chat_request(
+            messages=[
+                {"role": "system", "content": REPORT_PLAN_PROMPT.replace("{{", "{").replace("}}", "}")},
+                {
+                    "role": "user",
+                    "content": "Question: "
+                    + run.topic
+                    + "\nFacts: "
+                    + _json.dumps(facts)
+                    + "\nSources: "
+                    + shown,
+                },
+            ],
+            model=research_jobs.REWRITE_MODEL,
+            **_writer_kwargs(run, 8192),
+        )
+        cost = float(plan_res.get("cost_usd", 0.0) or 0.0)
+        plan = dr.sanitize_json(plan_res.get("content") or "")[0]
+        if not isinstance(plan, dict):
+            return await original_synth(run, context, synth_step)
+        plan = _validate_plan(plan)
+        sections = plan["sections"]
+        if not sections:
+            return await original_synth(run, context, synth_step)
+
+        per_section = max(120, int(run.cfg.target_words or 800) // len(sections))
+        parts: list[tuple[str, str]] = []
+        for sec in sections:
+            ask = REPORT_ASK.format(words=per_section)
+            res = await runtime._chat_request(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": base[1]["content"] + f"\n\n{ask}\nSection: {sec['title']}"},
+                ],
+                model=research_jobs.REWRITE_MODEL,
+                **_writer_kwargs(run, run.cfg.max_tokens),
+            )
+            cost += float(res.get("cost_usd", 0.0) or 0.0)
+            text = _strip_heading((res.get("content") or "").strip())
+            if text and res.get("finish_reason") != "length":
+                parts.append((str(sec["title"]), text))
+        if not parts:
+            return await original_synth(run, context, synth_step)
+
+        report = "\n\n".join(f"## {name}\n\n{text}" for name, text in parts)
+        report += "\n\n## What the sources do not settle\n\n" + _gaps_sentence(plan["unanswered"], context)
+        report = _search_note(run) + "\n\n" + report
+        run.notes.append(
+            f"variant report-plan: {len(parts)} sections, {len(plan['unanswered'])} unanswered, "
+            f"{plan['dropped']} sections dropped for answering nothing"
+        )
+        return {"ok": True, "content": report, "finish_reason": "stop"}, cost
+
+    research_jobs._research_synthesize = synthesize
+
+
 def _answer_first() -> None:
     """Append one rule: the report opens with the answer, not with background."""
     from deepseek_search_everywhere_mcp import research_jobs
@@ -693,6 +867,7 @@ VARIANTS: dict[str, Callable[[], None]] = {
     "matrix-repair": _matrix(repair=True),
     "sections": _sections,
     "answer-first": _answer_first,
+    "report-plan": _report_plan,
     "k": _k_sources,
     "words": _words,
     "specifics": _specifics,
