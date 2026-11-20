@@ -7,6 +7,7 @@ Thresholds tolerate normal web variability while still catching off-topic or bro
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -195,7 +196,7 @@ async def test_extract_live() -> None:
 
 async def test_deep_research_live() -> None:
     topic = "What are HTTP/3 0-RTT connection resumption security implications?"
-    envelope = await server.deepseek_research(
+    envelope = await server.deepseek_quick_research(
         topic,
         depth="low",
     )
@@ -205,6 +206,25 @@ async def test_deep_research_live() -> None:
     assert isinstance(envelope["report"], str) and len(envelope["report"]) > 100
     assert len(envelope["sources"]) >= 1
     assert "[" in envelope["report"] and "]" in envelope["report"]
+
+
+async def test_deep_agent_research_live() -> None:
+    topic = "What are the latest developments in quantum key distribution satellite links?"
+    envelope = await server.deepseek_deep_agent_research(
+        topic,
+        depth="low",
+    )
+    _assert_ok(envelope)
+    assert envelope.get("plan") is not None
+    assert envelope.get("rounds") is not None
+    if envelope.get("status") == "running":
+        job_id = envelope["job_id"]
+        poll_res = await server.deepseek_check_research(job_id)
+        while poll_res.get("status") == "running":
+            await asyncio.sleep(2.0)
+            poll_res = await server.deepseek_check_research(job_id)
+        envelope = poll_res
+    assert isinstance(envelope.get("report"), str) and len(envelope["report"]) > 100
 
 
 async def test_extract_many_live() -> None:

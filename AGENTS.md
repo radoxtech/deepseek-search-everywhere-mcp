@@ -2,10 +2,10 @@
 
 ## Project overview
 
-`deepseek-search-everywhere-mcp` is a Python MCP server exposing 9 tools over the DeepSeek Search & Fetch API
-(stdio by default, optional bearer-protected HTTP): `deepseek_search`, `deepseek_search_many`, `deepseek_fetch`,
-`deepseek_fetch_many`, `deepseek_extract`, `deepseek_extract_many`, `deepseek_research` (cited multi-source
-reports in four depth tiers, run as background jobs; with `synthesis="client"` the agent writes the report),
+`deepseek-search-everywhere-mcp` is a Python MCP server exposing 7 tools over the DeepSeek Search & Fetch API
+(stdio by default, optional bearer-protected HTTP): `deepseek_search`, `deepseek_fetch`, `deepseek_extract`,
+`deepseek_quick_research` (fast single-pass cited multi-source reports in four depth tiers),
+`deepseek_deep_agent_research` (autonomous multi-round research agent with evidence autostop),
 `deepseek_check_research` (collects a running research job, pages client-synthesis sources and verifies a
 client's report) and `deepseek_check_balance`.
 

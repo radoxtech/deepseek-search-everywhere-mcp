@@ -26,10 +26,10 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 ## Demo
 
 <p align="center">
-  <img src="assets/demo.gif" alt="OpenCode terminal session calling deepseek_search, deepseek_fetch_many, deepseek_extract and deepseek_research" width="100%">
+  <img src="assets/demo.gif" alt="OpenCode terminal session calling deepseek_search, deepseek_fetch, deepseek_extract and deepseek_quick_research" width="100%">
 </p>
 <p align="center">
-  <em>OpenCode calling <code>deepseek_search</code>, <code>deepseek_fetch_many</code>, <code>deepseek_extract</code> and <code>deepseek_research</code>. The same tools work in every MCP client.</em>
+  <em>OpenCode calling <code>deepseek_search</code>, <code>deepseek_fetch</code>, <code>deepseek_extract</code> and <code>deepseek_quick_research</code>. The same tools work in every MCP client.</em>
 </p>
 
 ## Key features
@@ -37,47 +37,43 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 - **Web search** with snippets or full page text, domain and date filters, language selection and optional query rewrite.
 - **Page fetch to Markdown** for one URL or up to 10 in parallel, with section, snippet, offset and find-text selectors for long pages.
 - **Structured extraction**: pull named fields or a JSON schema from a page; each value must be backed by a verbatim quote from the page or it is returned as `null`.
-- **Deep research with citations**: four depth tiers and `academic`/`technical` source modes produce a report with `[n]` citations mapped to a `sources` array, with number verification. The server writes the report, or your agent writes it from the ranked sources (`synthesis="client"`) and the server verifies it. See [Deep research](#deep-research).
+- **Deep research with citations**: fast single-pass research (`deepseek_quick_research`) and autonomous multi-round agent (`deepseek_deep_agent_research`) with four depth tiers and `academic`/`technical` source modes. Reports carry `[n]` citations mapped to a `sources` array with number verification. Server-side synthesis or client-side synthesis (`synthesis="client"`). See [Deep research](#deep-research).
 - **Cost reporting**: every response carries `cost_usd` and, where an LLM is involved, `cost_breakdown`; an optional daily budget blocks overspending.
 - **Hardened against prompt injection**, with an egress guard, static SSRF filtering and no telemetry. See [Security](#security).
-- **Small footprint**: pure Python, no local browser, `uvx` zero-install, 9 tools.
+- **Small footprint**: pure Python, no local browser, `uvx` zero-install, 7 tools.
 
 ## Tools
 
 | Tool | What it does | Key parameters |
 |---|---|---|
-| `deepseek_search` | Search the web for one query; returns ranked results with snippets, or full page text | `query`, `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `include_domains`, `exclude_domains`, `after`, `before`, `exclude_terms`, `exact_phrases`, `rewrite`, `max_total_chars` (default 20000), `refresh` |
-| `deepseek_search_many` | Run 1-5 searches concurrently; partial results are returned if the deadline hits, and unique queries past the fifth are skipped and listed in `skipped_queries` | `queries`, plus the filters of `deepseek_search`, `max_total_chars` (default 20000), `deadline` |
-| `deepseek_fetch` | Fetch one known URL as Markdown | `url`, `max_chars` (default 20000), one optional selector: `section`, `query` (+`max_snippets`), `offset`+`limit`, or `find_text`; `strip_boilerplate`, `fallback_to_search`, `refresh` |
-| `deepseek_fetch_many` | Fetch 1-10 URLs concurrently (up to 5 at a time) | `urls`, `max_chars_per_url` (default 4000), `max_total_chars` (default 20000), `query`, `deadline` |
-| `deepseek_extract` | Extract structured JSON from one page, with evidence quotes | `url`, `fields` or `schema`, `instruction`, `max_chars` (default 40000) |
-| `deepseek_extract_many` | Extract structured JSON from 1-10 pages concurrently | `urls`, `fields` or `schema`, `instruction`, `max_chars_per_url`, `max_total_chars`, `deadline` |
-| `deepseek_research` | Multi-angle research: decomposes the topic, searches, reads sources and writes a cited report | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `unverified` (`flag` or `drop`; default `flag`), `synthesis` (`server` or `client`; default `server`), `strip_boilerplate`, `refresh` |
-| `deepseek_check_research` | Continue a research job: poll it, read the sources of a `synthesis="client"` job page by page, or submit your report for verification | `job_id`, `page`, `report` |
+| `deepseek_search` | Search the web for one query or up to 5 in parallel; returns ranked results with snippets or full page text | `query` (str or list of up to 5), `count` (1-50, default 5), `content` (`snippets` or `full`), `lang`, `refresh` |
+| `deepseek_fetch` | Fetch one known URL or up to 10 in parallel as clean Markdown | `url` (str or list of up to 10), `query` (optional matching excerpts), `max_chars`, `refresh` |
+| `deepseek_extract` | Extract structured JSON from one page or up to 10 in parallel, backed by verbatim quotes | `url` (str or list of up to 10), `fields` or `schema`, `instruction`, `refresh` |
+| `deepseek_quick_research` | Fast single-pass deep research across multiple search angles: searches, reads sources and writes a cited report (~30–60s) | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `synthesis` (`server` or `client`; default `server`), `refresh` |
+| `deepseek_deep_agent_research` | Autonomous multi-round deep research agent: plans aspects, audits evidence, queries gaps and autostops when rounds saturate (~60–180s) | `topic` (max 500 chars), `depth` (`low`, `medium`, `high`, `max`; default `medium`), `sources` (`any`, `academic`, `technical`; default `any`), `lang`, `refresh` |
+| `deepseek_check_research` | Poll a running research job, read client-synthesis sources page by page, or submit your report for verification | `job_id`, `page`, `answer` |
 | `deepseek_check_balance` | Read-only: DeepSeek account balance and session metrics | none |
 
 Details that matter when calling the tools:
 
-- `query` and each entry of `queries` are limited to 128 characters and accept `site:`, `-site:`, `"phrase"`, `lang:`, `after:` and `before:` operators. The explicit filter parameters (`include_domains`, `exclude_domains`, `exclude_terms`, `exact_phrases`, `after`, `before`) are compiled into operators and budget-checked against that limit together with the query. Dates use `YYYY-MM-DD`.
+- `query` is limited to 128 characters and accepts search operators like `site:`, `-site:`, `"phrase"`, and `lang:`. When passing a list of queries, up to 5 run concurrently; duplicates run once, extras are listed in `skipped_queries`.
 - `content="snippets"` (default) returns a short snippet per result; `content="full"` returns page text and fetches pages whose search content is missing, one extra request per fetched page, which is reflected in `requests_used` and `cost_usd`.
-- `deepseek_fetch` selectors are mutually exclusive: combining `section`, `query`, `offset`/`limit` and `find_text` returns `bad_request`. `query` returns focused excerpts around matching terms (lexical matching, no LLM call). `offset`/`limit` page through long text and report `total_chars`.
-- `deepseek_fetch_many` skips blanks, fetches duplicate URLs once, keeps input order and reports a failing URL as an item with `ok: false`; the top-level envelope sets `partial: true`.
+- `deepseek_fetch` takes a single URL or a list of up to 10 URLs. Passing `query=` returns focused lexical excerpts around matching terms without an LLM call. Content is sanitized (images neutralized, hidden text stripped).
 - `deepseek_extract` takes either `fields` (list of names) or `schema` (JSON schema), never both. Fields whose evidence quote cannot be found in the page are set to `null` with a note; `extraction_truncated` is raised when the model output was cut off.
-- `lang` is an ISO code such as `en`, `de`, `pt-BR`. `rewrite=true` translates the query to English with `deepseek-flash` before searching and is skipped when `lang` is set.
-- `strip_boilerplate=true` removes known site interface text (for example the localized Reddit UI and English cookie-consent dialogs at the start of a page) without touching article text or code blocks. Search results always get this treatment.
-- `fallback_to_search=true` (fetch tools) retrieves a document through the search index when a direct fetch returns 404 for a PDF or Reddit URL; only a result for the same page is accepted, and the result is marked `"source": "search_index"`.
+- `lang` is an ISO code such as `en`, `de`, `pl`. For global tech and science, prefer `lang="en"`; use local country codes for domestic laws, taxes, or local institutions. The final report is always synthesized in the language of the topic prompt.
+- `strip_boilerplate=true` removes known site interface text (for example localized Reddit UI and cookie-consent dialogs) without touching article text or code blocks.
 
 Example calls:
 
 ```text
 deepseek_search(query="rust async runtime comparison", count=5)
-deepseek_search(query="gobierno de España presupuestos 2026", lang="es")
-deepseek_search(query="tokio runtime", include_domains=["docs.rs"], content="full")
+deepseek_search(query=["tokio runtime", "async-std vs smol"])
 deepseek_fetch(url="https://docs.rs/tokio/latest/tokio/", max_chars=15000)
 deepseek_fetch(url="https://example.com/long-article", query="rate limits")
-deepseek_fetch_many(urls=["https://example.com/a", "https://example.com/b"])
+deepseek_fetch(url=["https://example.com/a", "https://example.com/b"])
 deepseek_extract(url="https://news.ycombinator.com", fields=["top_story", "points", "author"])
-deepseek_research(topic="Raft vs Paxos consensus: trade-offs in practice", depth="high")
+deepseek_quick_research(topic="Raft vs Paxos consensus: trade-offs in practice", depth="medium")
+deepseek_deep_agent_research(topic="Evaluation of small modular reactor designs: BWRX-300 vs Rolls-Royce SMR", depth="high")
 deepseek_check_research(job_id="<job_id from a running response>")
 deepseek_check_balance()
 ```
@@ -88,21 +84,21 @@ Pick the tool by what the task needs:
 
 | Task | Tool |
 |---|---|
-| A question that needs several sources: comparison, "how does X work", state of the art, pros and cons, a decision | `deepseek_research` (`depth` `low` to `max`; `sources="academic"` or `"technical"` when it fits) |
-| One fact, a recent event, a page to find | `deepseek_search` (snippets first, `content="full"` only when the page text is needed) |
-| Several independent searches at once | `deepseek_search_many` (up to 5 queries) |
-| A known URL | `deepseek_fetch`; pass `query=` to get only the relevant excerpts |
-| Several known URLs | `deepseek_fetch_many` |
-| Specific fields or a JSON schema from a page | `deepseek_extract` or `deepseek_extract_many` |
+| Quick multi-source research report with citations (~30–60s) | `deepseek_quick_research` (`depth` `low` to `max`; `sources="academic"` or `"technical"`) |
+| Autonomous deep investigation with evidence gaps & autostop (~60–180s) | `deepseek_deep_agent_research` (`depth` `low` to `max`; `sources="academic"` or `"technical"`) |
+| One fact, a recent event, a page to find (or up to 5 queries in parallel) | `deepseek_search` (snippets first, `content="full"` only when page text is needed) |
+| A known URL or batch of up to 10 URLs | `deepseek_fetch`; pass `query=` to get only the relevant excerpts |
+| Specific fields or a JSON schema from a page or batch of pages | `deepseek_extract` |
+| Poll running research or submit client synthesis report | `deepseek_check_research` |
 | Account balance and session usage | `deepseek_check_balance` |
 
 Research jobs have three states, and the response says which one applies:
 
 - `status: "done"`: the report is in `report` and its `[n]` citations are the `id`s in `sources`.
 - `status: "running"`: call `deepseek_check_research(job_id)` until it is done; do not start the same research again.
-- `status: "awaiting_report"` (only with `synthesis="client"`): read the sources (`context`, further pages with `page=`), write the report and send it with `deepseek_check_research(job_id, report=...)`.
+- `status: "needs_input"` (only with `synthesis="client"`): read the sources (`context`, further pages with `page=`), write the report and send it with `deepseek_check_research(job_id, answer=...)`.
 
-Common mistakes to avoid: a query plus its filters must fit in 128 characters; the `deepseek_fetch` selectors (`section`, `query`, `offset`/`limit`, `find_text`) cannot be combined; `deepseek_search_many` runs at most 5 unique queries and lists the rest in `skipped_queries`; check `partial` on batch results, because `ok` stays `true` when single items fail. The [error codes](#error-codes) table says which errors are worth retrying.
+Common mistakes to avoid: a query must fit in 128 characters; parallel `deepseek_search` runs at most 5 unique queries and lists the rest in `skipped_queries`; check `partial` on batch results, because `ok` stays `true` when single items fail. The [error codes](#error-codes) table says which errors are worth retrying.
 
 ## Quick start
 
@@ -270,7 +266,9 @@ docker run -d --name deepseek-mcp -p 8000:8000 \
 
 ## Deep research
 
-`deepseek_research(topic, depth=...)` turns a question into a cited report. It decomposes the topic into subqueries, searches them concurrently, ranks and de-duplicates sources (at most 2 per registered domain, with hosts from the source denylist skipped), reads the top pages, and has `deepseek-flash` write a report whose `[n]` citations match the ids in the returned `sources` array. By default synthesis runs on the server, so the consuming agent receives a short report and a list of sources instead of tens of thousands of characters of page text; with `synthesis="client"` the agent writes the report itself (see [Client-side synthesis](#client-side-synthesis)).
+Two research tools turn complex questions into cited, evidence-grounded reports:
+- **`deepseek_quick_research(topic, depth=...)`**: Fast single-pass research across several search angles (~30–60s). It decomposes the topic into subqueries, searches them concurrently, ranks and de-duplicates sources, reads the top pages, and writes a report whose `[n]` citations match the IDs in the returned `sources` array. By default synthesis runs on the server; with `synthesis="client"` the agent writes the report itself (see [Client-side synthesis](#client-side-synthesis)).
+- **`deepseek_deep_agent_research(topic, depth=...)`**: Autonomous multi-round research agent (~60–180s). It formulates an aspect plan, measures empirical evidence gains in an evidence matrix across successive rounds, formulates targeted gap queries, and autostops deterministically when additional searches no longer yield new figures or unvisited sources.
 
 ### Depth tiers
 
@@ -300,33 +298,31 @@ If the model's reasoning uses up its token allowance or returns an empty answer,
 
 ### Long-running research
 
-Many MCP clients cancel a tool call after about 60 seconds, which is shorter than the `high` and `max` deadlines. `deepseek_research` therefore never blocks past an inline wait of 45 seconds:
+Many MCP clients cancel a tool call after about 60 seconds, which is shorter than the `high` and `max` deadlines. Research tools therefore never block past an inline wait of 45 seconds:
 
 1. The research runs as a background job inside the server process, not inside the tool call. A client timeout or a cancelled call does not stop the job.
-2. If the report is ready within 45 s, `deepseek_research` returns it inline with `status: "done"` and `delivery: "inline"`.
+2. If the report is ready within 45 s, the research tool returns it inline with `status: "done"` and `delivery: "inline"`.
 3. Otherwise it returns `ok: true`, `status: "running"`, a `job_id`, `elapsed_ms`, a `progress` object (`phase`, `step`, `of`, an optional `detail` for a synthesis `retry` or `condense` sub-step, `phase_elapsed_ms` spent in the current phase and `deadline_ms`, the depth's hard time cap) and a `next_action` telling the agent to call `deepseek_check_research` with that `job_id` and not to start a new research.
 4. `deepseek_check_research(job_id)` waits up to another 45 s and returns either the same final envelope (`status: "done"`, `delivery: "polled"`) or `status: "running"` again. Repeat until it is done. An unknown or expired id returns `job_not_found`; start the research again in that case (the job may have been lost on a server restart).
 
 Behavior to know:
 
-- An identical request (same topic, `depth`, `lang`, `sources`, `unverified` and `synthesis`) made while a job is running joins that job and gets the same `job_id`, so a retry never doubles the cost.
+- An identical request (same topic, `depth`, `lang`, `sources`, and `synthesis`) made while a job is running joins that job and gets the same `job_id`, so a retry never doubles the cost.
 - A finished result is reused for 30 minutes at zero cost (`cached: true`, `cost_usd: 0`); pass `refresh=true` to run again.
 - At most 3 research jobs run at the same time; further requests return `rate_limited_local` with advice to collect a running job with `deepseek_check_research` or retry after one finishes (usually 30-180 s).
 - Jobs live in memory in one server process. They are cancelled when the server shuts down.
 
 ### Client-side synthesis
 
-Pass `synthesis="client"` when your agent should write the report with its own model, for example to follow a specific structure, analyse the evidence more deeply or apply its own judgement. The server still does the research work: decomposition, search, ranking and domain diversity, gap fetching and the choice of sources.
+Pass `synthesis="client"` in `deepseek_quick_research` when your agent should write the report with its own model (recommended for hosts supporting autonomous subagents, e.g. Claude Code with Opus), for example to follow a bespoke internal format or perform specialized evidence extraction. The server still performs all retrieval, domain diversity, and source ranking.
 
-1. `deepseek_research(topic, depth, ..., synthesis="client")` runs the job as usual but stops before the server's synthesis. It returns `status: "awaiting_report"` with `synthesis_instructions` (citation rules and the word budget of the depth), the first page of `context` (sources with `id`, `title`, `url`, `date`, `doi`, `pmid`, `pmcid`, `access`, `source_type`, `authors` and their text), `context_page`, `context_pages` and a `next_action`.
-2. Read further pages with `deepseek_check_research(job_id, page=N)`. A page holds about 40,000 characters of source text, so each response stays under the tool-output limits of MCP clients; a longer source is split into parts (`part`, `parts`). The cost of gathering the sources is reported once, with the first delivery of page 1; later pages, repeats and report verification cost nothing. Pages stay readable after you send a report, so you can check a source and send a corrected report.
-3. Send the report with `[id]` citations: `deepseek_check_research(job_id, report="...")`. The server applies the same checks as to its own reports: links outside the source list, images, raw HTML and instructions aimed at an agent are removed, citations to unknown ids are dropped, and numbers missing from the cited source are marked `[unverified]` (or removed with `unverified="drop"`). Your report is never shortened; a report over the word ceiling only gets a note. The verified envelope has `status: "done"` and `delivery: "client"`, and becomes the job's result. You can send a corrected report again; the latest one wins.
-
-The model cost moves to your side: the source text of a job is about 60,000 characters at `low` and up to 500,000 at `max`, so `low` or `medium` suit client synthesis best. The job keeps its sources in memory while you write (each call refreshes its 30-minute lifetime); a server restart loses them, and a new `deepseek_research` call starts again.
+1. `deepseek_quick_research(topic, depth, ..., synthesis="client")` runs the job as usual but stops before the server's synthesis. It returns `status: "needs_input"` with `synthesis_instructions` (citation rules and the word budget of the depth), the first page of `context` (sources with `id`, `title`, `url`, `date`, `doi`, `pmid`, `pmcid`, `access`, `source_type`, `authors` and their text), `context_page`, `context_pages` and a `next_action`.
+2. Read further pages with `deepseek_check_research(job_id, page=N)`. A page holds about 40,000 characters of source text, so each response stays under the tool-output limits of MCP clients; a longer source is split into parts (`part`, `parts`). The cost of gathering the sources is reported once, with the first delivery of page 1; later pages, repeats and report verification cost nothing.
+3. Send the report with `[id]` citations: `deepseek_check_research(job_id, answer="...")`. The server applies the same checks as to its own reports: links outside the source list, images, raw HTML and instructions aimed at an agent are removed, citations to unknown ids are dropped, and numbers missing from the cited source are marked `[unverified]`. Your report is never shortened; a report over the word ceiling only gets a note. The verified envelope has `status: "done"` and `delivery: "client"`, and becomes the job's result.
 
 ### Source preferences and metadata
 
-`deepseek_research` supports a `sources` parameter (`"any"`, `"academic"`, or `"technical"`) to prioritize domain authorities and tailor subquery phrasing:
+Both research tools support a `sources` parameter (`"any"`, `"academic"`, or `"technical"`) to prioritize domain authorities and tailor subquery phrasing:
 
 - **`"any"`** (default): General web research with authority-aware ranking across all domains.
 - **`"academic"`**: Prioritizes peer-reviewed scholarly literature and research repositories (PubMed, PMC, Europe PMC, arXiv, bioRxiv/medRxiv, Nature, ScienceDirect, Springer, Wiley, Oxford Academic, IEEE, PLOS, Frontiers, and `.edu`/`.ac.*` repositories), granting bonuses to sources reporting DOI or PMID identifiers. Subqueries are phrased to target trials, meta-analyses, and systematic reviews.
@@ -350,7 +346,7 @@ Every entry in the returned `sources` array provides rich metadata:
 To protect against numerical hallucination in synthesized research reports, every sentence containing `[n]` citations is parsed for numbers (including percentages, decimal values, ranges, and negative quantities) and checked against the source texts cited by that sentence:
 
 - **Verifiable facts**: Numbers found verbatim in the cited sources remain unmarked.
-- **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag. With `unverified="drop"` such sentences are removed from the report instead; they stay listed in `unverified_numbers`. The mode is part of the job key, so a flagged and a dropped run of the same topic are separate jobs.
+- **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag.
 - **Envelope fields**: The top-level research envelope includes `unverified_numbers` (a list of `{ "number", "citation", "sentence" }` entries) and `unverified_number_count`, alongside human-readable notices in `notes`.
 
 ## Costs
@@ -366,7 +362,7 @@ Search and Fetch are billed by DeepSeek per successful request, not per returned
 
 *Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-Measured cost and wall time of one `deepseek_research` call per tier (live runs):
+Measured cost and wall time of one `deepseek_quick_research` call per tier (live runs):
 
 | Depth | Typical cost | Typical time | Key facts stated |
 |---|---|---|---|
@@ -379,7 +375,7 @@ Measured cost and wall time of one `deepseek_research` call per tier (live runs)
 
 The cost is what a run actually spent, measured on six topics per tier; the coverage column comes from the
 same runs judged against hand-written rubrics, and it counts key facts stated, not advice or judgement.
-A tier above `medium` buys a few points of coverage for two to four times the price. `deepseek_search` and `deepseek_fetch` cost one request each ($0.00075); `content="full"` and `deepseek_fetch_many` add one request per page fetched; `deepseek_extract` costs about $0.002 per page (one fetch plus the LLM call). `rewrite=true` on the search tools adds one small `deepseek-flash` call.
+A tier above `medium` buys a few points of coverage for two to four times the price. `deepseek_search` and `deepseek_fetch` cost one request each ($0.00075); `content="full"` and batch URL fetches add one request per page fetched; `deepseek_extract` costs about $0.002 per page (one fetch plus the LLM call).
 
 *Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
@@ -509,13 +505,13 @@ Run the `claude mcp add` command in [Claude Code](#claude-code). You need a Deep
 
 For retrieval, yes: see [Comparison with Tavily](#comparison-with-tavily) for the prices, sources and caveats.
 
-### How does deepseek_research handle long-running research?
+### How do research tools handle long-running research?
 
-It runs as a background job and returns the report inline when it is ready within 45 seconds; otherwise the agent polls `deepseek_check_research`. See [Long-running research](#long-running-research).
+They run as a background job and return the report inline when it is ready within 45 seconds; otherwise the agent polls `deepseek_check_research`. See [Long-running research](#long-running-research).
 
 ### Can my agent write the research report with its own model?
 
-Yes: `deepseek_research(..., synthesis="client")` returns the ranked sources and your agent writes the report; the server then verifies its citations and numbers. See [Client-side synthesis](#client-side-synthesis).
+Yes: `deepseek_quick_research(..., synthesis="client")` returns the ranked sources and your agent writes the report; the server then verifies its citations and numbers. See [Client-side synthesis](#client-side-synthesis).
 
 ### Does it work with Cursor, Cline and Windsurf?
 
@@ -531,7 +527,7 @@ Pages are rendered by DeepSeek's service, not a local browser, so it depends on 
 
 ### Can I extract structured data from a web page?
 
-Yes, with `deepseek_extract` or `deepseek_extract_many`: every value needs a verbatim evidence quote from the page or it is returned as `null`.
+Yes, with `deepseek_extract`: every value needs a verbatim evidence quote from the page or it is returned as `null`.
 
 ### Is my data sent anywhere?
 

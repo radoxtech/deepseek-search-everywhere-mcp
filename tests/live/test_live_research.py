@@ -165,7 +165,7 @@ async def test_live_e2e_research_tier(depth: str, topic: str) -> None:
     """Execute live research on real topics per depth tier and record metrics."""
     cfg = DEPTH_CONFIG[depth]
     t0 = time.monotonic()
-    envelope = await server.deepseek_research(topic, depth=depth, refresh=True)
+    envelope = await server.deepseek_quick_research(topic, depth=depth, refresh=True)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
     # If returned as running, poll to completion with deepseek_check_research
@@ -227,7 +227,7 @@ async def test_live_e2e_max_tier_stdio_timeout_simulation(monkeypatch: pytest.Mo
     monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=50.0))
 
     topic = "Thorium molten salt reactor fuel cycle safety analysis"
-    envelope = await server.deepseek_research(topic, depth="max", refresh=True)
+    envelope = await server.deepseek_quick_research(topic, depth="max", refresh=True)
 
     if envelope.get("status") == "running":
         job_id = envelope["job_id"]
