@@ -204,8 +204,8 @@ DEPTH_CONFIG: dict[str, DepthConfig] = {
         subqueries=2,
         count=6,
         k_sources=8,
-        per_page_char_cap=15_000,
-        total_source_chars=60_000,
+        per_page_char_cap=20_000,
+        total_source_chars=80_000,
         thinking=False,
         reasoning_effort=None,
         max_tokens=16_384,
@@ -216,41 +216,41 @@ DEPTH_CONFIG: dict[str, DepthConfig] = {
     "medium": DepthConfig(
         subqueries=3,
         count=8,
-        k_sources=10,
-        per_page_char_cap=20_000,
-        total_source_chars=150_000,
+        k_sources=12,
+        per_page_char_cap=30_000,
+        total_source_chars=240_000,
         thinking=True,
         reasoning_effort="low",
         max_tokens=32_768,
-        target_words=1600,
-        max_words=1920,
-        deadline_s=150.0,
+        target_words=2000,
+        max_words=2400,
+        deadline_s=180.0,
     ),
     "high": DepthConfig(
-        subqueries=4,
+        subqueries=5,
         count=10,
-        k_sources=16,
-        per_page_char_cap=25_000,
-        total_source_chars=300_000,
+        k_sources=20,
+        per_page_char_cap=40_000,
+        total_source_chars=450_000,
         thinking=True,
         reasoning_effort="high",
         max_tokens=65_536,
-        target_words=2400,
-        max_words=2880,
-        deadline_s=240.0,
+        target_words=3500,
+        max_words=4200,
+        deadline_s=300.0,
     ),
     "max": DepthConfig(
-        subqueries=4,
-        count=10,
-        k_sources=24,
-        per_page_char_cap=30_000,
-        total_source_chars=500_000,
+        subqueries=6,
+        count=12,
+        k_sources=30,
+        per_page_char_cap=50_000,
+        total_source_chars=800_000,
         thinking=True,
         reasoning_effort="high",
         max_tokens=131_072,
-        target_words=3200,
-        max_words=3840,
-        deadline_s=360.0,
+        target_words=5000,
+        max_words=6000,
+        deadline_s=420.0,
     ),
 }
 
@@ -291,7 +291,7 @@ DECOMPOSE_SYSTEM_PROMPT = (
 )
 
 
-SECTION_COUNTS: dict[str, int] = {"low": 2, "medium": 3, "high": 4, "max": 6}
+SECTION_COUNTS: dict[str, int] = {"low": 2, "medium": 4, "high": 5, "max": 8}
 
 _REFERENCES_HEADING_RE = re.compile(r"(?mi)^#{1,4}[ \t]*References[ \t]*$[\s\S]*")
 
@@ -345,13 +345,13 @@ def build_synthesis_system_prompt(depth: str = "medium", *, client: bool = False
         "based solely on the provided sources.\n\n"
         "CRITICAL INSTRUCTIONS:\n"
         + (_CLIENT_SOURCES_RULE if client else _SERVER_SOURCES_RULE)
-        + f"2. COVERAGE BEFORE STYLE: before writing, list ({listing}) the distinct key facts in the "
-        "sources that bear on the topic: numbers, dates, names, versions, mechanisms, conditions and "
-        "limitations. Every fact that answers a listed research aspect must reach the report; add the "
-        "others as space allows, most specific first. When space runs short, shorten the wording, not the "
-        "facts; a specific fact beats a general statement. Report what the sources found (results, rules, "
-        "figures, behaviour): never list publications, authors or journals as findings, and spend no "
-        "sentence on where or by whom something was published.\n"
+        + f"2. COVERAGE BEFORE STYLE: plan your outline directly ({listing}); do not sequentially "
+        f"transcribe or list raw facts or sources ({listing}). Synthesize claims, metrics, and citations "
+        "directly into the report sections. Every fact that answers a listed research aspect must reach the "
+        "report; add the others as space allows, most specific first. When space runs short, shorten the "
+        "wording, not the facts; a specific fact beats a general statement. Report what the sources found "
+        "(results, rules, figures, behaviour): never list publications, authors or journals as findings, "
+        "and spend no sentence on where or by whom something was published.\n"
         "3. CITATIONS: every factual statement must be cited with bracketed numbered citations like [1], "
         "[2], or [1][3] matching the source id, placed at the end of the sentence. Before you write a "
         "number or a specific claim, find the passage that states it and cite the source in which that "
@@ -659,7 +659,7 @@ def build_r2_gap_messages(
 ) -> list[dict[str, str]]:
     """Build messages for deepseek-flash to identify research gaps and generate R2 queries."""
     findings_lines: list[str] = []
-    for idx, item in enumerate(r1_items[:12], 1):
+    for idx, item in enumerate(r1_items[:30], 1):
         title = item.get("title") or "Untitled"
         url = item.get("url") or ""
         snippet = item.get("snippet") or (item.get("content") or "")[:250]
@@ -2164,7 +2164,7 @@ def paginate_context(
     return pages[page - 1], len(pages)
 
 
-MAX_EST_SYNTHESIS_TOKENS = 600_000
+MAX_EST_SYNTHESIS_TOKENS = 1_000_000
 
 _INJECTION_PATTERN = re.compile(
     r"(?i)\b(?:"
@@ -2215,13 +2215,13 @@ def apply_token_guard(
             break
         removed = trimmed_sources.pop()
         title = removed.get("title") or f"id {removed.get('id')}"
-        notes.append(f"Trimmed source '{title}' to respect 600k token synthesis guard.")
+        notes.append(f"Trimmed source '{title}' to respect 1M token synthesis guard.")
 
     if trimmed_sources:
         first_content = trimmed_sources[0].get("content") or ""
         if len(first_content) // 2 > max_tokens:
             trimmed_sources[0]["content"] = first_content[: max_tokens * 2]
-            notes.append("Truncated top source content to respect 600k token synthesis guard.")
+            notes.append("Truncated top source content to respect 1M token synthesis guard.")
 
     return trimmed_sources, notes
 

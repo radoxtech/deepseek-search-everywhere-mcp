@@ -112,7 +112,7 @@ async def test_research_validations(fake_upstream: Any) -> None:
     assert res["error"]["reason"] == "empty_query"
 
     # Too long topic
-    res = await server.deepseek_research("x" * 501)
+    res = await server.deepseek_research("x" * (server.MAX_TOPIC + 1))
     assert res["ok"] is False
     assert res["error"]["reason"] == "topic_too_long"
 
@@ -1208,23 +1208,18 @@ def _long_report(words: int) -> str:
     return "## Findings\n\n" + ("alpha beta gamma delta " * (words // 4)).strip() + " [1][2]."
 
 
-async def test_overlength_report_is_condensed(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_overlength_report_is_kept_as_written_not_condensed(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _pin_words(monkeypatch, 400, 480)
     fake_upstream(DeepResearchUpstream())
-    short = "## Findings\n\nShort and dense [1][2]."
-    calls = _install_condense_chat(monkeypatch, _long_report(600), _chat_ok(short, cost=0.003))
+    calls = _install_condense_chat(monkeypatch, _long_report(600), None)
     res = await server.deepseek_research("condense topic", depth="low")  # ceiling 480 words
     assert res["ok"] is True and res["synthesized"] is True
-    assert "Short and dense [1][2]." in res["report"]
-    assert len(calls) == 3
-    cond = calls[2]
-    assert cond["thinking"] == {"type": "disabled"}
-    assert cond["temperature"] == 0.0
-    assert "response_format" not in cond
-    system = cond["messages"][0]["content"]
-    assert "400" in system and "[n]" in system
-    assert any("condensed" in n.lower() for n in res["notes"])
-    assert res["cost_breakdown"]["llm"] == pytest.approx(0.013, abs=1e-6)
+    assert "alpha beta gamma delta" in res["report"]
+    assert len(calls) == 2  # decomposition + synthesis only; no condense call (ADR 0011)
+    assert any("it was kept as written" in n.lower() for n in res["notes"])
+    assert res["cost_breakdown"]["llm"] == pytest.approx(0.01, abs=1e-6)
 
 
 async def test_report_within_ceiling_is_not_condensed(
@@ -1236,41 +1231,7 @@ async def test_report_within_ceiling_is_not_condensed(
     res = await server.deepseek_research("no condense topic", depth="low")
     assert res["synthesized"] is True
     assert len(calls) == 2
-    assert not any("condensed" in n.lower() for n in res["notes"])
-
-
-async def test_condense_failure_keeps_original_with_note(
-    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _pin_words(monkeypatch, 400, 480)
-    fake_upstream(DeepResearchUpstream())
-    failed = {"ok": False, "error": {"code": "internal_error", "message": "boom"}, "cost_usd": 0.0}
-    _install_condense_chat(monkeypatch, _long_report(600), failed)
-    res = await server.deepseek_research("condense fail topic", depth="low")
-    assert res["synthesized"] is True
-    assert "alpha beta gamma" in res["report"]
-    assert any("condens" in n.lower() and "kept" in n.lower() for n in res["notes"])
-
-
-@pytest.mark.parametrize(
-    "bad",
-    [
-        _chat_ok("", cost=0.002),
-        _chat_ok("Invented a new citation [7].", cost=0.002),
-        _chat_ok(_long_report(700), cost=0.002),
-    ],
-    ids=["empty", "new-citation-id", "not-shorter"],
-)
-async def test_condense_rejected_results_keep_original_and_bill_cost(
-    bad: dict[str, Any], fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _pin_words(monkeypatch, 400, 480)
-    fake_upstream(DeepResearchUpstream())
-    _install_condense_chat(monkeypatch, _long_report(600), bad)
-    res = await server.deepseek_research("condense reject topic", depth="low")
-    assert "alpha beta gamma" in res["report"]
-    assert any("kept" in n.lower() for n in res["notes"])
-    assert res["cost_breakdown"]["llm"] == pytest.approx(0.012, abs=1e-6)
+    assert not any("it was kept as written" in n.lower() for n in res["notes"])
 
 
 async def test_research_sources_have_clean_urls_titles_and_dates(fake_upstream: Any) -> None:

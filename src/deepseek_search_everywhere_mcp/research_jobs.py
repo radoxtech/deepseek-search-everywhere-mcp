@@ -12,6 +12,7 @@ import copy
 import dataclasses
 import json
 import os
+import re
 import uuid
 from collections.abc import Awaitable, Iterator
 from contextlib import contextmanager
@@ -26,7 +27,6 @@ from .deep_research import (
     ResearchJob,
     apply_token_guard,
     best_source_title,
-    build_condense_messages,
     build_decomposition_messages,
     build_r2_gap_messages,
     build_synthesis_messages,
@@ -74,6 +74,9 @@ from .sanitize import (
 )
 from .settings import (
     ENV_DEBUG_DUMP_DIR,
+)
+from .snippets import (
+    prune_source_content,
 )
 from .urls import (
     _url_etld1,
@@ -310,60 +313,6 @@ async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
         return job.result
 
 
-async def _condense_report(
-    report: str,
-    *,
-    depth: str,
-    allowed_urls: set[str],
-    max_id: int,
-    deadline_at: float,
-) -> tuple[str, float, bool, list[str]]:
-    """Shorten an over-length report once; return (report, cost, call_made, notes).
-
-    The condensed text goes through the same output filter and citation normalization as the original
-    and is accepted only when it is non-empty, shorter and cites no id the original did not cite.
-    """
-    cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
-    words = report_body_words(report)
-    if words <= cfg.max_words:
-        return report, 0.0, False, []
-    remaining = deadline_at - runtime._clock()
-    if remaining < 8.0:
-        return report, 0.0, False, ["Report exceeds the word ceiling; condensing skipped (deadline)."]
-    res = await runtime._chat_request(
-        messages=build_condense_messages(report, depth),
-        thinking={"type": "disabled"},
-        model=REWRITE_MODEL,
-        temperature=0.0,
-        max_tokens=min(cfg.max_tokens, cfg.target_words * 4),
-        timeout=max(5.0, remaining - 2.0),
-        deadline=max(5.0, remaining - 2.0),
-        attempts=1,
-    )
-    cost = float(res.get("cost_usd", 0.0) or 0.0)
-    kept = f"Report had {words} words (ceiling {cfg.max_words}); condensing was not usable, original kept."
-    if not res.get("ok") or not (res.get("content") or "").strip():
-        return report, cost, True, [kept]
-    candidate, _, _ = filter_synthesis_output(res["content"], allowed_urls)
-    candidate = normalize_citations(candidate, max_id=max_id)
-    if (
-        not candidate.strip()
-        or report_body_words(candidate) >= words
-        or not citation_ids(res["content"]) <= citation_ids(report)
-        or not citation_ids(candidate) <= citation_ids(report)
-    ):
-        return report, cost, True, [kept]
-    return (
-        candidate,
-        cost,
-        True,
-        [
-            f"Report condensed from {words} to {report_body_words(candidate)} words "
-            f"(target {cfg.target_words})."
-        ],
-    )
-
-
 def _maybe_dump_research_job(
     *,
     run: _ResearchRun,
@@ -581,10 +530,49 @@ async def _research_decompose(run: _ResearchRun) -> None:
             run.llm_cost += res.get("cost_usd", 0.0)
         counters["model_ok"] = bool(res.get("ok"))
         counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
+        subqueries: list[str] = []
+        aspects: list[ResearchAspect] = []
+        fallback_query = run.topic[:128].strip()
         if res.get("ok") and res.get("content"):
-            run.subqueries, run.aspects = parse_research_plan(
+            subqueries, aspects = parse_research_plan(
                 res["content"], run.topic, max_queries=run.cfg.subqueries
             )
+        # Active retry if LLM responded but parsing failed to produce aspects or specific subqueries
+        plan_ok = bool(aspects or (subqueries and subqueries != [fallback_query]))
+        if not plan_ok and res.get("ok") and run.remaining() > run.synthesis_reserve + 15.0:
+            retry_res = await runtime._chat_request(
+                messages=[
+                    *build_decomposition_messages(
+                        run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref, lang=run.lang
+                    ),
+                    {"role": "assistant", "content": res.get("content") or "{}"},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Previous response did not contain valid aspects. Output strictly a JSON object "
+                            "with 'aspects': [{'aspect': str, 'kind': str, 'looking_for': str, "
+                            "'query': str}] and 'queries': [str]."
+                        ),
+                    },
+                ],
+                thinking={"type": "disabled"},
+                model=REWRITE_MODEL,
+                temperature=0.0,
+                max_tokens=2048,
+                response_format={"type": "json_object"},
+                timeout=min(15.0, run.phase_timeout(15.0)),
+                deadline=timeout,
+                attempts=2,
+            )
+            if retry_res.get("ok") and retry_res.get("content"):
+                run.llm_cost += retry_res.get("cost_usd", 0.0)
+                subqueries, aspects = parse_research_plan(
+                    retry_res["content"], run.topic, max_queries=run.cfg.subqueries
+                )
+
+        if aspects or subqueries:
+            run.subqueries = subqueries
+            run.aspects = aspects
             counters["fallback"] = False
         else:
             fallback, _ = fit_query(run.topic)
@@ -645,10 +633,11 @@ async def _research_round_two(run: _ResearchRun) -> None:
         r1_domains = {d for item in r1_items if (d := _url_etld1(item.get("url") or ""))}
         timeout = min(25.0, max(5.0, budget / 2))
         try:
+            gap_messages = build_r2_gap_messages(
+                run.topic, r1_items, run.subqueries, run.aspects, lang=run.lang
+            )
             res = await runtime._chat_request(
-                messages=build_r2_gap_messages(
-                    run.topic, r1_items, run.subqueries, run.aspects, lang=run.lang
-                ),
+                messages=gap_messages,
                 thinking={"type": "disabled"},
                 model=REWRITE_MODEL,
                 temperature=0.0,
@@ -656,8 +645,38 @@ async def _research_round_two(run: _ResearchRun) -> None:
                 response_format={"type": "json_object"},
                 timeout=timeout,
                 deadline=timeout,
-                attempts=1,
+                attempts=2,
             )
+            # If LLM returned invalid or unparseable JSON, retry once if budget allows
+            if res.get("ok") and res.get("content"):
+                gap_parsed = parse_subqueries(res["content"], run.topic, max_queries=3)
+                if not _no_gaps(res["content"]) and not gap_parsed:
+                    if run.remaining() > run.synthesis_reserve + 15.0:
+                        retry_gap = await runtime._chat_request(
+                            messages=[
+                                *gap_messages,
+                                {"role": "assistant", "content": res.get("content") or "{}"},
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "Previous response was not valid JSON. Return strictly a JSON "
+                                        "object with a 'queries' array of specific gap search strings, "
+                                        "or 'queries': [] if all aspects are settled."
+                                    ),
+                                },
+                            ],
+                            thinking={"type": "disabled"},
+                            model=REWRITE_MODEL,
+                            temperature=0.0,
+                            max_tokens=2048,
+                            response_format={"type": "json_object"},
+                            timeout=min(15.0, timeout),
+                            deadline=timeout,
+                            attempts=2,
+                        )
+                        if retry_gap.get("ok") and retry_gap.get("content"):
+                            res = retry_gap
+
             if not (res.get("ok") and res.get("content")):
                 counters["skipped"] = "gap_analysis_failed"
                 run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
@@ -756,7 +775,7 @@ async def _research_rank_and_fill(run: _ResearchRun) -> None:
 
 def _research_cost_guard(run: _ResearchRun, context: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Return the sources-only envelope when synthesis would break the cost ceiling or the deadline."""
-    total_source_chars = sum(len(s.get("content") or "") for s in context)
+    total_source_chars = sum(min(len(s.get("content") or ""), 8000) for s in context)
     pricing = runtime.get_settings().llm_pricing.peak
     est_synth_cost = ((total_source_chars // 2) / 1_000_000) * pricing.cache_miss_per_1m + (
         run.cfg.max_tokens / 1_000_000
@@ -780,15 +799,36 @@ async def _research_synthesize(
     cut off or empty. Return the answer used and the cost of an attempt that was billed but not used."""
     cfg = run.cfg
     with _stage(run, "synthesize") as counters:
+        query_terms: set[str] = set()
+        for text in (
+            run.topic,
+            *run.subqueries,
+            *(a.aspect for a in run.aspects),
+            *(a.looking_for for a in run.aspects),
+        ):
+            query_terms.update(w.lower() for w in re.findall(r"\w+", text) if len(w) >= 3)
+
+        synth_context = [
+            {
+                **src,
+                "content": prune_source_content(
+                    src.get("content") or "",
+                    query_terms=query_terms,
+                    max_chars=8000,
+                ),
+            }
+            for src in context
+        ]
+
         messages = build_synthesis_messages(
             run.topic,
-            context,
+            synth_context,
             depth=run.depth,
             nonce=uuid.uuid4().hex[:12],
             aspects=run.aspects,
             lang=run.lang,
         )
-        counters["context_sources"] = len(context)
+        counters["context_sources"] = len(synth_context)
         counters["prompt_chars"] = sum(len(m.get("content") or "") for m in messages)
         timeout = max(10.0, run.remaining() - 2.0)
         kwargs: dict[str, Any] = {
@@ -837,7 +877,7 @@ async def _research_synthesize(
             thinking={"type": "disabled"},
             temperature=0.0,
             model=REWRITE_MODEL,
-            max_tokens=min(cfg.max_tokens, 16_384),
+            max_tokens=cfg.max_tokens,
             timeout=max(5.0, rem_retry - 2.0),
             deadline=max(5.0, rem_retry - 2.0),
             attempts=1,
@@ -861,37 +901,19 @@ async def _finalize_report(
     requests_used: int,
     llm_cost: float,
     synth_step: int,
-    condense: bool = True,
+    condense: bool = False,
 ) -> dict[str, Any]:
-    """Filter, normalize, condense, sanitize and ground a written report, then build the envelope.
+    """Filter, normalize, sanitize and ground a written report, then build the envelope.
 
-    Without ``condense`` (a report the client wrote) an over-length report is only noted, never
-    rewritten.
+    Over-length reports are retained in full and noted in notes (ADR 0011).
     """
     allowed_urls = {s["url"].strip() for s in context if isinstance(s.get("url"), str) and s["url"].strip()}
     finalize_start = _stage_start(run)
     filtered, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
     report = normalize_citations(filtered, max_id=len(context))
     words = report_body_words(report)
-    condense_cost, condense_called, condense_notes = 0.0, False, []
-    if condense:
-        if words > run.cfg.max_words:
-            await _report_job_progress(
-                run.job,
-                "synthesis",
-                synth_step,
-                run.total_steps,
-                "Condensing an over-length report",
-                detail="condense",
-            )
-        report, condense_cost, condense_called, condense_notes = await _condense_report(
-            report,
-            depth=run.depth,
-            allowed_urls=allowed_urls,
-            max_id=len(context),
-            deadline_at=run.deadline_at,
-        )
-    elif words > run.cfg.max_words:
+    condense_notes = []
+    if words > run.cfg.max_words:
         condense_notes = [
             f"Report has {words} words, over the {run.cfg.max_words}-word ceiling for depth "
             f"{run.depth!r}; it was kept as written."
@@ -904,9 +926,6 @@ async def _finalize_report(
     run.notes.extend(condense_notes)
     run.notes.extend(sanitize_notes)
     run.notes.extend(unverified_notes)
-    if condense_called:
-        requests_used += 1
-
     _stage_end(
         run,
         "finalize",
@@ -917,8 +936,6 @@ async def _finalize_report(
             "report_chars": len(report),
             "citations": len(citation_ids(report)),
             "injection_suspected": injection_suspected,
-            "condense_called": condense_called,
-            "condense_cost_usd": round(condense_cost, 6),
             "unverified_numbers": unverified_count,
         },
     )
@@ -937,14 +954,14 @@ async def _finalize_report(
         unverified_count=unverified_count,
         partial=run.fetch_failed > 0,
         requests_used=requests_used,
-        llm_cost=round(llm_cost, 6) + condense_cost,
+        llm_cost=round(llm_cost, 6),
         injection_suspected=injection_suspected,
         notes=run.notes,
     )
 
 
 # Longest report a client may submit for verification.
-MAX_CLIENT_REPORT_CHARS = 60_000
+MAX_CLIENT_REPORT_CHARS = 120_000
 
 
 def _awaiting_report_envelope(job: ResearchJob, page: int, *, charge: bool = False) -> dict[str, Any]:

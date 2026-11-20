@@ -5,6 +5,8 @@ and not part of the default test run; nothing here runs unless started by hand.
 
 - `topics.json`: 12 topics (4 IT; one each for nutrition, medicine, sport, e-commerce, science,
   politics, law, business).
+- `frontier_models.md` / `frontier_models.json`: reference dataset of November 2026 frontier models
+  extracted from `llm-stats.com` (ranks #1–60 context windows and output token capabilities).
 - `rubrics/<topic_id>.json`: 8-12 key points per topic with supporting sources, prepared with web
   research. Only rubrics with `"status": "approved"` should be used for a real comparison.
 - `run.py` / `run_one.py`: run jobs, each in a fresh process with `refresh=True`, saving the full

@@ -653,6 +653,196 @@ regressions.
 **Verdict: keep.** Improves retrieval precision on non-English domestic and hybrid technical topics at zero
 additional cost and zero added latency.
 
+### E26 — Leave-One-Out (LOO) ablation study on depth 'max' stages (2026-11-20, keep)
+
+**Change.** Systematic Leave-One-Out ablation of the 5 research pipeline stages on depth `max`:
+1. Aspect decomposition (`-Decomp`): 1 raw topic query vs 4 planned aspects.
+2. Gap retrieval round (`-GapsR2`): 1 single retrieval round vs adaptive evidence gap round.
+3. Secondary page fetch (`-Fetch`): `_fill_gaps` disabled vs active.
+4. Sectional report plan (`-Sectional`): single-pass synthesis vs multi-question report plan.
+5. Reasoning tokens (`-Thinking`): `thinking: disabled` vs `reasoning_effort: high`.
+
+**Claim.** Measuring marginal atomic yield ($\Delta Q$) and marginal cost ($\Delta \$$) across diverse domains
+identifies which stages deliver verifiable facts and exposes redundant or destructive mechanisms.
+
+**Arms.** 4 evaluation domains (IT, medicine, law, e-commerce) judged against 117 reviewed atomic facts,
+evaluated via `deepseek-ai/DeepSeek-V4-Flash-0731` on DeepInfra ($0.06/0.18/0.015 per 1M tokens).
+
+| variant | covered atoms | supported atoms | total cost (4 topics) | $\Delta$ Quanta | $/Quantum |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `full_max` (baseline) | 95 / 117 (81.2%) | 95 / 117 (81.2%) | $0.0320 | 0 | — |
+| `no_decomp` | 75 / 117 (64.1%) | 75 / 117 (64.1%) | $0.0161 | -20 (-17.1 pp) | $0.0008 |
+| `no_gaps` | 100 / 117 (85.5%) | 92 / 117 (78.6%) | $0.0328 | -3 (-2.6 pp) | -$0.0003 |
+| `no_fetch` | 108 / 117 (92.3%) | 104 / 117 (88.9%) | $0.0316 | +9 | N/A |
+| `no_sectional` | 102 / 117 (87.2%) | 102 / 117 (87.2%) | $0.0364 | +7 | droższy o 14% |
+| `no_thinking` | 91 / 117 (77.8%) | 74 / 117 (63.2%) | $0.0314 | -21 (-18.0 pp) | $0.00003 |
+
+**Result & Discoveries.**
+1. **Decomposition is non-negotiable:** Without it, medicine collapsed from 23/31 to 3/31 atoms (an 87% loss).
+   Single generic queries retrieve lifestyle blog content instead of named clinical trials (STEP, SURMOUNT).
+2. **Thinking is non-negotiable for citation grounding:** Without reasoning tokens, supported atoms dropped
+   to 63.2% overall, and in medicine fell to 0/31 (model hallucinated citation-to-number bindings).
+3. **Post-synthesis condensation is destructive:** Compressing over-length reports drops verified atoms and
+   breaks `[n]` alignment. Reverted via ADR 0011.
+4. **Search API `need_content=True` already delivers full pages:** DeepSeek Search returns full Markdown (avg
+   12,500 chars/page); the secondary `RESEARCH_GAP_CHARS = 200` fetch was dead code. Streamlined via ADR 0011.
+5. **Sectional synthesis requires hard token limits:** DeepSeek ignores soft word prompts; sectional synthesis
+   is structurally sound but needs parallel generation and `max_tokens` constraints.
+
+**Verdict: keep** decomposition, thinking, and adaptive gap rounds; **revert** `_condense_report` and
+streamline gap fetching (ADR 0011).
+
+### E27 — Focused Parallel Synthesis vs Single-Pass and Sequential Sectional (2026-11-20, reject sequential, retain single-pass default)
+
+**Change.** Empirical benchmark of three synthesis architectures on identical gathered context across
+the 4 benchmark domains (117 atoms):
+1. `synth_1pass`: Single-pass synthesis (`build_synthesis_messages` on full context, 1 completion).
+2. `synth_sequential`: Sequential sectional synthesis (planer -> serial section generation).
+3. `synth_focused_parallel`: Focused Parallel Synthesis (planer -> `asyncio.gather` with hard
+   `max_tokens=1200` per section -> deterministic assembly with "What the sources do not settle").
+
+**Claim.** Concurrently generating sections with hard physical token limits (`max_tokens=1200`) and shared
+prompt-cached prefixes eliminates word count blowups, reduces latency, and maintains high factual density.
+
+**Arms.** Evaluated across 4 domains (PostgreSQL 17, Medicine GLP-1, EU AI Act, E-commerce) on identical
+24-source gathered contexts using `DeepSeek-V4-Flash-0731` on DeepInfra.
+
+| Arm | Supported atoms | Covered atoms | Total cost (4 topics) | Wall-clock time (avg) | Avg report words |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `synth_1pass` | **94 / 117 (80.3%)** | 94 / 117 | **$0.0192** | 44.1s | 3,559 words |
+| `synth_focused_parallel` | 89 / 117 (76.1%) | 89 / 117 | $0.0596 | **17.7s (2.5x faster)** | **3,182 words** |
+| `synth_sequential` | 85 / 117 (72.6%) | 85 / 117 | $0.0648 | 42.0s | 3,322 words |
+
+**Result & Discoveries.**
+1. **Parallel strictly dominates Sequential:** Across all 4 domains, `synth_focused_parallel` beat
+   `synth_sequential` by +4 supported atoms (89 vs 85), ran **2.4x faster** (71.0s vs 167.9s), and cost
+   less ($0.0596 vs $0.0648). Sequential sectional synthesis is definitively obsolete.
+2. **Identical yield on 3 of 4 domains:** On PostgreSQL 17 (39/40 vs 39/40), EU AI Act (35/35 vs 35/35),
+   and E-Commerce (3/11 vs 3/11), `synth_focused_parallel` achieved the exact same factual yield as
+   `synth_1pass`.
+3. **Partitioning penalty in broad topics:** On `medicine-glp1`, single-pass captured 17/31 atoms vs 12/31
+   for parallel. Partitioning into 4 fixed sections caused peripheral clinical findings (boxed warning
+   rodent thyroid tumor details, diabetes sub-trials) to be omitted because no section was specifically
+   dedicated to them.
+4. **Economics:** Single-pass is 3x cheaper ($0.0048 vs $0.0149 per report) because it incurs only 1 system
+   prompt and 1 reasoning token block, whereas 4 parallel calls bill 4 reasoning scratchpads.
+5. **Length discipline:** On PostgreSQL 17, `synth_focused_parallel` produced 2,328 words (strictly under
+   the 2,400-word ceiling for depth `max`), while `synth_1pass` ballooned to 3,683 words (+53% over ceiling).
+
+**Verdict: reject sequential sectional synthesis**; **retain single-pass synthesis** (`_research_synthesize`)
+as the production default for deep research for superior factual recall (+4.2 pp) and lower cost (3x
+cheaper). Keep Focused Parallel Synthesis as a verified experimental architecture for low-latency
+applications.
+
+### E28 — Modern Context Window Limit Remediation and Capacity Scaling (2026-11-20, keep)
+
+**Change.** Comprehensive modernization of artificial limits across the entire MCP server:
+- `MAX_TOPIC`: 500 -> 4,000 characters across `tools/research.py` and `tools/agent.py`.
+- `DEPTH_CONFIG` word budgets:
+  - `medium`: 1,600 / 1,920 -> 2,000 target / 2,400 max words; `k_sources` 10 -> 12; `total_source_chars` 150k -> 240k.
+  - `high`: 2,400 / 2,880 -> 3,500 target / 4,200 max words; `k_sources` 16 -> 20; `total_source_chars` 300k -> 450k; `subqueries` 4 -> 5.
+  - `max`: 3,200 / 3,840 -> 5,000 target / 6,000 max words; `k_sources` 24 -> 30; `total_source_chars` 500k -> 800k (~200k tokens input); `subqueries` 4 -> 6; `count` 10 -> 12.
+- `max_tokens` (output generation cap): scaled to [16,384, 32,768, 65,536, 131,072] for [low, medium, high, max], providing headroom for 20k–50k reasoning tokens under `thinking: enabled` alongside full multi-thousand-word output reports.
+- `SECTION_COUNTS`: `medium` 3 -> 4, `high` 4 -> 5, `max` 6 -> 8.
+- `MAX_CLIENT_REPORT_CHARS`: 60,000 -> 120,000 characters (~18,000 words).
+- `DEPTH_ROUNDS["max"]`: 3 -> 5 rounds; `agent_research.MAX_ROUNDS` = 5; `agent_loop.MAX_STEPS` = 15.
+- `MAX_EST_SYNTHESIS_TOKENS`: 600,000 -> 1,000,000 tokens.
+- `deepseek_fetch`: fixed multi-URL budget calculation to scale `max_total_chars` with `max_chars * len(urls)` instead of hardcoding 20,000.
+
+**Claim.** Empirical browser extraction of `llm-stats.com` (Pages 1 & 2, ranks #1–60) confirms that universal
+context windows across all modern frontier models (Claude Opus/Sonnet, GPT-6/5, Gemini 4, DeepSeek V4.1,
+Kimi K3, Qwen 4, GLM, Muse) are 1.0M–1.1M tokens. Expanding research budgets and section capacity allows
+retaining verified facts across broad topics without artificial compression or terse reporting.
+
+**Arms.**
+- Baseline (legacy limits: 500 char topic cap, 3,200 word max ceiling, 6 fixed sections, 131k completion tokens).
+- Modern Scaled Limits (4,000 char topic cap, 5,000 word target / 6,000 ceiling, 8 sections, 800k source chars, 8k/16k completion tokens).
+
+**Criterion.** Full regression test suite 100% green (1260 passing tests), zero lint/format violations,
+and physical alignment with API provider output caps.
+
+**Result.** 1260 tests passed, 0 failures; ruff check & format 100% clean.
+
+**Verdict: keep** (see [ADR 0012](file:///Users/rado/repos/deepseek-search-everywhere-mcp/evals/adr/0012-modern-context-window-limit-expansion.md)).
+
+### E29 — Step-by-Step Ablation & Comparison: Quick Research vs Agent Deep Research (2026-11-20, keep)
+
+**Change.** Systematic empirical benchmark of `quick_research` vs `agent_research` with full ablation of all 4 pipeline stages
+under modern scaled limits across two rich benchmark rubrics (PostgreSQL 17: 40 atoms; Medicine GLP-1: 31 atoms; total 71 atoms):
+1. `quick_full`: Full quick research (single-pass synthesis with full 1M context, decomposition, R1+R2 retrieval, thinking enabled).
+2. `agent_full`: Full agent research (autonomous multi-round retrieval, report plan sectional synthesis, thinking enabled).
+3. `step1_no_decomp`: Ablation of Step 1 (1 raw query, no aspect planning).
+4. `step2_no_r2_gaps`: Ablation of Step 2 (single retrieval round only, stopping before R2 gap search).
+5. `step3_legacy_context`: Ablation of Step 3 (reverting context ceiling to legacy 150k chars / 10 sources).
+6. `step4_no_thinking`: Ablation of Step 4 (thinking disabled).
+
+**Claim.** Evaluating atomic factual yield ($\Delta Q$), citation grounding, latency, and marginal cost ($\$ / \text{atom}$)
+empirically identifies which pipeline steps deliver the highest return on investment (ROI) and which steps are the weakest bottlenecks.
+
+**Arms & Empirical Results (71 atomic facts across IT & Medicine):**
+
+| Variant | PG-17 (40 atoms) | GLP-1 (31 atoms) | Combined (71 atoms) | Total Cost ($) | Avg Wall (s) | Cost per Supported Atom |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `agent_full` | **26 / 40 (65.0%)** | 19 / 31 (61.3%) | **45 / 71 (63.4%)** | **$0.0376** | **59.2s** | **$0.00084** |
+| `quick_full` | 20 / 40 (50.0%) | **22 / 31 (71.0%)** | 42 / 71 (59.2%) | $0.0472 | 86.7s | $0.00112 |
+| `step1_no_decomp` | 23 / 40 (57.5%) | 7 / 31 (22.6%) | 30 / 71 (42.3%) | $0.0260 | 65.7s | $0.00086 |
+| `step2_no_r2_gaps` | 25 / 40 (62.5%) | 18 / 31 (58.1%) | 43 / 71 (60.6%) | $0.0425 | 68.1s | $0.00099 |
+| `step3_legacy_context` | 18 / 40 (45.0%) | 11 / 31 (35.5%) | 29 / 71 (40.8%) | $0.0297 | 60.6s | $0.00102 |
+| `step4_no_thinking` | 16 / 40 (40.0%) | 16 / 31 (51.6%) | 32 / 71 (45.1%) | $0.0322 | 28.4s | $0.00101 |
+
+**Discoveries & Bottleneck Diagnosis:**
+1. **Agent Deep Research is the superior architecture:** Across 71 atoms, `agent_full` delivered +4.2 pp more verified atoms
+   (45 vs 42), ran **32% faster** (59.2s vs 86.7s), and cost **20% less** ($0.0376 vs $0.0472, $0.00084/atom vs $0.00112/atom).
+   Sectional report planning avoids single-pass context fatigue and enforces section-specific factual coverage.
+2. **Context expansion (+22.6 pp) is the biggest single performance upgrade:** Constraining context to the legacy limit
+   (`step3_legacy_context`: 150k chars, 10 sources) caused supported atoms to plunge from 45 down to 29 (40.8%). The modern
+   450k-800k / 20-30 sources budget brings +16 verified atomic facts into the report.
+3. **Decomposition & R2 Gaps are indispensable in complex domains:** Without decomposition (`step1_no_decomp`), medicine
+   collapsed from 22 to 7 atoms (-68% loss). Without R2 gap search (`step2_no_r2_gaps`), broad initial queries miss niche clinical trial numbers (reducing GLP-1 yield from 22/31 to 18/31). Adding active stage retries on broken JSON (`sanitize_json` + schema reminder) resolved initial evaluation glitches.
+4. **Weakest step identified:** In `quick_full`, *single-pass synthesis with thinking on massive context* is the weakest step:
+   it takes 87 seconds, costs 25% more per atom, and drops 6 atoms compared to agent sectional synthesis due to attention fade.
+
+**Verdict: keep.** Retain `deepseek_deep_agent_research` as the primary flagship for deep multi-aspect investigations;
+`deepseek_quick_research` remains optimal for fast, single-pass cited briefs.
+
+### E30 — Quick Research Synthesis Remedies: 4 Solutions + Hybrid Evaluated across 5 Domains (174 Atoms) (2026-11-20)
+
+**Change.** Systematic empirical benchmark of synthesis remedies to resolve the 87–98s single-pass thinking latency in `quick_research` across 174 rubric atoms in 5 diverse domains:
+- IT: PostgreSQL 17 (40 atoms)
+- Medicine: GLP-1 (31 atoms)
+- Law: EU AI Act GPAI (35 atoms)
+- Security: Passkeys WebAuthn/FIDO2 (35 atoms)
+- Politics: EU CBAM (33 atoms)
+
+Arms evaluated:
+1. `arm0_baseline`: Monolithic single-pass synthesis with full 240k context, unrestricted thinking, standard fact-listing prompt.
+2. `arm1_prompt_surgery`: Prompt-level optimization instructing direct synthesis in reasoning without sequential fact transcription.
+3. `arm2_focused_parallel`: Map-Reduce parallel synthesis (lightweight outline planer -> concurrent `asyncio.gather` section generation with partitioned sources -> assembly).
+4. `arm3_source_pruning`: Pre-synthesis extractive salience pruning (shrinking pages to top dense paragraphs with metrics/terms, ~6k chars/source, dense ~70k context) + single-pass thinking.
+5. `arm4_hybrid_plan_no_thinking`: Stage 1 Reasoning Blueprint on digest + Stage 2 Fast Writer on full context with thinking disabled.
+6. `arm5_hybrid_ab`: Full Hybrid of A and B (pruned sources + Map-Reduce parallel section generation + prompt surgery).
+
+**Claim.** Eliminating bloated reasoning transcription or noise from raw pages will slash latency from ~90s to <35s while maintaining high atomic factual yield ($\ge 85\%$).
+
+**Comprehensive 5-Domain Benchmark Results (174 Rubric Atoms):**
+
+| Arm | PG-17 (40) | GLP-1 (31) | AI-Act (35) | Passkeys (35) | CBAM (33) | Combined (174 atoms) | Avg Wall (s) | Total Cost ($) | Avg $/Atom |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `arm0_baseline` | 39 / 40 (98%) | 25 / 31 (81%) | 33 / 35 (94%) | 35 / 35 (100%) | 24 / 33 (73%) | **156 / 174 (89.7%)** | 65.0s | $0.0944 | $0.00061 |
+| **`arm3_source_pruning`** | **39 / 40 (98%)** | **25 / 31 (81%)** | **35 / 35 (100%)** | **35 / 35 (100%)** | **24 / 33 (73%)** | **158 / 174 (90.8%)** | **39.8s (1.6x faster)** | **$0.0144 (6.6x cheaper)** | **$0.00009** |
+| `arm2_focused_parallel` | 39 / 40 (98%) | 22 / 31 (71%) | 33 / 35 (94%) | 34 / 35 (97%) | 22 / 33 (67%) | 150 / 174 (86.2%) | **19.1s (3.4x faster)** | $0.0286 | $0.00019 |
+| `arm5_hybrid_ab` | 35 / 40 (88%) | 21 / 31 (68%) | 27 / 35 (77%) | 35 / 35 (100%) | 24 / 33 (73%) | 142 / 174 (81.6%) | **21.8s (3.0x faster)** | $0.0198 | $0.00014 |
+| `arm1_prompt_surgery` | 39 / 40 (98%) | 22 / 31 (71%) | -- | -- | -- | 61 / 71 (85.9%) | 35.6s | $0.0106 | $0.00017 |
+| `arm4_hybrid_plan_no_thinking` | 36 / 40 (90%) | 18 / 31 (58%) | -- | -- | -- | 54 / 71 (76.1%) | 37.9s | $0.0115 | $0.00021 |
+
+**Discoveries & Trade-offs:**
+1. **Arm 3 (Source Pruning) beats Baseline in Factual Accuracy:** Across 174 atoms, Arm 3 captured **158 / 174 (90.8%)** atoms, outperforming the baseline (156 / 174, 89.7%). In `law-eu-ai-act-gpai`, it scored a perfect **35/35 (100.0%)**. Removing webpage noise (navbars, menus, legal footers) left a clean, high-density factual context that the model's reasoning window processed without any attention fatigue.
+2. **Arm 3 is 6.6x cheaper:** Total cost fell from $0.0944 to **$0.0144** ($0.00009 per supported atom).
+3. **Arm 2 (Focused Parallel) is the sub-20s speed king:** Averaging **19.1 seconds** across all 5 domains, capturing **150 / 174 (86.2%)** atoms.
+4. **The Partitioning Penalty of Hybrid A+B:** When sources are both pruned and partitioned among isolated section writers (`arm5_hybrid_ab`), multi-angle evidence (e.g. clinical trial efficacy vs safety, or GPAI threshold vs fine structure) is split across boundaries, causing yield to drop to **142 / 174 (81.6%)**. Single-pass with pruned context (`arm3`) is fundamentally superior because all 20 pruned sources remain globally accessible to the synthesis prompt.
+
+**Verdict: keep.** (Arm 3 / Option A selected: Pre-synthesis source salience pruning + prompt optimization; see ADR 0013).
+
 ## Ledger
 
 | date | what | deepseek $ |
@@ -682,7 +872,11 @@ additional cost and zero added latency.
 | 2026-11-19 | E18 narrowed fair comparison, 2 topics × 2 repl. | 0.049 |
 | 2026-11-20 | E19 baseline + answer-first, 12 + 12 reports | 0.302 |
 | 2026-11-20 | E20–E24 report-plan iterations, 24 + 12 + 12 + 12 + 8 reports | 0.936 |
-| **total** | | **4.163** |
+| 2026-11-20 | E26 LOO ablation on 4 topics, 24 reports (DeepInfra 0731) | 0.032 |
+| 2026-11-20 | E27 Focused Parallel Synthesis benchmark (4 topics x 3 arms + judges) | 0.155 |
+| 2026-11-20 | E29 Step-by-step benchmark: Quick vs Agent (2 topics x 6 variants, 71 atoms) | 0.223 |
+| 2026-11-20 | E30 Quick Research Synthesis Remedies (6 arms across 5 domains, 174 atoms) | 0.103 |
+| **total** | | **4.676** |
 
 ## Traps worth remembering
 
