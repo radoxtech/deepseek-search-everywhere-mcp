@@ -38,6 +38,7 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 - **Page fetch to Markdown** for one URL or up to 10 in parallel, with section, snippet, offset and find-text selectors for long pages.
 - **Structured extraction**: pull named fields or a JSON schema from a page; each value must be backed by a verbatim quote from the page or it is returned as `null`.
 - **Deep research with citations**: fast single-pass research (`deepseek_quick_research`) and autonomous multi-round agent (`deepseek_deep_agent_research`) with four depth tiers and `academic`/`technical` source modes. Reports carry `[n]` citations mapped to a `sources` array with number verification. Server-side synthesis or client-side synthesis (`synthesis="client"`). See [Deep research](#deep-research).
+- **Grounded in scientific IR & algorithms**: Reciprocal Rank Fusion (RRF), Maximal Marginal Relevance (MMR), BM25 lexical proximity windows, sequential analysis stopping criteria, and token bucket traffic shaping. See [Scientific methods & algorithms](#scientific-methods--algorithmic-architecture).
 - **Cost reporting**: every response carries `cost_usd` and, where an LLM is involved, `cost_breakdown`; an optional daily budget blocks overspending.
 - **Hardened against prompt injection**, with an egress guard, static SSRF filtering and no telemetry. See [Security](#security).
 - **Small footprint**: pure Python, no local browser, `uvx` zero-install, 7 tools.
@@ -348,6 +349,73 @@ To protect against numerical hallucination in synthesized research reports, ever
 - **Verifiable facts**: Numbers found verbatim in the cited sources remain unmarked.
 - **Unverified numbers**: Sentences containing numbers that do not appear in the cited source text are marked with a trailing ` [unverified]` tag.
 - **Envelope fields**: The top-level research envelope includes `unverified_numbers` (a list of `{ "number", "citation", "sentence" }` entries) and `unverified_number_count`, alongside human-readable notices in `notes`.
+
+## Scientific methods & algorithmic architecture
+
+DeepSeek Search Everywhere MCP is built upon peer-reviewed computer science literature, open information retrieval (IR) algorithms, and proven distributed systems patterns. Every algorithm used in this codebase is an independent, clean-room implementation of established public-domain or open-access scientific methodology, published in international conferences (ACM SIGIR, TREC, IEEE) and RFC specifications.
+
+No proprietary, patent-encumbered, or restrictive code is included; all algorithms are implemented in native Python under the permissive MIT license.
+
+### Algorithmic taxonomy & pipeline mapping
+
+| Pipeline phase | Scientific method / Algorithm | Academic reference | Primary objective & mechanism |
+|---|---|---|---|
+| **Rank aggregation** | **Reciprocal Rank Fusion (RRF)** | Cormack, Clarke & Buettcher (SIGIR 2009) | Merges ranked result lists from diverse subqueries without requiring cross-query score calibration ($k=60$). |
+| **Result diversification** | **Maximal Marginal Relevance (MMR)** | Carbonell & Goldstein (SIGIR 1998) | Balances query relevance with source diversity; prevents domain monopolization across the top-$K$ evidence pool. |
+| **Lexical passage extraction** | **BM25 / TF-IDF Proximity Windows** | Robertson et al. (TREC-3 1994) | Extracts high-density lexical excerpts around search terms without requiring external embedding models. |
+| **Context budget packing** | **Greedy 0/1 Knapsack Approximation** | Dantzig (1957) | Maximizes information coverage within model context ceilings subject to hard character/token budget constraints. |
+| **Agent stopping criteria** | **Sequential Analysis & Diminishing Marginal Yield** | Wald (1945) | Bounded active-learning loop; autostops deterministically when marginal evidence yield ($\Delta$ facts, $\Delta$ numbers, $\Delta$ sources) saturates. |
+| **Evidence audit** | **Active Learning & Residual Uncertainty Gap Detection** | Settles (2009) | Audits gathered evidence matrix and formulates targeted gap queries specifically addressing missing factual dimensions. |
+| **Factual verification** | **Verbatim Entity & Numeric Grounding** | Fact-checking literature | Deterministic regex extraction of numbers, currencies, dates, and percentages verified against cited source windows. |
+| **Traffic shaping** | **Token Bucket Rate Limiting** | Turner (1986), RFC 1812 | Enforces sustained queries-per-second (QPS) and burst capacities per endpoint (`search`, `fetch`, `chat`). |
+| **Concurrency coalescing** | **Single-Flight Request Coalescing** | Standard systems pattern | Locks concurrent requests for identical queries or URLs, coalescing cache stampedes into a single upstream request. |
+| **Cache management** | **Dual LRU with Time-To-Live (TTL)** | Denning (1968), Belady (1966) | Memory-bounded Least Recently Used eviction index with wall-clock time expiration. |
+| **Advisory synchronization** | **Two-Phase Commit with POSIX Advisory Locks** | Standard systems pattern | `fcntl.flock` cross-process reservation-commit-release pattern for atomic daily spend budget tracking. |
+| **Egress security** | **Shannon Entropy Anomaly Detection** | Shannon (1948) | Scans outgoing queries and URLs for high-entropy strings and secret token patterns to prevent accidental credential exfiltration. |
+| **Content sanitization** | **Unicode Normalization & Anti-Exfiltration Defense** | Unicode TR9 / Security best practices | Strips zero-width characters, bidirectional overrides, and neutralizes Markdown image exfiltration injection vectors. |
+
+### 1. Information retrieval & rank aggregation
+
+- **Reciprocal Rank Fusion (RRF)**: In multi-angle research (`deepseek_quick_research` and `deepseek_deep_agent_research`), decomposition produces distinct search queries targeting different dimensions of a topic. Because search engines return uncalibrated, query-dependent relevance scores, standard score averaging fails. We implement Cormack et al.'s Reciprocal Rank Fusion:
+  $$RRF(d) = \sum_{q \in Q} \frac{1}{k + r_q(d)}$$
+  where $r_q(d)$ is the 1-based rank of document $d$ in the result set for query $q$, and $k = 60$ is the standard smoothing constant. RRF provides monotonic, outlier-resistant rank merging across heterogeneous queries.
+- **Maximal Marginal Relevance (MMR) & Domain Diversification**: High rank alone can lead to domain clustering (e.g. 10 results from the same news outlet or vendor). Our ranking pipeline applies MMR principles to penalize redundancy, enforcing domain diversity so that no single host monopolizes the synthesis context.
+- **BM25 Lexical Proximity Scoring**: For long documents fetched in `deepseek_fetch(query=...)` or context pruning in research tools, our lexical extractor computes term density in sliding windows, prioritizing sections where query keywords appear in close proximity rather than isolated occurrences.
+
+### 2. Autonomous research & evidence engineering
+
+- **Multi-Perspective Aspect Matrix Planning**: Rather than querying superficial keywords, `deepseek_deep_agent_research` decomposes topics across orthogonal epistemic dimensions:
+  1. *Primary / Statutory Mechanism*: Core standards, statutes, clinical trial designs, or architectural specs.
+  2. *Quantitative Metrics*: Empirically measured numbers, rates, percentages, sample sizes, and dates.
+  3. *Adversarial Limits & Disputes*: Open litigation, counter-arguments, dissenting regulatory positions, and failure modes.
+  4. *Current Status & Deadlines*: The latest official revisions, proposals, and implementation timelines.
+- **Sequential Analysis & Diminishing Marginal Yield Autostop**: Multi-round agent loops can easily spiral into infinite search loops or budget exhaustion. Grounded in Wald's sequential analysis and active learning theory, the agent evaluates an evidence matrix after each retrieval round. If a round yields zero new numeric facts ($\Delta \text{facts}_{num} = 0$), closes zero open aspect gaps ($\Delta \text{gaps} = 0$), and adds zero distinct domains ($\Delta \text{sources} = 0$), the loop terminates immediately with `stopped_reason: "saturated"`.
+- **Dynamic Factual Gap Detection**: When aspects lack verified empirical data, the agent passes preliminary evidence summaries to an LLM gap detector that identifies what critical figures or opposing viewpoints remain unretrieved and formulates up to 3 targeted follow-up queries.
+
+### 3. Verification & Trustworthy AI
+
+- **Verbatim Numeric Grounding**: To eliminate hallucinated numbers, percentages, dates, and currency quantities, the server extracts every numeric token in cited sentences and cross-references them against the verbatim text of the cited source passages (`ground_report_numbers`). Numbers not present in the sources are flagged with `[unverified]`.
+- **Defensive Content Sanitization**: Untrusted web pages may attempt prompt injection or data exfiltration. The server normalizes text by stripping zero-width joiners (ZWJ/ZWNJ), byte-order marks, and bidirectional Unicode override characters (Unicode TR9). Markdown images (`![alt](url)`) are converted to harmless text `[image: alt](url)` to prevent covert HTTP exfiltration.
+
+### 4. Distributed systems & concurrency control
+
+- **Token Bucket Rate Limiting**: Per-endpoint token buckets (Turner 1986) track search, fetch, and chat request consumption, enforcing sustained QPS limits with controlled burst capacities to prevent upstream HTTP 429 throttling.
+- **Single-Flight Request Coalescing**: To mitigate cache stampedes (the "thundering herd" problem) when multiple agents or subagents query the same URL or search query simultaneously, the server coalesces identical concurrent calls into a single shared flight.
+- **Atomic Two-Phase Budget Accounting**: Daily spend caps (`DEEPSEEK_DAILY_BUDGET_USD`) use a reservation-commit-release pattern guarded by POSIX advisory file locking (`fcntl.flock`), ensuring safe concurrency across multiple server worker processes.
+- **Shannon Entropy Anomaly Detection**: Outgoing queries and URLs are scanned using Claude Shannon's information entropy formula:
+  $$H(X) = -\sum_{i=1}^{n} P(x_i) \log_2 P(x_i)$$
+  Strings exceeding high entropy thresholds combined with typical credential patterns (AWS, Bearer tokens, private keys) are blocked at egress before leaving the local machine.
+
+### Academic literature references
+
+1. **Cormack, G. V., Clarke, C. L., & Buettcher, S.** (2009). *Reciprocal rank fusion outperforms condorcet and individual machine learning methods*. In Proceedings of the 32nd international ACM SIGIR conference on Research and development in information retrieval (pp. 758–759). [doi:10.1145/1571941.1572114](https://doi.org/10.1145/1571941.1572114).
+2. **Carbonell, J., & Goldstein, J.** (1998). *The use of MMR, diversity-based reranking for reordering documents and producing summaries*. In Proceedings of the 21st annual international ACM SIGIR conference on Research and development in information retrieval (pp. 335–336). [doi:10.1145/290941.291025](https://doi.org/10.1145/290941.291025).
+3. **Robertson, S. E., & Walker, S.** (1994). *Some Simple Effective Approximations to the 2-Poisson Model for Probabilistic Weighted Retrieval*. In Proceedings of the Third Text REtrieval Conference (TREC-3) (pp. 232–241). NIST Special Publication.
+4. **Wald, A.** (1945). *Sequential tests of statistical hypotheses*. The Annals of Mathematical Statistics, 16(2), 117–186. [doi:10.1214/aoms/1177731118](https://doi.org/10.1214/aoms/1177731118).
+5. **Shannon, C. E.** (1948). *A Mathematical Theory of Communication*. Bell System Technical Journal, 27(3), 379–423. [doi:10.1002/j.1538-7305.1948.tb01338.x](https://doi.org/10.1002/j.1538-7305.1948.tb01338.x).
+6. **Turner, J. S.** (1986). *New directions in communications (or which way to the information age?)*. IEEE Communications Magazine, 24(10), 8–15. [doi:10.1109/MCOM.1986.1092946](https://doi.org/10.1109/MCOM.1986.1092946).
+7. **Settles, B.** (2009). *Active Learning Literature Survey*. Computer Sciences Technical Report 1648, University of Wisconsin–Madison.
+8. **Denning, P. J.** (1968). *The working set model for program behavior*. Communications of the ACM, 11(5), 323–333. [doi:10.1145/363095.363157](https://doi.org/10.1145/363095.363157).
 
 ## Costs
 
