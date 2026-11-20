@@ -19,6 +19,9 @@ htmlcov/
 .env.*
 !.env.example
 
+# Local scripts tied to this machine's setup (provider checks, personal tooling)
+scripts/local/
+
 # Local runtime state
 .sisyphus/
 *.log
