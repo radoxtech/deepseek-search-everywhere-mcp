@@ -94,12 +94,7 @@ def _result_sources(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _gap_queries(
     aspects: list[Any], blocks: list[dict[str, Any]], used: set[str], *, topic: str, max_queries: int = 3
 ) -> list[str]:
-    """Reformulated queries for the aspects that still have no evidence.
-
-    Reusing the aspect's own query would repeat a search that has already run, so a gap query is built
-    from what the aspect wants to learn plus a word that asks for a different kind of page. It is dropped
-    when the result would repeat a query already sent.
-    """
+    """Reformulated queries for the aspects that still have no evidence."""
     queries: list[str] = []
     for aspect, block in zip(aspects, blocks, strict=False):
         if block["sentences"]:
@@ -115,10 +110,15 @@ def _gap_queries(
 
 
 UNIVERSAL_GAP_PROMPT = (
-    "You are a research gap detector. Given the research topic, planned aspects that lack evidence, "
-    "and summaries of preliminary findings: identify what critical factual dimensions (specific numbers, "
-    "recent disputes, official updates, or technical edge cases) are STILL MISSING.\n"
-    "Output up to 3 specialist keyword search queries targeting these missing dimensions.\n"
+    "You are an expert research gap detector. Given the research topic, executed queries, and "
+    "preliminary findings:\n"
+    "1. Identify what critical factual dimensions (such as named primary studies/standards/statutes/models, "
+    "specific quantitative metrics/rates/thresholds/costs, failure modes/degradation mechanisms, or "
+    "comparative counter-evidence) are STILL MISSING from the findings.\n"
+    "2. Generate up to 3 distinct specialist keyword search queries (3 to 8 keywords each) "
+    "targeting these missing dimensions.\n"
+    "CRITICAL: Do NOT repeat or slightly rephrase the executed queries; explore specific entity, "
+    "case or material names, parameter/mechanism names, or measured outcome metrics.\n"
     "Output strictly valid JSON with 'queries': [str]."
 )
 
@@ -138,18 +138,21 @@ async def _gap_queries_model(
         empty_aspects = [
             getattr(a, "aspect", "")
             for a, b in zip(run.aspects, blocks, strict=False)
-            if not b.get("numbers")
+            if len(b.get("numbers") or []) < 2
         ]
-    if not empty_aspects:
-        return _gap_queries(run.aspects, blocks, used, topic=run.topic, max_queries=max_queries)
 
     summary_lines = [
         f"- {s.get('title')}: {(s.get('content') or '')[:250]}" for s in results[:12] if s.get("title")
     ]
     summary_text = "\n".join(summary_lines)
+    aspect_context = (
+        f"Aspects still lacking clear evidence: {', '.join(empty_aspects)}\n"
+        if empty_aspects
+        else "Aspects partially covered; seek missing critical perspectives, metrics, or disputes.\n"
+    )
     user_prompt = (
         f"Research topic: {run.topic}\n"
-        f"Aspects still lacking clear evidence: {', '.join(empty_aspects)}\n"
+        f"{aspect_context}"
         f"Executed queries: {', '.join(used)}\n"
         f"Preliminary findings summary:\n{summary_text}\n\n"
         f"Output up to {max_queries} new search queries as JSON targeting the missing evidence."
@@ -192,8 +195,10 @@ REPORT_ASK = (
     "Write only this section, about {words} words. Start with the section's first sentence of prose; do "
     "not write a heading, the system adds it. Use only the sources given. Every number carries the [n] "
     "citation of the source that states it. Preserve verbatim numerical rates, percentages and dates rather "
-    "than generalizing into descriptive words. If the sources say nothing usable for this section, write "
-    "one sentence saying so."
+    "than generalizing into descriptive words. Do not spend more than two sentences or one table on a "
+    "single product code, formula, or worked numerical example; balance the section across all diverse "
+    "substantive perspectives, limits, and disputes supported by the sources. If the sources say nothing "
+    "usable for this section, write one sentence saying so."
 )
 
 
@@ -558,6 +563,8 @@ async def run_agent(
             run.sources, depth=depth, sources_pref=sources_pref, notes=run.notes, lang=lang, topic=run.topic
         )
         context, guard_notes = apply_token_guard(context)
+        run.synthesis_context = context
+        job.synthesis_context = context
         run.notes.extend(guard_notes)
         counters["context_chars"] = sum(len(c.get("content") or "") for c in context)
     if not context:

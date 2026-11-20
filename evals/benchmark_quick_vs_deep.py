@@ -176,7 +176,7 @@ async def run_quick_research(
     )
     wall = round(time.monotonic() - t0, 2)
     cost = float(res.get("cost_usd", 0.0) or 0.0)
-    context = getattr(job.run, "sources", []) if job.run else []
+    context = getattr(job, "synthesis_context", []) or getattr(job.run, "synthesis_context", []) or []
     return res, context, cost, wall
 
 
@@ -208,7 +208,7 @@ async def run_deep_agent_research(
     )
     wall = round(time.monotonic() - t0, 2)
     cost = float(res.get("cost_usd", 0.0) or 0.0)
-    context = getattr(job.run, "sources", []) if job.run else []
+    context = getattr(job, "synthesis_context", []) or getattr(job.run, "synthesis_context", []) or []
     return res, context, cost, wall
 
 
@@ -361,6 +361,7 @@ async def main() -> None:
                 "covered": q_cov,
                 "rate": q_rate,
                 "unsupported_sentences": q_judge["unsupported_sentences"],
+                "points": q_judge["verdict"].get("points", {}),
                 "report": q_rep,
                 "subqueries": q_res.get("subqueries", []),
             },
@@ -373,6 +374,7 @@ async def main() -> None:
                 "covered": a_cov,
                 "rate": a_rate,
                 "unsupported_sentences": a_judge["unsupported_sentences"],
+                "points": a_judge["verdict"].get("points", {}),
                 "rounds": a_rounds,
                 "facts_per_round": a_res.get("facts_per_round", []),
                 "stopped_reason": a_stopped,

@@ -392,7 +392,25 @@ def prune_source_content(
         digits = sum(1 for ch in p if ch.isdigit())
         score += min(6, digits // 2)
         if any(
-            w in p_lower for w in ("limit", "error", "warning", "table", "benchmark", "result", "version")
+            w in p_lower
+            for w in (
+                "limit",
+                "error",
+                "warning",
+                "table",
+                "benchmark",
+                "result",
+                "version",
+                "dispute",
+                "challenge",
+                "lawsuit",
+                "court",
+                "proposal",
+                "dissent",
+                "criticism",
+                "oppose",
+                "retracted",
+            )
         ):
             score += 3
         scored.append((score, idx, p))
