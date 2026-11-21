@@ -42,12 +42,14 @@ jobs:
           ruff format --check .
 
       - uses: actions/setup-node@v6
+        if: matrix.python-version == '3.13'
         with:
           node-version: "24"
 
       # No package-lock.json, so setup-node's `cache: npm` cannot be used; cache the npm
       # download cache directly, keyed on the pinned mcp-tdqs version.
       - name: Cache npm for mcp-tdqs
+        if: matrix.python-version == '3.13'
         uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -55,6 +57,7 @@ jobs:
 
       # The job installs into the runner interpreter, so there is no `.venv` here.
       - name: TDQS lint
+        if: matrix.python-version == '3.13'
         run: npx -y mcp-tdqs@0.2.0 lint --command "python -m deepseek_search_everywhere_mcp" --fail-on warning
 
       - name: Test

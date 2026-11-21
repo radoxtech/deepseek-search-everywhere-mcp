@@ -65,11 +65,11 @@ All tool responses return a JSON envelope containing the `ok` boolean:
 | `error.action` | Failures | Recommended next step: `retry`, `fix_input`, `change_approach`, `do_not_retry`, `start_again` or `ask_user`. |
 | `error.reason` | Failures | Fine-grained cause from the closed reason set in `errors.py`. |
 | `error.param` | Input failures | Name of the offending input parameter, omitted when no single parameter is at fault. |
-| `elapsed_ms` | All | Wall-clock execution time in milliseconds. |
+| `elapsed_ms` | All except some `deepseek_check_research` responses (early errors, `needs_input`, verified client reports) | Wall-clock execution time in milliseconds. |
 | `cost_usd` | Retrieval tools | Billed cost of the call in USD (`0.0` for cache hits). |
 | `cost_breakdown` | Extract & Research | Subtotal breakdown: `{ "search", "fetch", "llm" }` in USD. |
-| `requests_used` | All | Number of upstream DeepSeek API requests consumed. |
-| `cached` | All | `true` if the result was served from the local cache. |
+| `requests_used` | All except `deepseek_check_balance`, single-URL `deepseek_fetch`/`deepseek_extract`, and running/early-error `deepseek_check_research` | Number of upstream DeepSeek API requests consumed. |
+| `cached` | All except `deepseek_check_balance` and running/early-error `deepseek_check_research` | `true` if the result was served from the local cache. |
 | `notes` | Successes | Diagnostic details (deduplications, truncated terms, applied filters). |
 | `partial` | Batch & Research | `true` if a subset of batch items or sources failed while the overall operation succeeded. |
 | `untrusted_content` | Web content tools | Always `true` to remind agents that retrieved text is untrusted data. |
@@ -84,7 +84,7 @@ All tool responses return a JSON envelope containing the `ok` boolean:
 
 ### Structured content and output schemas
 
-Every tool publishes an `outputSchema` in `tools/list` and returns `structuredContent` next to the text block. `structuredContent` is the validated model dump, so it is a superset of the text JSON with `null` padding for absent optional fields; the text block remains the primary payload.
+Every tool publishes an `outputSchema` in `tools/list` and returns `structuredContent` next to the text block. `structuredContent` is the validated model dump, so it is a superset of the text JSON with `null` padding for absent optional fields; the text block remains the primary payload. Keys present in the text block but absent from a tool's output model are omitted from `structuredContent`; the text block keeps them.
 
 ---
 
