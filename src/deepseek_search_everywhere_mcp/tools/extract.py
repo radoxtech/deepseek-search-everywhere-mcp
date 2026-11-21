@@ -37,6 +37,7 @@ from ..extract import (
 from ..fetch_core import (
     _check_fetch_url,
 )
+from ..output_models.extract import ExtractOutput
 from ..runtime import (
     REWRITE_MODEL,
     _timed,
@@ -454,22 +455,21 @@ async def deepseek_extract(
         bool,
         Field(description="Bypass local cache and fetch fresh pages (default False)"),
     ] = False,
-) -> dict[str, Any]:
-    """Pull specific fields or a JSON schema out of web pages, each value backed by a verbatim quote.
+) -> ExtractOutput:
+    """Pull specific fields or a JSON schema out of one URL or a list of 1-10 URLs in parallel.
 
-    Use it for structured data (prices, names, dates, specs) instead of prose, from one URL or the
-    same fields from up to 10 URLs in parallel. $0.00075 per URL for the fetch plus about
-    $0.001-0.003 of LLM tokens per page. One URL reads up to 40,000 chars; a list reads
-    up to 20,000 per URL and 60,000 in total, keeps input order and reports a
-    failed URL in place. Pass fields= (names) or schema= (JSON schema), not both. A value whose
-    evidence quote is not in the page is returned as null with a note. Output is sanitized.
+    Use it for structured data (prices, names, dates, specs) instead of prose. Costs $0.00075 per URL for
+    the fetch plus about $0.001-0.003 of LLM tokens per page. One URL reads up to 40,000 chars; a list reads
+    up to 20,000 per URL and 60,000 in total, runs 4 extractions at once, keeps input order and reports a
+    failed URL in place. Pass fields= (names) or schema= (JSON schema), not both. Every value must carry a
+    verbatim evidence quote or it is returned as null with a note. extraction_truncated means the model output
+    was cut off by the token limit. Output is sanitized.
 
     When NOT to use: reading prose (deepseek_fetch), finding pages (deepseek_search), or an in-depth
     investigation (deepseek_quick_research or deepseek_deep_agent_research).
 
-    Returns for one URL: {"ok": True, "data": {...}, "evidence": {...}, "extraction_truncated": bool,
-    "cost_usd": float}. For a list: {"ok": True, "results": [{"url": str, "ok": bool, "data": {...},
-    "evidence": {...}}], "partial": bool, "cost_usd": float}.
+    Errors: extraction_failed / extraction_truncated (change approach), page_unavailable (change approach),
+    invalid_input (fix the call), blocked_by_policy (do not retry).
     """
     if isinstance(url, str):
         return await _extract_one(

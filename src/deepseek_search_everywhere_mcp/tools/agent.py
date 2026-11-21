@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from mcp.server.mcpserver.context import Context
 from pydantic import Field
@@ -12,6 +12,7 @@ from pydantic import Field
 from .. import agent_research, runtime
 from ..deep_research import ResearchJob, get_job_store
 from ..errors import _fail
+from ..output_models.agent import AgentResearchOutput
 from ..research_jobs import _finished_job_envelope, _reuse_finished_result, _running_job_envelope
 from ..runtime import _timed
 
@@ -57,21 +58,28 @@ async def deepseek_deep_agent_research(
         Field(description="Bypass local cache and perform fresh research (default False)"),
     ] = False,
     ctx: Context | None = None,
-) -> dict[str, Any]:
+) -> AgentResearchOutput:
     """Research a topic with an autonomous agent that plans, verifies and stops when rounds stop paying.
 
     Flagship multi-round agent (~55-140s, ~$0.011-$0.035). Plans an aspect matrix, audits factual
-    gains per round, queries gaps with entity anchoring dynamically, and autostops when evidence saturates.
+    gains per round, queries gaps with entity anchoring, and autostops when evidence saturates. topic
+    is at most 4,000 characters.
 
     When to use:
-    - Comprehensive investigations, contested disputes, and multi-faceted state-of-the-art reports.
+    - Comprehensive investigations, contested disputes and multi-faceted state-of-the-art reports.
     - In-depth research where opposing claims and subtle details must be uncovered across rounds.
     - When you need explicit tracking of open questions ("What the sources do not settle").
     (For rapid single-pass briefings prefer deepseek_quick_research; for single facts use deepseek_search).
 
+    Depth sets rounds and deadline: medium 2 rounds within 180 s, high 3 within 300 s, max 5 within
+    420 s. A call waits 45 s inline, then returns status "running" with a job_id; poll it with
+    deepseek_check_research. At most 3 jobs run at once, and a finished result is reused for 30
+    minutes at no cost.
+
     Returns: {"ok": True, "status": "done"|"running", "job_id"?, "report": str, "sources": [...],
     "plan": [...], "rounds": [...], "facts_per_round": [...], "estimate_usd": float,
-    "stopped_reason": str, "cost_usd": float}. Poll running jobs with deepseek_check_research.
+    "stopped_reason": str, "cost_usd": float}. Errors: job_not_found (start again), limit_reached
+    (max_cost_reached), temporary_failure (retry).
     """
     clean_topic = topic.strip() if isinstance(topic, str) else ""
     if not clean_topic:

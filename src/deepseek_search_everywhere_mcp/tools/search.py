@@ -24,6 +24,7 @@ from ..errors import (
 from ..gap_fill import (
     _fill_gaps,
 )
+from ..output_models.search import SearchOutput
 from ..redact import redact
 from ..runtime import (
     _timed,
@@ -150,22 +151,22 @@ async def deepseek_search(
         bool,
         Field(description="Bypass local cache and fetch fresh results (default False)"),
     ] = False,
-) -> dict[str, Any]:
-    """Search the live web: ranked results with snippets or full page text, for one query or up to 5.
+) -> SearchOutput:
+    """Search the live web: ranked results with snippets or full page text, for one query or a list.
 
-    Primary search and retrieval tool for current facts, news, docs and sources. query is one string (<=
-    128 chars, operators and filters included) or a list of up to 5 run in parallel to cover several
-    angles (duplicates run once, extras listed in skipped_queries). $0.00075 per query. Snippets by
-    default; content="full" returns page text up to 20,000 characters (shared by a list) and adds
-    $0.00075 for each page whose text it has to fetch. Results are deduplicated, dated (date, date_source)
-    and sanitized as untrusted content.
+    Primary search and retrieval tool for current facts, news, docs and sources. query is one string
+    (<= 128 chars, operators and filters included) or a list; a list runs at most 5 unique queries and
+    lists the rest in skipped_queries. count is 1-50 (default 5). $0.00075 per query. Snippets by
+    default; content="full" returns page text up to 20,000 characters, shared across a list, and adds
+    $0.00075 for each page whose text it has to fetch. Results are deduplicated, dated (date,
+    date_source) and sanitized as untrusted content. Search is capped at 10 req/s (burst 20).
 
     When NOT to use: a known URL (deepseek_fetch), fields as JSON (deepseek_extract), or an in-depth
     investigation (deepseek_quick_research or deepseek_deep_agent_research).
 
-    Returns for one query: {"ok": True, "results": [{title, url, date, snippet, content?}], "count": int,
-    "cost_usd": float, "notes": [...]}. For a list: {"ok": True, "results": [{"query": str, "ok": bool,
-    "results": [...]}], "partial": bool, "cost_usd": float}.
+    On errors, read error.code: invalid_input (fix the call), blocked_by_policy (do not retry),
+    temporary_failure (retry after a short wait), limit_reached or account_error (stop and tell the
+    user).
     """
     if isinstance(query, str):
         return await _search_one(

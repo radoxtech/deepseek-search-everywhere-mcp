@@ -16,6 +16,7 @@ from ..errors import _fail
 from ..fetch_core import (
     _check_fetch_url,
 )
+from ..output_models.fetch import FetchOutput
 from ..runtime import (
     _timed,
 )
@@ -45,22 +46,27 @@ async def deepseek_fetch(
         bool,
         Field(description="Bypass local cache and fetch fresh pages (default False)"),
     ] = False,
-) -> dict[str, Any]:
-    """Read known web pages as clean Markdown: one URL, or up to 10 in parallel, whole or in part.
+) -> FetchOutput:
+    """Read known web pages as clean Markdown: one URL, or a list of 1-10 URLs read in parallel.
 
-    Use it when you already know the URL. $0.00075 per URL. One URL returns up to 20,000 chars by
-    default (max_chars); passing query= returns the most relevant excerpts (no LLM, fast lexical match).
-    A list fetches up to 5 at a time, each page up to 4,000 chars by default, skips blanks, fetches
-    duplicates once, keeps input order and reports a failed URL in place (partial: true); query= also works
-    for a list. A 404 on a PDF or Reddit URL falls back to the search index. Content is sanitized (images
-    neutralized, hidden text stripped).
+    Use it when you already know the URL. $0.00075 per URL; cached pages are free. A single URL returns
+    up to 20,000 characters; pass query= to get only the most relevant excerpts (fast lexical match, no
+    LLM). A list reads up to 5 URLs concurrently, 4,000 characters per URL and 20,000 in total, skips
+    blanks, fetches duplicates once, keeps input order and reports a failed URL in place (partial: true).
+    URLs must be public HTTP(S), at most 8,192 characters. A 404 on a PDF or Reddit URL falls back to the
+    search index. Fetches are capped at 5 requests/second (burst 10). Content is sanitized: images
+    neutralized, hidden text stripped.
 
     When NOT to use: finding pages by topic (deepseek_search), fields as JSON (deepseek_extract), or
     an in-depth investigation (deepseek_quick_research or deepseek_deep_agent_research).
 
-    Returns for one URL: {"ok": True, "url": str, "title": str, "content": str, "truncated": bool,
-    "cost_usd": float, "notes": [...]}. For a list: {"ok": True, "results": [{"url": str, "ok": bool,
-    "content": str, ...}], "partial": bool, "cost_usd": float}.
+    Errors: page_unavailable (change approach), blocked_by_policy (do not retry), temporary_failure
+    (retry), invalid_input (fix).
+
+    Returns for one URL: {"ok": True, "url": str, "source": "fetch" | "search_index", "title": str,
+    "content": str, "chars": int, "total_chars": int, "truncated": bool, "cached": bool,
+    "cost_usd": float, "notes": [...]}. For a list: {"ok": True, "count": int, "results": [...],
+    "partial": bool, "failed_count": int, "cost_usd": float}.
     """
     if isinstance(url, str):
         return await _fetch_one(

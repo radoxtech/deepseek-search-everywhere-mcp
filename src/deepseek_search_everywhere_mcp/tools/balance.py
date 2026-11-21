@@ -8,6 +8,7 @@ from .. import runtime
 from ..envelope import (
     COST_PER_REQUEST,
 )
+from ..output_models.balance import BalanceOutput
 from ..runtime import (
     _get_cache_stats,
     _get_session_metrics,
@@ -18,13 +19,16 @@ BALANCE_TIMEOUT = 20.0
 
 
 @_timed
-async def deepseek_check_balance() -> dict[str, Any]:
+async def deepseek_check_balance() -> BalanceOutput:
     """Check the DeepSeek account balance and this session's usage before spending more.
 
-    Free ($0.00) and read-only. Returns the balance per currency and session metrics: upstream
-    requests, cache hits, hit rate and estimated spend.
+    Free ($0.00) and read-only: no upstream search or fetch charge. Returns the balance per currency
+    and session metrics: upstream requests, cache hits, hit rate and estimated spend. The call is
+    capped at a 20 s timeout.
 
     When NOT to use: for web data (deepseek_search, deepseek_fetch or deepseek_extract).
+
+    Errors: account_error (missing_api_key, auth_failed, insufficient_balance) → stop and ask the user.
 
     Returns: {"ok": True, "is_available": bool, "balances": [...], "session": {...}}.
     """

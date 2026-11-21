@@ -17,6 +17,10 @@ from ..deep_research import (
 from ..errors import (
     _fail,  # re-exported for callers and tests
 )
+from ..output_models.research import (
+    CheckResearchOutput,
+    QuickResearchOutput,
+)
 from ..research_jobs import (
     _client_page,
     _finished_job_envelope,
@@ -80,12 +84,16 @@ async def deepseek_quick_research(
         Field(description="Bypass local cache and perform fresh research pipeline (default False)"),
     ] = False,
     ctx: Context | None = None,
-) -> dict[str, Any]:
+) -> QuickResearchOutput:
     """Research a topic across the web and get a cited report in one quick single pass.
 
     Fast single-pass pipeline (~25-35s, $0.003-$0.01). Searches several angles, reads 6-24 sources,
     and writes a cited report with [n] citations mapped to source ids. If status is "running", poll
     deepseek_check_research with job_id. With synthesis="client", returns status "needs_input".
+
+    Limits: topic up to 4,000 chars; depth deadlines low 60 s, medium 180 s, high 300 s; the call
+    returns "running" after a 45 s inline wait. At most 3 jobs run at once. A finished result is
+    reused for 30 minutes at zero cost (cached: true, cost_usd: 0).
 
     When to use:
     - Technical documentation, specifications, architecture comparisons, and state-of-the-art overviews.
@@ -204,14 +212,15 @@ async def deepseek_check_research(
         Field(description="Input report text for a job with status needs_input (default None)"),
     ] = None,
     ctx: Context | None = None,
-) -> dict[str, Any]:
+) -> CheckResearchOutput:
     """Continue a research job: poll it, read its sources, or answer when it needs input.
 
     Free ($0.00); waits up to 45 s per call. Returns the finished report (status 'done'),
     progress while the job runs ('running': call again with the same job_id) or job_not_found
-    once it expired. Status 'needs_input' names a step: for step 'report' (synthesis='client'),
-    page= reads the next page of sources and answer= submits your report with [id] citations for
-    verification. Never restart a running job; poll it with this tool.
+    once it expired. A job expires after 1,800 s; job_not_found then means start again.
+    Status 'needs_input' names a step: for step 'report' (synthesis='client'), page= reads the
+    next page of sources and answer= (your report, up to 120,000 chars) submits it with [id]
+    citations for verification. Never restart a running job; poll it with this tool.
 
     When NOT to use: to start research (deepseek_quick_research or deepseek_deep_agent_research).
 
