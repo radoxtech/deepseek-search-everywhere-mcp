@@ -1,0 +1,335 @@
+{
+ "id": "medicine-glp1",
+ "topic": "Semaglutide and tirzepatide for obesity: weight-loss efficacy in clinical trials and main safety concerns",
+ "status": "reviewed",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "In the Wegovy label's 68-week obesity trial (STEP 1 per published literature; label calls it Study 2), semaglutide 2.4 mg gave -14.9% vs -2.4% placebo; 83.5% lost at least 5% and 47.9% at least 15%.",
+   "importance": "core",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "In the Wegovy label's 68-week obesity trial (STEP 1 in published literature; the label calls it Study 2), semaglutide 2.4 mg gave -14.9% weight change versus -2.4% with placebo.",
+     "main": true,
+     "also_accept": [
+      "-16.9% vs -2.4% (STEP 1 trial-product estimand, NEJM 2021)"
+     ]
+    },
+    {
+     "id": "k1b",
+     "fact": "In the Wegovy label's 68-week obesity trial (STEP 1 in published literature; the label calls it Study 2), 83.5% of semaglutide 2.4 mg patients lost at least 5% of body weight.",
+     "main": false,
+     "also_accept": [
+      "86.4% (STEP 1 primary publication, NEJM 2021)"
+     ]
+    },
+    {
+     "id": "k1c",
+     "fact": "In the Wegovy label's 68-week obesity trial (STEP 1 in published literature; the label calls it Study 2), 47.9% of semaglutide 2.4 mg patients lost at least 15% of body weight.",
+     "main": false,
+     "also_accept": [
+      "50.5% (STEP 1 primary publication, NEJM 2021)"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "k2",
+   "point": "SURMOUNT-1 (2,539 adults without diabetes, 72 weeks): tirzepatide 5/10/15 mg gave about -15% / -20% / -21% mean weight change versus about -3% on placebo (label: -15.0/-19.5/-20.9 vs -3.1; efficacy estimand: -16.0/-21.4/-22.5 vs -2.4); roughly 85-96% lost at least 5%. Either set of figures counts.",
+   "importance": "core",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf",
+    "https://www.lilly.com/hcp/medical-information/answers/how-did-zepbound-tirzepatide-compare-with-placebo-for-weight-reduction-in-people-without-diabetes-163853"
+   ],
+   "as_of": "2026-04",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "SURMOUNT-1 was a 72-week trial in 2,539 adults without diabetes.",
+     "main": false
+    },
+    {
+     "id": "k2b",
+     "fact": "In SURMOUNT-1, tirzepatide 5/10/15 mg gave about -15% / -20% / -21% mean weight change versus about -3% on placebo (label: -15.0/-19.5/-20.9 vs -3.1; efficacy estimand: -16.0/-21.4/-22.5 vs -2.4); either set of figures counts.",
+     "main": true,
+     "also_accept": [
+      "label / treatment-regimen estimand: -15.0% / -19.5% / -20.9% vs -3.1% placebo",
+      "efficacy estimand: -16.0% / -21.4% / -22.5% vs -2.4% placebo"
+     ]
+    },
+    {
+     "id": "k2c",
+     "fact": "In SURMOUNT-1, roughly 85-96% of tirzepatide patients lost at least 5% of body weight.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k3",
+   "point": "Head-to-head SURMOUNT-5 (751 adults with obesity, no diabetes, 72 weeks): tirzepatide produced 20.2% mean weight loss versus 13.7% with semaglutide, with similar GI-dominated safety profiles.",
+   "importance": "core",
+   "sources": [
+    "https://www.acc.org/Latest-in-Cardiology/Articles/2025/05/12/12/49/SURMOUNT-5"
+   ],
+   "as_of": "2025-05",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "In the head-to-head SURMOUNT-5 trial (751 adults with obesity, no diabetes, 72 weeks), tirzepatide produced 20.2% mean weight loss versus 13.7% with semaglutide.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "In SURMOUNT-5, tirzepatide and semaglutide had similar, GI-dominated safety profiles.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k4",
+   "point": "Gastrointestinal events are the most common adverse reactions: with semaglutide 2.4 mg nausea 44% (placebo 16%), diarrhea 30%, vomiting 24%, constipation 24%; mostly during dose escalation.",
+   "importance": "core",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "Gastrointestinal events are the most common adverse reactions of semaglutide and tirzepatide obesity treatment.",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "With semaglutide 2.4 mg, nausea occurs in 44% versus 16% with placebo.",
+     "main": false
+    },
+    {
+     "id": "k4c",
+     "fact": "With semaglutide 2.4 mg, diarrhea occurs in 30%.",
+     "main": false
+    },
+    {
+     "id": "k4d",
+     "fact": "With semaglutide 2.4 mg, vomiting occurs in 24% and constipation in 24%.",
+     "main": false
+    },
+    {
+     "id": "k4e",
+     "fact": "Gastrointestinal adverse reactions to semaglutide 2.4 mg occur mostly during dose escalation.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k5",
+   "point": "Discontinuation due to adverse reactions with tirzepatide was about 5-7% across doses versus about 3% on placebo (label pooled: 4.8% / 6.3% / 6.7% vs 3.4%).",
+   "importance": "secondary",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
+   ],
+   "as_of": "2026-04",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "Discontinuation due to adverse reactions with tirzepatide was about 5-7% across doses versus about 3% on placebo (label pooled: 4.8% / 6.3% / 6.7% vs 3.4%).",
+     "main": true,
+     "also_accept": [
+      "4.3% / 7.1% / 6.2% vs 2.6% placebo (SURMOUNT-1 primary publication, NEJM 2022)"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "k6",
+   "point": "Both Wegovy and Zepbound carry a boxed warning for thyroid C-cell tumors (seen in rodents; human relevance unknown) and are contraindicated with personal or family history of medullary thyroid carcinoma or MEN 2.",
+   "importance": "core",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf",
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "Both Wegovy and Zepbound carry a boxed warning for thyroid C-cell tumors (seen in rodents; human relevance unknown).",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "Both Wegovy and Zepbound are contraindicated with personal or family history of medullary thyroid carcinoma or MEN 2.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k7",
+   "point": "Beyond GI effects, label warnings include acute pancreatitis, acute gallbladder disease and acute kidney injury from volume depletion (also hypoglycemia, diabetic retinopathy complications in type 2 diabetes, severe GI adverse reactions and pulmonary aspiration under anesthesia); naming pancreatitis, gallbladder disease and one other warning counts.",
+   "importance": "core",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "Beyond GI effects, the Wegovy/Zepbound label warnings include acute pancreatitis.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "Beyond GI effects, the Wegovy/Zepbound label warnings include acute gallbladder disease.",
+     "main": false
+    },
+    {
+     "id": "k7c",
+     "fact": "The Wegovy/Zepbound label warnings include at least one further warning besides pancreatitis and gallbladder disease: acute kidney injury from volume depletion, hypoglycemia, diabetic retinopathy complications in type 2 diabetes, severe GI adverse reactions, or pulmonary aspiration under anesthesia (naming any one of these counts).",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k8",
+   "point": "Stopping treatment leads to substantial weight regain: in SURMOUNT-4, patients switched to placebo regained about 14% of body weight between weeks 36 and 88, while those continuing tirzepatide lost a further 5.5%.",
+   "importance": "core",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
+   ],
+   "as_of": "2026-04",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "Stopping semaglutide or tirzepatide obesity treatment leads to substantial weight regain.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "In SURMOUNT-4, patients switched to placebo regained about 14% of body weight between weeks 36 and 88.",
+     "main": false
+    },
+    {
+     "id": "k8c",
+     "fact": "In SURMOUNT-4, patients continuing tirzepatide lost a further 5.5% between weeks 36 and 88.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k9",
+   "point": "EMA's PRAC concluded in June 2025 that non-arteritic anterior ischaemic optic neuropathy (NAION) is a very rare side effect of semaglutide (up to 1 in 10,000 users); stop if confirmed.",
+   "importance": "secondary",
+   "sources": [
+    "https://pharmaceutical-journal.com/article/news/eye-disorder-is-a-very-rare-side-effect-of-weight-loss-drugs-concludes-ema-review",
+    "https://www.who.int/news/item/27-06-2025-27-06-2025-semaglutide-medicines-naion"
+   ],
+   "as_of": "2025-06",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "EMA's PRAC concluded in June 2025 that non-arteritic anterior ischaemic optic neuropathy (NAION) is a very rare side effect of semaglutide (up to 1 in 10,000 users).",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "EMA's PRAC advised that semaglutide should be stopped if NAION is confirmed.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k10",
+   "point": "Weight loss is smaller in people with type 2 diabetes: semaglutide 2.4 mg gave -9.6% vs -3.4% with placebo at 68 weeks (STEP 2; label Study 3).",
+   "importance": "secondary",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+   ],
+   "as_of": "2026-11",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "Weight loss with semaglutide 2.4 mg is smaller in people with type 2 diabetes.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "In people with type 2 diabetes, semaglutide 2.4 mg gave -9.6% weight change versus -3.4% with placebo at 68 weeks (STEP 2; label Study 3).",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k11",
+   "point": "Tirzepatide is a dual GIP and GLP-1 receptor agonist, whereas semaglutide acts on the GLP-1 receptor only.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
+   ],
+   "as_of": "2023-11",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "Tirzepatide is a dual GIP and GLP-1 receptor agonist.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "Semaglutide acts on the GLP-1 receptor only.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k13",
+   "point": "In the SELECT cardiovascular outcomes trial (label Study 1), semaglutide 2.4 mg reduced major adverse cardiovascular events in adults with established cardiovascular disease and overweight or obesity (HR 0.80, 95% CI 0.72-0.90), and Wegovy carries this indication.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf"
+   ],
+   "as_of": "2026-03",
+   "atoms": [
+    {
+     "id": "k13a",
+     "fact": "In the SELECT cardiovascular outcomes trial (label Study 1), semaglutide 2.4 mg reduced major adverse cardiovascular events in adults with established cardiovascular disease and overweight or obesity (HR 0.80, 95% CI 0.72-0.90).",
+     "main": true
+    },
+    {
+     "id": "k13b",
+     "fact": "Wegovy carries the indication for reducing major adverse cardiovascular events that SELECT supports.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k14",
+   "point": "The FDA removed the suicidal behavior and ideation warning from the Wegovy and Zepbound labels in early 2026.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215256s029lbl.pdf",
+    "https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806Orig1s050lbl.pdf"
+   ],
+   "as_of": "2026-04",
+   "atoms": [
+    {
+     "id": "k14a",
+     "fact": "The FDA removed the suicidal behavior and ideation warning from the Wegovy and Zepbound labels in early 2026.",
+     "main": true
+    }
+   ]
+  }
+ ],
+ "review": {
+  "by": "Fable (model reviewer standing in for a human), checked against primary sources",
+  "date": "2026-11-18",
+  "unverified": [
+   "k2: efficacy-estimand figures not re-fetched",
+   "k3: ACC source URL taken from the review, not opened by the maintainer",
+   "k9: EMA/WHO pages not re-fetched"
+  ]
+ }
+}

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 from typing import Any
 
 _HEADER_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
@@ -363,3 +364,67 @@ def _format_snippets(sections: list[dict[str, Any]], max_chars: int | None = Non
         parts.append(f"{_excerpt_header(s['title'], i, total)}\n{s['content']}")
     out = "\n\n---\n\n".join(parts)
     return out[:max_chars] if max_chars is not None else out
+
+
+def prune_source_content(
+    content: str,
+    query_terms: Sequence[str] | set[str] = (),
+    max_chars: int = 8000,
+) -> str:
+    """Extract top-scoring paragraphs by query term density and factual metrics to eliminate page boilerplate.
+
+    Keeps the most salient, fact-dense paragraphs (favoring numbers, percentages, benchmark tables,
+    and aspect query terms) up to ``max_chars``, preserving their natural document order.
+    """
+    if len(content) <= max_chars:
+        return content
+    paragraphs = [p.strip() for p in content.split("\n\n") if len(p.strip()) > 40]
+    if not paragraphs:
+        paragraphs = [p.strip() for p in content.split("\n") if len(p.strip()) > 40]
+    if not paragraphs:
+        return content[:max_chars]
+
+    q_set = {t.lower() for t in query_terms if t and len(t) >= 2}
+    scored: list[tuple[int, int, str]] = []
+    for idx, p in enumerate(paragraphs):
+        p_lower = p.lower()
+        score = sum(3 for term in q_set if term in p_lower)
+        digits = sum(1 for ch in p if ch.isdigit())
+        score += min(6, digits // 2)
+        if any(
+            w in p_lower
+            for w in (
+                "limit",
+                "error",
+                "warning",
+                "table",
+                "benchmark",
+                "result",
+                "version",
+                "dispute",
+                "challenge",
+                "lawsuit",
+                "court",
+                "proposal",
+                "dissent",
+                "criticism",
+                "oppose",
+                "retracted",
+            )
+        ):
+            score += 3
+        scored.append((score, idx, p))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    picked_indices: list[int] = []
+    accum_len = 0
+    for _score, idx, p in scored:
+        if accum_len + len(p) > max_chars and picked_indices:
+            continue
+        picked_indices.append(idx)
+        accum_len += len(p)
+        if accum_len >= max_chars:
+            break
+
+    picked_indices.sort()
+    return "\n\n".join(paragraphs[i] for i in picked_indices)

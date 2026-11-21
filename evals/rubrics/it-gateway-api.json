@@ -1,0 +1,122 @@
+{
+ "id": "it-gateway-api",
+ "topic": "Kubernetes Gateway API versus Ingress: design differences, maturity of implementations and migration considerations",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "Ingress covers only HTTP(S) host/path routing and TLS termination, with advanced features (rewrites, redirects, header handling) done through unvalidated, controller-specific annotations that hurt portability.",
+   "importance": "core",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/guides/migrating-from-ingress/",
+    "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k2",
+   "point": "Gateway API is a role-oriented model: GatewayClass (infra provider), Gateway (cluster operator, listeners/TLS), and Routes such as HTTPRoute (app developers) attached via parentRefs; listeners restrict attachment by namespace, hostname and kind.",
+   "importance": "core",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/concepts/api-overview/",
+    "https://gateway-api.sigs.k8s.io/guides/migrating-from-ingress/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k3",
+   "point": "Gateway API provides typed, portable fields for header/query/method matching, redirects, rewrites, header modification and weighted traffic splitting, which Ingress required annotations for; it also defines route merging and conflict rules.",
+   "importance": "core",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/guides/migrating-from-ingress/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k4",
+   "point": "Gateway, GatewayClass and HTTPRoute have been GA (v1) since v1.0; GRPCRoute entered the standard channel in v1.1.0; the project distinguishes Standard (stable) and Experimental (no compatibility guarantee) release channels.",
+   "importance": "core",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/concepts/versioning/",
+    "https://gateway-api.sigs.k8s.io/concepts/api-overview/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k5",
+   "point": "Release notes list TCPRoute and UDPRoute reaching GA/Standard in v1.6.0 (June 2026), with v1.6.2 latest in Sept 2026; older docs still call them experimental, so TLS/TCP/UDP route maturity must be checked per version.",
+   "importance": "secondary",
+   "sources": [
+    "https://github.com/kubernetes-sigs/gateway-api/releases",
+    "https://gateway-api.sigs.k8s.io/concepts/api-overview/"
+   ],
+   "as_of": "2026-09"
+  },
+  {
+   "id": "k6",
+   "point": "Implementation maturity varies: the implementations page lists about 20 conformant gateway controllers (e.g., Envoy Gateway, Istio, Cilium, NGINX Gateway Fabric, Traefik, Kong, GKE) and a few only partially conformant (e.g., AWS LBC, EKS, Gloo).",
+   "importance": "core",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/implementations/"
+   ],
+   "as_of": "2026-11"
+  },
+  {
+   "id": "k7",
+   "point": "Conformance has Core, Extended and implementation-specific support levels; implementation-specific features are not covered by conformance tests, and implementations certify via profile-based conformance reports on specific versions.",
+   "importance": "core",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/concepts/conformance/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k8",
+   "point": "Ingress API (networking.k8s.io/v1) is GA and still works but is feature-frozen; Kubernetes recommends Gateway API for new work.",
+   "importance": "secondary",
+   "sources": [
+    "https://kubernetes.io/docs/concepts/services-networking/ingress/",
+    "https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/"
+   ],
+   "as_of": "2025-11"
+  },
+  {
+   "id": "k9",
+   "point": "Ingress NGINX retirement was announced 2025-11-11, with best-effort maintenance until March 2026 and no releases or security fixes afterwards, pushing many users toward Gateway API.",
+   "importance": "core",
+   "sources": [
+    "https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/"
+   ],
+   "as_of": "2025-11"
+  },
+  {
+   "id": "k10",
+   "point": "Migration is a one-time conversion, not a live switch: Gateway API has no Ingress equivalent, so Ingress becomes HTTPRoute plus Gateway listeners (ports, TLS), default backends need an explicit catch-all route, and HTTPRoute hostnames must match listener hostnames.",
+   "importance": "core",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/guides/migrating-from-ingress/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k11",
+   "point": "The ingress2gateway tool translates Ingress resources into Gateway API resources (mainly HTTPRoutes); a 1.0 release was announced 2026-03-20, and its output must be tested; annotation behavior may not map one-to-one.",
+   "importance": "secondary",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/guides/migrating-from-ingress/",
+    "https://kubernetes.io/blog/2026/03/20/ingress2gateway-1-0-release/"
+   ],
+   "as_of": "2026-03"
+  },
+  {
+   "id": "k12",
+   "point": "Cross-namespace references (e.g., to Secrets) need an explicit ReferenceGrant, which remains v1beta1 in the Standard channel.",
+   "importance": "secondary",
+   "sources": [
+    "https://gateway-api.sigs.k8s.io/concepts/versioning/"
+   ],
+   "as_of": null
+  }
+ ]
+}

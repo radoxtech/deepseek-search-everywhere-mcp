@@ -10,9 +10,7 @@ import pytest
 
 from deepseek_search_everywhere_mcp.server import (
     deepseek_fetch,
-    deepseek_fetch_many,
     deepseek_search,
-    deepseek_search_many,
 )
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
@@ -34,7 +32,7 @@ async def test_search_egress_blocks_secrets(egress_secrets: dict[str, str], secr
     query = f"what is {secret} in python?"
     res = await deepseek_search(query)
     assert res["ok"] is False
-    assert res["error"]["code"] == "egress_blocked"
+    assert res["error"]["reason"] == "egress_blocked"
 
 
 @pytest.mark.asyncio
@@ -47,7 +45,7 @@ async def test_fetch_egress_blocks_secrets(egress_secrets: dict[str, str], secre
     url = f"https://example.com/api?k={urllib.parse.quote(secret)}"
     res = await deepseek_fetch(url)
     assert res["ok"] is False
-    assert res["error"]["code"] == "egress_blocked"
+    assert res["error"]["reason"] == "egress_blocked"
 
 
 @pytest.mark.asyncio
@@ -59,14 +57,14 @@ async def test_fetch_egress_allow_domains() -> None:
         # Denied domain
         res_denied = await deepseek_fetch("https://attacker.evil/data")
         assert res_denied["ok"] is False
-        assert res_denied["error"]["code"] == "egress_blocked"
+        assert res_denied["error"]["reason"] == "egress_blocked"
         assert "fetch_allow_domains" in res_denied["error"]["message"]
 
         # Subdomain of allowed domain passes egress check
         # (It will fail later on network if not mocked, but not with egress_blocked)
         res_allowed = await deepseek_fetch("https://sub.example.com/test")
         if not res_allowed.get("ok"):
-            assert res_allowed["error"]["code"] != "egress_blocked"
+            assert res_allowed["error"]["reason"] != "egress_blocked"
     finally:
         set_settings(Settings())
 
@@ -79,12 +77,12 @@ async def test_fetch_egress_deny_domains() -> None:
     try:
         res_denied = await deepseek_fetch("https://sub.evil.org/exfil")
         assert res_denied["ok"] is False
-        assert res_denied["error"]["code"] == "egress_blocked"
+        assert res_denied["error"]["reason"] == "egress_blocked"
         assert "fetch_deny_domains" in res_denied["error"]["message"]
 
         res_allowed = await deepseek_fetch("https://example.com/ok")
         if not res_allowed.get("ok"):
-            assert res_allowed["error"]["code"] != "egress_blocked"
+            assert res_allowed["error"]["reason"] != "egress_blocked"
     finally:
         set_settings(Settings())
 
@@ -98,14 +96,14 @@ async def test_egress_entropy_check_opt_in(egress_secrets: dict[str, str]) -> No
     set_settings(Settings(egress_entropy_check=False))
     res_default = await deepseek_fetch(url)
     if not res_default.get("ok"):
-        assert res_default["error"]["code"] != "egress_blocked"
+        assert res_default["error"]["reason"] != "egress_blocked"
 
     # Enabled: entropy check blocks the high-entropy token
     set_settings(Settings(egress_entropy_check=True))
     try:
         res_blocked = await deepseek_fetch(url)
         assert res_blocked["ok"] is False
-        assert res_blocked["error"]["code"] == "egress_blocked"
+        assert res_blocked["error"]["reason"] == "egress_blocked"
         assert "high-entropy" in res_blocked["error"]["message"]
     finally:
         set_settings(Settings())
@@ -116,16 +114,16 @@ async def test_batch_tools_egress_blocked(egress_secrets: dict[str, str]) -> Non
     secret = egress_secrets["sk_key"]
 
     # deepseek_search_many with one secret query
-    res_search = await deepseek_search_many([f"find {secret}", "normal query"])
+    res_search = await deepseek_search([f"find {secret}", "normal query"])
     assert res_search["ok"] is True
     assert res_search["results"][0]["ok"] is False
-    assert res_search["results"][0]["error"]["code"] == "egress_blocked"
+    assert res_search["results"][0]["error"]["reason"] == "egress_blocked"
 
     # deepseek_fetch_many with one secret URL
-    res_fetch = await deepseek_fetch_many([f"https://example.com/p?k={secret}"])
+    res_fetch = await deepseek_fetch([f"https://example.com/p?k={secret}"])
     assert res_fetch["ok"] is True
     assert res_fetch["results"][0]["ok"] is False
-    assert res_fetch["results"][0]["error"]["code"] == "egress_blocked"
+    assert res_fetch["results"][0]["error"]["reason"] == "egress_blocked"
 
 
 @pytest.mark.asyncio
@@ -148,8 +146,8 @@ async def test_batch_tools_egress_blocked(egress_secrets: dict[str, str]) -> Non
 async def test_egress_blocks_case_insensitive_secrets(secret_variant: str) -> None:
     res_search = await deepseek_search(f"check {secret_variant} status")
     assert res_search["ok"] is False
-    assert res_search["error"]["code"] == "egress_blocked"
+    assert res_search["error"]["reason"] == "egress_blocked"
 
     res_fetch = await deepseek_fetch(f"https://example.com/api?q={urllib.parse.quote(secret_variant)}")
     assert res_fetch["ok"] is False
-    assert res_fetch["error"]["code"] == "egress_blocked"
+    assert res_fetch["error"]["reason"] == "egress_blocked"

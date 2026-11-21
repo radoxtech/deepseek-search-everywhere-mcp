@@ -1,0 +1,1078 @@
+"""Research job orchestration behind deepseek_research and deepseek_check_research.
+
+``_ResearchRun`` carries one job through its pipeline phases (decompose, retrieve, round two,
+rank and fill, synthesize); ``_finalize_report`` is shared by server and client synthesis. Also
+holds the job envelopes (running, finished, waiting for a client report) and client report checks.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import dataclasses
+import json
+import os
+import re
+import uuid
+from collections.abc import Awaitable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Final, Literal
+
+from . import runtime, search_core
+from .deep_research import (
+    DEPTH_CONFIG,
+    ResearchAspect,
+    ResearchJob,
+    apply_token_guard,
+    best_source_title,
+    build_decomposition_messages,
+    build_synthesis_messages,
+    build_synthesis_system_prompt,
+    citation_ids,
+    classify_source_type,
+    clean_source_url,
+    filter_synthesis_output,
+    ground_report_numbers,
+    normalize_citations,
+    paginate_context,
+    parse_research_plan,
+    rank_and_diversify_sources,
+    report_body_words,
+    select_synthesis_context,
+    source_access,
+    source_authors,
+    source_identifiers,
+)
+from .envelope import (
+    COST_PER_REQUEST,
+    _all_cached,
+    _envelope_meta,
+)
+from .errors import (
+    _fail,  # re-exported for callers and tests
+)
+from .filters import (
+    MAX_QUERY,
+    fit_query,
+)
+from .gap_fill import (
+    _fill_gaps,
+)
+from .redact import redact
+from .runtime import (
+    REWRITE_MODEL,
+    logger,
+)
+from .sanitize import (
+    sanitize_untrusted_text,
+)
+from .settings import (
+    ENV_DEBUG_DUMP_DIR,
+)
+from .snippets import (
+    prune_source_content,
+)
+
+
+def _format_public_sources(
+    sources: list[dict[str, Any]],
+    *,
+    include_snippet: bool = False,
+) -> list[dict[str, Any]]:
+    """Format research sources into a lean public list omitting full page content.
+
+    Each item carries the identifiers extracted from the URL/content (``doi``, ``pmid``,
+    ``pmcid``) and ``access``: ``full_text`` for a fetched page or search content of at least 2000
+    characters, ``abstract`` for search content of at least 200 characters and ``snippet_only``
+    otherwise.
+    On success, sources carry no page content; on fallback paths, a 400-character sanitized
+    snippet is included.
+    """
+    formatted: list[dict[str, Any]] = []
+    for s in sources:
+        title = s.get("title")
+        if isinstance(title, str):
+            title, _ = sanitize_untrusted_text(title)
+        item: dict[str, Any] = {
+            "id": s.get("id"),
+            "title": title,
+            "url": s.get("url"),
+            "date": s.get("date"),
+            "doi": s.get("doi"),
+            "pmid": s.get("pmid"),
+            "pmcid": s.get("pmcid"),
+            "access": s.get("access"),
+            "source_type": s.get("source_type")
+            or classify_source_type(s.get("url") or "", s.get("title") or "", s.get("content") or ""),
+            "authors": s.get("authors"),
+        }
+        if include_snippet:
+            raw_text = s.get("snippet") or s.get("content") or ""
+            snip = raw_text[:400].strip() if isinstance(raw_text, str) else ""
+            if snip:
+                snip, _ = sanitize_untrusted_text(snip)
+            item["snippet"] = snip
+        formatted.append(item)
+    return formatted
+
+
+def _research_source(index: int, item: dict[str, Any], cached: bool) -> dict[str, Any]:
+    """Turn one shaped search result into a research source (``origin`` = ``search``)."""
+    url = clean_source_url(item["url"]) if isinstance(item.get("url"), str) else item.get("url")
+    content = item.get("content") or ""
+    title = best_source_title(item.get("title"), url or "", content)
+    return {
+        "id": index,
+        "title": title,
+        "url": url,
+        "date": item.get("date"),
+        "date_source": item.get("date_source"),
+        "site": item.get("site"),
+        "authority": item.get("authority"),
+        "rerank_score": item.get("rerank_score"),
+        "content": content,
+        "chars": len(content),
+        "origin": "search",
+        "error": None,
+        "cached": cached,
+        **source_identifiers(url or "", content),
+        "access": source_access("search", content),
+        "authors": source_authors(url or "", content),
+        "source_type": item.get("source_type") or classify_source_type(url or "", title, content),
+    }
+
+
+def _job_elapsed_ms(job: ResearchJob) -> int:
+    """Milliseconds since ``job`` was created."""
+    return max(0, int((runtime._clock() - job.created_at) * 1000))
+
+
+def _ms_since(started_at: float) -> int:
+    """Milliseconds elapsed since ``started_at``."""
+    return max(0, int((runtime._clock() - started_at) * 1000))
+
+
+def _stage_start(run: _ResearchRun) -> tuple[float, int]:
+    """Mark the start of a pipeline stage: its wall clock and its offset from the run start."""
+    return runtime._clock(), _ms_since(run.started_at)
+
+
+def _stage_end(run: _ResearchRun, name: str, start: tuple[float, int], counters: dict[str, Any]) -> None:
+    """Append one finished stage to the run trace (debug dump only; never part of the envelope)."""
+    started, entered_ms = start
+    run.trace.append(
+        {
+            "stage": name,
+            "entered_ms": entered_ms,
+            "duration_ms": _ms_since(started),
+            "counters": counters,
+        }
+    )
+
+
+@contextmanager
+def _stage(run: _ResearchRun, name: str) -> Iterator[dict[str, Any]]:
+    """Time one pipeline stage; the yielded dict collects its counters."""
+    counters: dict[str, Any] = {}
+    start = _stage_start(run)
+    try:
+        yield counters
+    except Exception as exc:
+        counters["error"] = redact(str(exc))
+        raise
+    finally:
+        _stage_end(run, name, start, counters)
+
+
+def _finished_job_envelope(job: ResearchJob, delivery: Literal["inline", "polled"]) -> dict[str, Any]:
+    """Return a finished job's result marked ``status: "done"``, or an error if the job failed.
+
+    A polled result reports the job's own elapsed time instead of the time of the polling call.
+    """
+    if job.exception is not None:
+        return _fail("internal_error", redact(f"Research job failed: {job.exception}"))
+    res = dict(job.result) if job.result else _fail("internal_error", "Empty research result")
+    if job.awaiting_report:
+        if job.client_charged:
+            return _awaiting_report_envelope(job, 1)  # the gathering cost was already reported
+        job.client_charged = True
+    if res.get("ok"):
+        if res.get("status") != "needs_input":
+            res["status"] = "done"
+        res["delivery"] = delivery
+        if delivery == "polled":
+            res["elapsed_ms"] = _job_elapsed_ms(job)
+    return res
+
+
+def _running_job_envelope(job: ResearchJob) -> dict[str, Any]:
+    """Return the ``status: "running"`` envelope telling the agent to poll the job."""
+    return {
+        "ok": True,
+        "status": "running",
+        "job_id": job.job_id,
+        "depth": job.depth,
+        "elapsed_ms": _job_elapsed_ms(job),
+        "progress": _progress_view(job),
+        "next_action": "Call deepseek_check_research with this job_id now. Do not start a new research.",
+    }
+
+
+def _reuse_finished_result(stored: dict[str, Any]) -> dict[str, Any]:
+    """Copy a stored finished research result, marked as served from the job store at zero cost."""
+    res = copy.deepcopy(stored)
+    if res.get("status") != "needs_input":
+        res["status"] = "done"
+    res["delivery"] = "inline"
+    res["cached"] = True
+    res["cost_usd"] = 0
+    if isinstance(res.get("cost_breakdown"), dict):
+        res["cost_breakdown"] = {k: 0 for k in res["cost_breakdown"]}
+    if isinstance(res.get("_meta"), dict):
+        res["_meta"] = {**res["_meta"], "cost_usd": 0}
+    notes = list(res.get("notes") or [])
+    notes.append("Reused finished research result from this session (no new cost).")
+    res["notes"] = notes
+    return res
+
+
+def _with_page_note(envelope: dict[str, Any], page: int | None) -> dict[str, Any]:
+    """Note that ``page`` was ignored on a job that has no client-synthesis pages."""
+    if page is not None and envelope.get("ok"):
+        envelope["notes"] = [
+            *envelope.get("notes", []),
+            "page applies only to synthesis='client' jobs; ignored.",
+        ]
+    return envelope
+
+
+def _progress_view(job: ResearchJob) -> dict[str, Any]:
+    """Return the public progress of a running job.
+
+    Besides ``phase``, ``step`` and ``of`` (and ``detail`` for a sub-step such as a synthesis retry
+    or condensing), it carries ``phase_elapsed_ms``, the time spent in the current phase or sub-step,
+    and ``deadline_ms``, the hard time cap of the job's depth, so a caller polling a long synthesis can
+    tell that the job is alive and how long it can still take.
+    """
+    view = dict(job.progress)
+    if job.phase_started_at is not None:
+        view["phase_elapsed_ms"] = max(0, int((runtime._clock() - job.phase_started_at) * 1000))
+    cfg = DEPTH_CONFIG.get(job.depth)
+    if cfg is not None:
+        view["deadline_ms"] = int(cfg.deadline_s * 1000)
+    return view
+
+
+async def _report_job_progress(
+    job: ResearchJob,
+    phase: str,
+    step: int,
+    total_steps: int,
+    message: str | None = None,
+    *,
+    detail: str | None = None,
+) -> None:
+    """Update job progress state and emit an MCP progress notification if context is attached."""
+    event: dict[str, Any] = {"phase": phase, "step": step, "of": total_steps}
+    if detail:
+        event["detail"] = detail
+    job.progress = event
+    job.phase_started_at = runtime._clock()
+    job.progress_history.append(event)
+    if job.ctx is not None and hasattr(job.ctx, "report_progress"):
+        try:
+            await job.ctx.report_progress(float(step), float(total_steps), message=message or phase)
+        except Exception as exc:
+            logger.debug("Failed to report progress to context for job %s: %s", job.job_id, exc)
+
+
+async def _run_research_job(job: ResearchJob, **kwargs: Any) -> dict[str, Any]:
+    try:
+        res = await _execute_research_pipeline(job=job, **kwargs)
+        job.result = res
+        job.completed_at = runtime._clock()
+        return res
+    except asyncio.CancelledError:
+        job.completed_at = runtime._clock()
+        raise
+    except Exception as exc:
+        job.exception = exc
+        job.completed_at = runtime._clock()
+        job.result = _fail("internal_error", redact(str(exc)))
+        if job.run is not None:
+            _maybe_dump_research_job(run=job.run, error=redact(str(exc)))
+        return job.result
+
+
+def _maybe_dump_research_job(
+    *,
+    run: _ResearchRun,
+    synthesis_context: list[dict[str, Any]] | None = None,
+    raw_model_report: str = "",
+    final_report: str = "",
+    unverified_numbers: list[dict[str, str]] | None = None,
+    requests_used: int = 0,
+    error: str | None = None,
+) -> None:
+    """Optionally dump research job inputs, per-stage trace and outputs for offline debugging/audits."""
+    dump_dir = runtime.get_settings().debug_dump_dir or os.environ.get(ENV_DEBUG_DUMP_DIR, "").strip()
+    if not dump_dir:
+        return
+    try:
+        p = Path(dump_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        dump_file = p / f"{run.job.job_id}.json"
+        synthesis_context_dump = [
+            {
+                "id": s.get("id"),
+                "url": s.get("url"),
+                "title": s.get("title"),
+                "content": s.get("content"),
+                "doi": s.get("doi"),
+                "pmid": s.get("pmid"),
+                "pmcid": s.get("pmcid"),
+                "access": s.get("access"),
+                "source_type": s.get("source_type"),
+            }
+            for s in synthesis_context or []
+        ]
+        dump_payload = {
+            "job_id": run.job.job_id,
+            "topic": run.topic,
+            "depth": run.depth,
+            "subqueries": list(run.subqueries),
+            "aspects": [
+                {"aspect": a.aspect, "kind": a.kind, "looking_for": a.looking_for, "query": a.query}
+                for a in run.aspects
+            ],
+            "sources": _format_public_sources(synthesis_context or [], include_snippet=False),
+            "synthesis_context": synthesis_context_dump,
+            "raw_model_report": raw_model_report,
+            "raw_report": raw_model_report,
+            "final_report": final_report,
+            "report": final_report,
+            "unverified_numbers": unverified_numbers or [],
+            "requests_used": requests_used,
+            "notes": list(run.notes),
+            "stage_trace": list(run.trace),
+            "status": "failed" if error else "done",
+            "error": error,
+        }
+        dump_file.write_text(json.dumps(dump_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        logger.warning(
+            "Failed to write research debug dump for job %s to %s: %s", run.job.job_id, dump_dir, exc
+        )
+
+
+# Seconds of the depth deadline kept free for the synthesis call while the earlier phases run.
+_SYNTHESIS_RESERVE_S: Final[dict[str, float]] = {"low": 20.0, "medium": 70.0, "high": 110.0, "max": 150.0}
+
+
+@dataclass
+class _ResearchRun:
+    """State shared by the phases of one research job: inputs, deadline, costs, counters and notes."""
+
+    job: ResearchJob
+    topic: str
+    depth: str
+    sources_pref: str
+    lang: str | None
+    refresh: bool
+    strip_boilerplate: bool
+    cfg: Any
+    deadline_at: float
+    synthesis_reserve: float
+    total_steps: int
+    subqueries: list[str] = field(default_factory=list)
+    aspects: list[ResearchAspect] = field(default_factory=list)
+    result_lists: list[list[dict[str, Any]]] = field(default_factory=list)
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    search_cost: float = 0.0
+    fetch_cost: float = 0.0
+    llm_cost: float = 0.0
+    requests_used: int = 0
+    cached_count: int = 0
+    fetch_failed: int = 0
+    started_at: float = field(default_factory=runtime._clock)
+    trace: list[dict[str, Any]] = field(default_factory=list)
+
+    def remaining(self) -> float:
+        """Seconds left before the job deadline."""
+        return self.deadline_at - runtime._clock()
+
+    def phase_timeout(self, cap: float) -> float:
+        """Timeout for a phase: the time left after the synthesis reserve, between 5 s and ``cap``."""
+        return min(cap, max(5.0, self.remaining() - self.synthesis_reserve))
+
+    def add_searches(self, results: list[dict[str, Any]]) -> None:
+        """Count the requests, cache hits and cost of successful search envelopes."""
+        self.cached_count += sum(r.get("cached_count", 0) for r in results)
+        self.requests_used += sum(r.get("requests_used", 0) for r in results)
+        self.search_cost += sum(r.get("cost_usd", 0.0) for r in results)
+
+    def envelope(
+        self,
+        *,
+        report: str | None,
+        sources: list[dict[str, Any]],
+        unverified_numbers: list[dict[str, str]],
+        unverified_count: int,
+        partial: bool,
+        requests_used: int,
+        llm_cost: float,
+        injection_suspected: int,
+        notes: list[str],
+    ) -> dict[str, Any]:
+        """Build a finished research envelope with the run's cost and cache accounting."""
+        total_llm = round(llm_cost, 6)
+        total_cost = round(self.search_cost + self.fetch_cost + total_llm, 6)
+        return {
+            "ok": True,
+            "status": "done",
+            "topic": self.topic,
+            "depth": self.depth,
+            "subqueries": self.subqueries,
+            "report": report,
+            "synthesized": report is not None,
+            "sources": sources,
+            "unverified_numbers": unverified_numbers,
+            "unverified_number_count": unverified_count,
+            "partial": partial,
+            "requests_used": requests_used,
+            "cached": _all_cached(requests_used, self.cached_count),
+            "cached_count": self.cached_count,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(self.search_cost, 6),
+                "fetch": round(self.fetch_cost, 6),
+                "llm": total_llm,
+            },
+            "untrusted_content": True,
+            "derived_from_untrusted": True,
+            "injection_suspected": injection_suspected,
+            "notes": notes,
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
+        }
+
+    def unsynthesized(
+        self, note: str, *, requests_used: int | None = None, llm_cost: float | None = None
+    ) -> dict[str, Any]:
+        """Envelope returned when no report is written: the gathered sources with a snippet each."""
+        return self.envelope(
+            report=None,
+            sources=_format_public_sources(self.sources, include_snippet=True),
+            unverified_numbers=[],
+            unverified_count=0,
+            partial=True,
+            requests_used=self.requests_used if requests_used is None else requests_used,
+            llm_cost=self.llm_cost if llm_cost is None else llm_cost,
+            injection_suspected=0,
+            notes=self.notes + [note],
+        )
+
+
+def _research_search_calls(run: _ResearchRun, queries: list[str], timeout: float) -> list[Awaitable[Any]]:
+    """Build one full-content search per query, each bounded by ``timeout``."""
+    cfg = run.cfg
+    return [
+        asyncio.wait_for(
+            search_core._search(
+                query,
+                cfg.count,
+                run.topic[:MAX_QUERY],
+                "full",
+                run.lang,
+                cfg.per_page_char_cap,
+                cfg.per_page_char_cap * cfg.count,
+                True,
+                False,
+                refresh=run.refresh,
+                strip_boilerplate=run.strip_boilerplate,
+            ),
+            timeout=timeout,
+        )
+        for query in queries
+    ]
+
+
+async def _research_decompose(run: _ResearchRun) -> None:
+    """Phase 1: split the topic into subqueries with deepseek-flash (the topic itself on failure)."""
+    await _report_job_progress(
+        run.job, "decomposition", 1, run.total_steps, "Decomposing topic into subqueries"
+    )
+    with _stage(run, "decompose") as counters:
+        timeout = run.phase_timeout(20.0)
+        res = await runtime._chat_request(
+            messages=build_decomposition_messages(
+                run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref, lang=run.lang
+            ),
+            thinking={"type": "disabled"},
+            model=REWRITE_MODEL,
+            temperature=0.0,
+            max_tokens=1024,
+            response_format={"type": "json_object"},
+            timeout=timeout,
+            deadline=timeout,
+            attempts=2,
+        )
+        if res.get("ok"):
+            run.llm_cost += res.get("cost_usd", 0.0)
+        counters["model_ok"] = bool(res.get("ok"))
+        counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
+        subqueries: list[str] = []
+        aspects: list[ResearchAspect] = []
+        fallback_query = run.topic[:128].strip()
+        if res.get("ok") and res.get("content"):
+            subqueries, aspects = parse_research_plan(
+                res["content"], run.topic, max_queries=run.cfg.subqueries
+            )
+        # Active retry if LLM responded but parsing failed to produce aspects or specific subqueries
+        plan_ok = bool(aspects or (subqueries and subqueries != [fallback_query]))
+        if not plan_ok and res.get("ok") and run.remaining() > run.synthesis_reserve + 15.0:
+            retry_res = await runtime._chat_request(
+                messages=[
+                    *build_decomposition_messages(
+                        run.topic, max_queries=run.cfg.subqueries, sources=run.sources_pref, lang=run.lang
+                    ),
+                    {"role": "assistant", "content": res.get("content") or "{}"},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Previous response did not contain valid aspects. Output strictly a JSON object "
+                            "with 'aspects': [{'aspect': str, 'kind': str, 'looking_for': str, "
+                            "'query': str}] and 'queries': [str]."
+                        ),
+                    },
+                ],
+                thinking={"type": "disabled"},
+                model=REWRITE_MODEL,
+                temperature=0.0,
+                max_tokens=2048,
+                response_format={"type": "json_object"},
+                timeout=min(15.0, run.phase_timeout(15.0)),
+                deadline=timeout,
+                attempts=2,
+            )
+            if retry_res.get("ok") and retry_res.get("content"):
+                run.llm_cost += retry_res.get("cost_usd", 0.0)
+                subqueries, aspects = parse_research_plan(
+                    retry_res["content"], run.topic, max_queries=run.cfg.subqueries
+                )
+
+        if aspects or subqueries:
+            run.subqueries = subqueries
+            run.aspects = aspects
+            counters["fallback"] = False
+        else:
+            fallback, _ = fit_query(run.topic)
+            run.subqueries = [fallback]
+            counters["fallback"] = True
+        counters["queries"] = len(run.subqueries)
+        counters["aspects"] = len(run.aspects)
+
+
+async def _research_retrieve(run: _ResearchRun) -> dict[str, Any] | None:
+    """Phase 2: search every subquery; return the first error envelope when all of them fail."""
+    await _report_job_progress(run.job, "retrieval", 2, run.total_steps, "Searching across subqueries")
+    with _stage(run, "retrieve") as counters:
+        counters["queries"] = len(run.subqueries)
+        raw = await asyncio.gather(
+            *_research_search_calls(run, run.subqueries, run.phase_timeout(30.0)), return_exceptions=True
+        )
+        results = [
+            item if isinstance(item, dict) else _fail("timeout", redact(f"Search failed: {item}"))
+            for item in raw
+        ]
+        successful = [r for r in results if r.get("ok")]
+        failed = len(results) - len(successful)
+        counters["searches_ok"] = len(successful)
+        counters["searches_failed"] = failed
+        counters["results"] = sum(len(r.get("results") or []) for r in successful)
+        counters["deduped"] = sum(int(r.get("deduped") or 0) for r in successful)
+        counters["requested"] = sum(int(r.get("count") or 0) for r in successful)
+        counters["cached_searches"] = sum(1 for r in successful if r.get("cached"))
+        if failed:
+            run.notes.append(f"{failed} search(es) failed or timed out; continuing with the rest.")
+        if not successful:
+            return results[0]
+        run.result_lists = [r.get("results", []) for r in successful]
+        run.add_searches(successful)
+    return None
+
+
+async def _research_rank_and_fill(run: _ResearchRun) -> None:
+    """Phases 3-4: rank and diversify the results into sources, then fetch pages with short content."""
+    with _stage(run, "rank") as counters:
+        stats: dict[str, Any] = {}
+        selected, rank_notes = rank_and_diversify_sources(
+            run.result_lists,
+            k_sources=run.cfg.k_sources,
+            denylist=runtime.get_settings().source_denylist,
+            sources=run.sources_pref,
+            stats=stats,
+        )
+        counters.update(stats)
+        run.notes.extend(rank_notes)
+        run.sources = [
+            _research_source(idx, item, item.get("cached", False)) for idx, item in enumerate(selected, 1)
+        ]
+        counters["sources"] = len(run.sources)
+
+    gap_step = 3
+    await _report_job_progress(
+        run.job, "gap_fill", gap_step, run.total_steps, "Fetching gap pages for top sources"
+    )
+    with _stage(run, "gap_fill") as counters:
+        fill = await _fill_gaps(
+            run.sources,
+            run.cfg.per_page_char_cap,
+            run.cfg.total_source_chars,
+            run.refresh,
+            run.strip_boilerplate,
+            deadline=run.phase_timeout(30.0),
+            max_pages=run.cfg.k_sources,
+            share_total=False,
+        )
+        run.requests_used += fill.requests_used
+        run.cached_count += fill.cached_count
+        run.fetch_cost = fill.requests_used * COST_PER_REQUEST
+        run.fetch_failed = fill.failed
+        if fill.fetched:
+            run.notes.append(f"fetched {fill.fetched} page(s) with missing or short search content")
+        if fill.failed:
+            run.notes.append(f"{fill.failed} fetch(es) failed; see the source's error")
+        counters.update(
+            {
+                "sources": len(run.sources),
+                "fetched": fill.fetched,
+                "failed": fill.failed,
+                "trimmed": fill.trimmed,
+                "requests": fill.requests_used,
+                "cached": fill.cached_count,
+                "chars": sum(len(s.get("content") or "") for s in run.sources),
+            }
+        )
+
+
+def _research_cost_guard(run: _ResearchRun, context: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the sources-only envelope when synthesis would break the cost ceiling or the deadline."""
+    total_source_chars = sum(min(len(s.get("content") or ""), 8000) for s in context)
+    pricing = runtime.get_settings().llm_pricing.peak
+    est_synth_cost = ((total_source_chars // 2) / 1_000_000) * pricing.cache_miss_per_1m + (
+        run.cfg.max_tokens / 1_000_000
+    ) * pricing.output_per_1m
+    est_total = run.search_cost + run.fetch_cost + run.llm_cost + est_synth_cost
+    ceiling = runtime.get_settings().research_cost_ceiling_usd
+    if est_total > ceiling:
+        return run.unsynthesized(
+            f"Estimated research cost (${est_total:.4f}) exceeds ceiling "
+            f"of ${ceiling:.2f}; returning gathered sources without synthesis."
+        )
+    if run.remaining() < 5.0:
+        return run.unsynthesized("Synthesis deadline reached; returning gathered sources.")
+    return None
+
+
+async def _research_synthesize(
+    run: _ResearchRun, context: list[dict[str, Any]], synth_step: int
+) -> tuple[dict[str, Any], float]:
+    """Write the report with deepseek-flash, retrying once without thinking when the first answer is
+    cut off or empty. Return the answer used and the cost of an attempt that was billed but not used."""
+    cfg = run.cfg
+    with _stage(run, "synthesize") as counters:
+        query_terms: set[str] = set()
+        for text in (
+            run.topic,
+            *run.subqueries,
+            *(a.aspect for a in run.aspects),
+            *(a.looking_for for a in run.aspects),
+        ):
+            query_terms.update(w.lower() for w in re.findall(r"\w+", text) if len(w) >= 3)
+
+        synth_context = [
+            {
+                **src,
+                "content": prune_source_content(
+                    src.get("content") or "",
+                    query_terms=query_terms,
+                    max_chars=8000,
+                ),
+            }
+            for src in context
+        ]
+
+        messages = build_synthesis_messages(
+            run.topic,
+            synth_context,
+            depth=run.depth,
+            nonce=uuid.uuid4().hex[:12],
+            aspects=run.aspects,
+            lang=run.lang,
+        )
+        counters["context_sources"] = len(synth_context)
+        counters["prompt_chars"] = sum(len(m.get("content") or "") for m in messages)
+        timeout = max(10.0, run.remaining() - 2.0)
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "model": REWRITE_MODEL,
+            "max_tokens": cfg.max_tokens,
+            "timeout": timeout,
+            "deadline": timeout,
+            "attempts": 1,
+        }
+        if cfg.thinking:
+            kwargs["thinking"] = {"type": "enabled"}
+            if cfg.reasoning_effort:
+                kwargs["reasoning_effort"] = cfg.reasoning_effort
+        else:
+            kwargs["thinking"] = {"type": "disabled"}
+            kwargs["temperature"] = 0.0
+        res = await runtime._chat_request(**kwargs)
+        counters["retry"] = False
+        counters["finish_reason"] = res.get("finish_reason")
+        counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
+        usage = res.get("usage") or {}
+        counters["prompt_tokens"] = int(usage.get("prompt_tokens") or 0)
+        counters["completion_tokens"] = int(usage.get("completion_tokens") or 0)
+
+        needs_retry = (
+            not res.get("ok")
+            or res.get("finish_reason") == "length"
+            or not (res.get("content") or "").strip()
+        )
+        rem_retry = run.remaining()
+        if not needs_retry or rem_retry < 8.0:
+            return res, 0.0
+        counters["retry"] = True
+        run.notes.append("Synthesis initial attempt truncated or empty; retrying with thinking disabled.")
+        await _report_job_progress(
+            run.job,
+            "synthesis",
+            synth_step,
+            run.total_steps,
+            "Retrying synthesis with thinking disabled",
+            detail="retry",
+        )
+        retry = await runtime._chat_request(
+            messages=messages,
+            thinking={"type": "disabled"},
+            temperature=0.0,
+            model=REWRITE_MODEL,
+            max_tokens=cfg.max_tokens,
+            timeout=max(5.0, rem_retry - 2.0),
+            deadline=max(5.0, rem_retry - 2.0),
+            attempts=1,
+        )
+        counters["retry_finish_reason"] = retry.get("finish_reason")
+        # Every attempt is billed, so the attempt that is not used still counts toward the cost.
+        if (
+            retry.get("ok")
+            and (retry.get("content") or "").strip()
+            and retry.get("finish_reason") != "length"
+        ):
+            return retry, float(res.get("cost_usd", 0.0) or 0.0)
+        return res, float(retry.get("cost_usd", 0.0) or 0.0)
+
+
+async def _finalize_report(
+    run: _ResearchRun,
+    context: list[dict[str, Any]],
+    report_text: str,
+    *,
+    requests_used: int,
+    llm_cost: float,
+    synth_step: int,
+    condense: bool = False,
+) -> dict[str, Any]:
+    """Filter, normalize, sanitize and ground a written report, then build the envelope.
+
+    Over-length reports are retained in full and noted in notes (ADR 0011).
+    """
+    allowed_urls = {s["url"].strip() for s in context if isinstance(s.get("url"), str) and s["url"].strip()}
+    finalize_start = _stage_start(run)
+    filtered, injection_suspected, filter_notes = filter_synthesis_output(report_text, allowed_urls)
+    report = normalize_citations(filtered, max_id=len(context))
+    words = report_body_words(report)
+    condense_notes = []
+    if words > run.cfg.max_words:
+        condense_notes = [
+            f"Report has {words} words, over the {run.cfg.max_words}-word ceiling for depth "
+            f"{run.depth!r}; it was kept as written."
+        ]
+    report, sanitize_notes = sanitize_untrusted_text(report)
+    report, unverified_numbers, unverified_count, unverified_notes = ground_report_numbers(
+        report, context, drop=run.job.unverified == "drop"
+    )
+    run.notes.extend(filter_notes)
+    run.notes.extend(condense_notes)
+    run.notes.extend(sanitize_notes)
+    run.notes.extend(unverified_notes)
+    _stage_end(
+        run,
+        "finalize",
+        finalize_start,
+        {
+            "words_in": words,
+            "words_out": report_body_words(report),
+            "report_chars": len(report),
+            "citations": len(citation_ids(report)),
+            "injection_suspected": injection_suspected,
+            "unverified_numbers": unverified_count,
+        },
+    )
+    _maybe_dump_research_job(
+        run=run,
+        synthesis_context=context,
+        raw_model_report=report_text,
+        final_report=report,
+        unverified_numbers=unverified_numbers,
+        requests_used=requests_used,
+    )
+    return run.envelope(
+        report=report,
+        sources=_format_public_sources(context, include_snippet=False),
+        unverified_numbers=unverified_numbers,
+        unverified_count=unverified_count,
+        partial=run.fetch_failed > 0,
+        requests_used=requests_used,
+        llm_cost=round(llm_cost, 6),
+        injection_suspected=injection_suspected,
+        notes=run.notes,
+    )
+
+
+# Longest report a client may submit for verification.
+MAX_CLIENT_REPORT_CHARS = 120_000
+
+
+def _awaiting_report_envelope(job: ResearchJob, page: int, *, charge: bool = False) -> dict[str, Any]:
+    """Return one page of a client-synthesis job's sources (``status: "needs_input"``, ``step: "report"``).
+
+    Page 1 carries the synthesis instructions; only its first delivery (``charge``) reports the cost
+    of gathering the sources, every other page or repeat costs nothing. ``next_action`` points to the
+    next page, then to submitting the report.
+    """
+    run: _ResearchRun = job.client_run
+    entries, pages = paginate_context(job.synthesis_context or [], page)
+    if page < pages:
+        next_action = (
+            f"Read page {page + 1} of {pages} with deepseek_check_research(job_id, page={page + 1}), then "
+            "write the report following synthesis_instructions and send it with "
+            "deepseek_check_research(job_id, answer=...)."
+        )
+    else:
+        next_action = (
+            "Write the report following synthesis_instructions (cite sources as [id]) and send it with "
+            "deepseek_check_research(job_id, answer=...); the server verifies citations and numbers."
+        )
+    first = page == 1
+    requests_used = run.requests_used if charge else 0
+    llm_cost = round(run.llm_cost, 6) if charge else 0.0
+    search_cost = run.search_cost if charge else 0.0
+    fetch_cost = run.fetch_cost if charge else 0.0
+    total_cost = round(search_cost + fetch_cost + llm_cost, 6)
+    envelope: dict[str, Any] = {
+        "ok": True,
+        "status": "needs_input",
+        "step": "report",
+        "job_id": job.job_id,
+        "topic": run.topic,
+        "depth": run.depth,
+        "subqueries": run.subqueries,
+    }
+    if first:
+        envelope["synthesis_instructions"] = build_synthesis_system_prompt(run.depth, client=True)
+    envelope.update(
+        {
+            "context_page": page,
+            "context_pages": pages,
+            "context": entries,
+            "next_action": next_action,
+            "requests_used": requests_used,
+            "cached": _all_cached(requests_used, run.cached_count) if charge else True,
+            "cached_count": run.cached_count if charge else 0,
+            "cost_usd": total_cost,
+            "cost_breakdown": {
+                "search": round(search_cost, 6),
+                "fetch": round(fetch_cost, 6),
+                "llm": llm_cost,
+            },
+            "untrusted_content": True,
+            # Subqueries were written by the model from user query and may touch untrusted content.
+            "derived_from_untrusted": True,
+            "notes": list(run.notes),
+            "_meta": _envelope_meta(total_cost, untrusted_content=True),
+        }
+    )
+    return envelope
+
+
+def _client_page(job: ResearchJob, page: int) -> dict[str, Any]:
+    """Return ``page`` of a client-synthesis job's sources, or ``bad_request`` when it does not exist.
+
+    The first delivery of page 1 reports the gathering cost; every later page or repeat is free.
+    """
+    _, pages = paginate_context(job.synthesis_context or [], page)
+    if not 1 <= page <= pages:
+        return _fail("bad_request", f"page must be between 1 and {pages} for this job.", param="page")
+    if page == 1 and not job.client_charged and job.client_sources_result is not None:
+        job.client_charged = True
+        res = dict(job.client_sources_result)
+        res["delivery"] = "polled"
+        res["elapsed_ms"] = _job_elapsed_ms(job)
+        return res
+    return _awaiting_report_envelope(job, page)
+
+
+async def _verify_client_report(job: ResearchJob, report: str) -> dict[str, Any]:
+    """Verify a report written by the client for an awaiting job and store it as the job's result.
+
+    The report goes through the same output filter, citation normalization, sanitizer and number
+    grounding as a server report, but is never condensed. It may be sent again; the latest one wins.
+    """
+    if job.synthesis != "client":
+        return _fail(
+            "bad_request",
+            "This job was synthesized by the server; answer= applies only to synthesis='client' jobs.",
+            param="answer",
+        )
+    if job.exception is not None:
+        return _finished_job_envelope(job, "polled")
+    if job.task is None or not job.task.done():
+        return _fail(
+            "bad_request",
+            "The sources are not ready yet. Poll with deepseek_check_research(job_id) until status is "
+            "needs_input, then send the report as answer=.",
+        )
+    if job.synthesis_context is None or job.client_run is None:
+        return _fail("bad_request", "This job has no sources to verify a report against.")
+    text = report.strip() if isinstance(report, str) else ""
+    if not text:
+        return _fail("bad_request", "answer must not be empty.", param="answer")
+    if len(text) > MAX_CLIENT_REPORT_CHARS:
+        return _fail(
+            "bad_request", f"answer must be at most {MAX_CLIENT_REPORT_CHARS} characters.", param="answer"
+        )
+
+    base: _ResearchRun = job.client_run
+    run = dataclasses.replace(
+        base, notes=list(base.notes), trace=list(base.trace)
+    )  # each submission starts from the same notes and trace
+    result = await _finalize_report(
+        run,
+        job.synthesis_context,
+        text,
+        requests_used=run.requests_used,
+        llm_cost=run.llm_cost,
+        synth_step=run.total_steps,
+        condense=False,
+    )
+    # Verifying makes no upstream call; the gathering cost was reported with the sources.
+    result.update(
+        {
+            "delivery": "client",
+            "requests_used": 0,
+            "cached": True,
+            "cost_usd": 0,
+            "cost_breakdown": {"search": 0, "fetch": 0, "llm": 0},
+            "_meta": _envelope_meta(0, untrusted_content=True),
+        }
+    )
+    job.result = result
+    job.completed_at = runtime._clock()
+    return dict(result)
+
+
+async def _execute_research_pipeline(
+    *,
+    job: ResearchJob,
+    clean_topic: str,
+    depth: str,
+    sources_pref: str = "any",
+    lang: str | None,
+    refresh: bool,
+    strip_boilerplate: bool,
+) -> dict[str, Any]:
+    """Run one research job: decompose, search (plus round 2 at depth max), rank, fill gaps, select the
+    synthesis context, write the report and verify it."""
+    cfg = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["medium"])
+    client = job.synthesis == "client"
+    run = _ResearchRun(
+        job=job,
+        topic=clean_topic,
+        depth=depth,
+        sources_pref=sources_pref,
+        lang=lang,
+        refresh=refresh,
+        strip_boilerplate=strip_boilerplate,
+        cfg=cfg,
+        deadline_at=runtime._clock() + cfg.deadline_s,
+        synthesis_reserve=0.0 if client else _SYNTHESIS_RESERVE_S.get(depth, 30.0),
+        total_steps=4,
+    )
+    job.run = run
+
+    await _research_decompose(run)
+    failure = await _research_retrieve(run)
+    if failure is not None:
+        return failure
+    await _research_rank_and_fill(run)
+
+    synth_step = 4
+    if client:
+        await _report_job_progress(
+            job, "context", synth_step, run.total_steps, "Preparing sources for client synthesis"
+        )
+    else:
+        await _report_job_progress(
+            job, "synthesis", synth_step, run.total_steps, "Synthesizing cited research report"
+        )
+    with _stage(run, "select") as counters:
+        stats: dict[str, Any] = {}
+        context = select_synthesis_context(
+            run.sources,
+            depth=depth,
+            sources_pref=sources_pref,
+            notes=run.notes,
+            lang=run.lang,
+            topic=run.topic,
+            stats=stats,
+        )
+        context, guard_notes = apply_token_guard(context)
+        run.notes.extend(guard_notes)
+        counters.update(stats)
+        counters["after_token_guard"] = len(context)
+        counters["token_guard_notes"] = len(guard_notes)
+        counters["context_chars"] = sum(len(c.get("content") or "") for c in context)
+    if not context:
+        return run.unsynthesized("No readable source content available for synthesis.")
+    if client:
+        job.synthesis_context = context
+        job.client_run = run
+        job.client_sources_result = _awaiting_report_envelope(job, 1, charge=True)
+        return job.client_sources_result
+    if (stopped := _research_cost_guard(run, context)) is not None:
+        return stopped
+
+    synth_res, discarded_cost = await _research_synthesize(run, context, synth_step)
+    synth_cost = synth_res.get("cost_usd", 0.0) if synth_res.get("ok") else 0.0
+    llm_cost = run.llm_cost + synth_cost + discarded_cost
+    if not synth_res.get("ok") or not (synth_res.get("content") or "").strip():
+        message = synth_res.get("error", {}).get("message", "unknown")
+        return run.unsynthesized(
+            f"Synthesis model call failed: {message}; returning gathered sources.",
+            requests_used=run.requests_used + 1,
+            llm_cost=llm_cost,
+        )
+    return await _finalize_report(
+        run,
+        context,
+        synth_res.get("content", ""),
+        requests_used=run.requests_used + 1,
+        llm_cost=llm_cost,
+        synth_step=synth_step,
+    )

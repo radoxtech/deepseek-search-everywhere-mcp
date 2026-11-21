@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.errors import _fail
 
 
 class ExtractUpstream:
@@ -49,7 +50,7 @@ class ExtractUpstream:
                     ]
                 },
             }
-        return {"ok": False, "error": {"code": "not_found", "message": f"Unexpected path {path}"}}
+        return _fail("not_found", f"Unexpected path {path}")
 
 
 async def test_extract_validates_parameters(fake_upstream: Any) -> None:
@@ -58,29 +59,29 @@ async def test_extract_validates_parameters(fake_upstream: Any) -> None:
     # Neither fields nor schema
     res = await server.deepseek_extract("https://example.com")
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
     assert "Either 'fields' or 'schema'" in res["error"]["message"]
 
     # Both fields and schema
     res = await server.deepseek_extract("https://example.com", fields=["a"], schema={"type": "object"})
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
     assert "not both" in res["error"]["message"]
 
     # Invalid fields
     res = await server.deepseek_extract("https://example.com", fields=[])
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
     # Invalid schema
     res = await server.deepseek_extract("https://example.com", schema="not a dict")  # type: ignore[arg-type]
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
     # Bad URL
     res = await server.deepseek_extract("ftp://example.com", fields=["item"])
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_url"
+    assert res["error"]["reason"] == "bad_url"
 
 
 async def test_extract_empty_page_fails_fast(fake_upstream: Any) -> None:
@@ -89,7 +90,7 @@ async def test_extract_empty_page_fails_fast(fake_upstream: Any) -> None:
 
     res = await server.deepseek_extract("https://example.com/empty", fields=["price"])
     assert res["ok"] is False
-    assert res["error"]["code"] == "empty_page"
+    assert res["error"]["reason"] == "empty_page"
     assert len(upstream.fetch_calls) == 1
     assert len(upstream.chat_calls) == 0  # No LLM calls wasted
 
@@ -147,33 +148,31 @@ async def test_extract_chat_failure(fake_upstream: Any) -> None:
 
     res = await server.deepseek_extract("https://example.com", fields=["item"])
     assert res["ok"] is False
-    assert res["error"]["code"] == "extraction_failed"
+    assert res["error"]["reason"] == "extraction_failed"
 
 
 async def test_extract_many_parameter_validation(fake_upstream: Any) -> None:
     fake_upstream(ExtractUpstream())
 
     # Empty urls
-    res = await server.deepseek_extract_many([], fields=["item"])
+    res = await server.deepseek_extract([], fields=["item"])
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
     # Too many urls (> 10)
-    res = await server.deepseek_extract_many([f"https://example.com/{i}" for i in range(11)], fields=["item"])
+    res = await server.deepseek_extract([f"https://example.com/{i}" for i in range(11)], fields=["item"])
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
     # Neither fields nor schema
-    res = await server.deepseek_extract_many(["https://example.com/1"])
+    res = await server.deepseek_extract(["https://example.com/1"])
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
     # Both fields and schema
-    res = await server.deepseek_extract_many(
-        ["https://example.com/1"], fields=["item"], schema={"type": "object"}
-    )
+    res = await server.deepseek_extract(["https://example.com/1"], fields=["item"], schema={"type": "object"})
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
 
 async def test_extract_many_success_with_fields(fake_upstream: Any) -> None:
@@ -186,7 +185,7 @@ async def test_extract_many_success_with_fields(fake_upstream: Any) -> None:
         "https://example.com/p2",
         "https://example.com/p1",  # Duplicate URL
     ]
-    res = await server.deepseek_extract_many(
+    res = await server.deepseek_extract(
         urls,
         fields=["product", "price"],
         instruction="Extract product details",
@@ -233,7 +232,7 @@ async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
                         "choices": [{"message": {"role": "assistant", "content": '{"name": "Widget"}'}}]
                     },
                 }
-            return {"ok": False, "error": {"code": "not_found", "message": "unexpected"}}
+            return _fail("not_found", "unexpected")
 
     upstream = MixedUpstream()
     fake_upstream(upstream)
@@ -243,7 +242,7 @@ async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
         "http://127.0.0.1/admin",  # SSRF blocked locally
         "https://example.com/empty",  # Empty page
     ]
-    res = await server.deepseek_extract_many(urls, fields=["name"])
+    res = await server.deepseek_extract(urls, fields=["name"])
     assert res["ok"] is True
     assert res["count"] == 3
     assert res["partial"] is True
@@ -255,11 +254,11 @@ async def test_extract_many_partial_failure(fake_upstream: Any) -> None:
 
     blocked_item = res["results"][1]
     assert blocked_item["ok"] is False
-    assert blocked_item["error"]["code"] == "ssrf_blocked"
+    assert blocked_item["error"]["reason"] == "ssrf_blocked"
 
     empty_item = res["results"][2]
     assert empty_item["ok"] is False
-    assert empty_item["error"]["code"] == "empty_page"
+    assert empty_item["error"]["reason"] == "empty_page"
 
     # Only 2 fetch calls reached upstream (blocked item was rejected locally)
     assert len(upstream.fetch_calls) == 2
@@ -370,7 +369,7 @@ async def test_extract_truncated_invalid_json(fake_upstream: Any) -> None:
 
     res = await server.deepseek_extract("https://example.com/large", fields=["item"])
     assert res["ok"] is False
-    assert res["error"]["code"] == "extraction_truncated"
+    assert res["error"]["reason"] == "extraction_truncated"
     assert "truncated before valid JSON" in res["error"]["message"]
 
 

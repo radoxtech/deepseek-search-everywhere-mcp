@@ -1,0 +1,325 @@
+{
+ "id": "it-passkeys",
+ "topic": "Passkeys (WebAuthn/FIDO2): how they work, security benefits over passwords and remaining limitations for adoption",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "A passkey is a public/private key pair: the site stores only the public key, and the device or provider holds the private key and signs a server challenge after local user verification.",
+   "importance": "core",
+   "sources": [
+    "https://web.dev/articles/passkey-registration",
+    "https://fidoalliance.org/passkeys/"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "A passkey is a public/private key pair.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "With a passkey, the site stores only the public key.",
+     "main": false
+    },
+    {
+     "id": "k1c",
+     "fact": "With a passkey, the device or provider holds the private key.",
+     "main": false
+    },
+    {
+     "id": "k1d",
+     "fact": "A passkey's private key signs a server challenge after local user verification.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k2",
+   "point": "Passkeys build on FIDO2: the W3C WebAuthn browser/API and CTAP for authenticator communication; WebAuthn Level 3 is shown as a W3C Recommendation dated 2026-08-25.",
+   "importance": "core",
+   "sources": [
+    "https://fidoalliance.org/passkeys/",
+    "https://www.w3.org/TR/webauthn-3/"
+   ],
+   "as_of": "2026-08",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "Passkeys build on FIDO2.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "FIDO2 comprises the W3C WebAuthn browser/API and CTAP for authenticator communication.",
+     "main": false
+    },
+    {
+     "id": "k2c",
+     "fact": "WebAuthn Level 3 is shown as a W3C Recommendation dated 2026-08-25.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k3",
+   "point": "Phishing resistance comes from origin binding: credentials are scoped to an RP ID (the domain or registrable suffix) and assertions are signed over the origin, so lookalike sites cannot obtain usable signatures.",
+   "importance": "core",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://web.dev/articles/passkey-registration"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "Passkey phishing resistance comes from origin binding.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "Passkey credentials are scoped to an RP ID (the domain or registrable suffix).",
+     "main": false
+    },
+    {
+     "id": "k3c",
+     "fact": "Passkey assertions are signed over the origin, so lookalike sites cannot obtain usable signatures.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k4",
+   "point": "No shared secret on the server means a breach leaks no reusable credentials; passkeys can also replace SMS/OTP codes.",
+   "importance": "core",
+   "sources": [
+    "https://developers.google.com/identity/passkeys",
+    "https://web.dev/articles/passkey-registration"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "Because passkeys leave no shared secret on the server, a server breach leaks no reusable credentials.",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "Passkeys can also replace SMS/OTP codes.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k5",
+   "point": "Passkeys are either synced (multi-device, backup-eligible, replicated via a provider such as iCloud Keychain or Google Password Manager) or device-bound (e.g., hardware keys); BE flag is fixed at creation and BS flag can change.",
+   "importance": "core",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://web.dev/articles/passkey-registration"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "Passkeys are either synced (multi-device, backup-eligible, replicated via a provider such as iCloud Keychain or Google Password Manager) or device-bound (e.g., hardware keys).",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "The BE (backup eligible) flag of a passkey is fixed at creation.",
+     "main": false
+    },
+    {
+     "id": "k5c",
+     "fact": "The BS (backup state) flag of a passkey can change.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k6",
+   "point": "FIDO's Passkey Index (Oct 2025, nine member organisations) reports passkey sign-in success of 93% vs 63% for other methods and about 8.5 s vs 31.2 s versus traditional MFA; self-reported, with 36% of accounts enrolled.",
+   "importance": "core",
+   "sources": [
+    "https://fidoalliance.org/wp-content/uploads/2025/10/FIDO-Passkey-Index-October-2025.pdf"
+   ],
+   "as_of": "2025-10",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "FIDO's Passkey Index (Oct 2025, nine member organisations) reports passkey sign-in success of 93% versus 63% for other methods.",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "FIDO's Passkey Index reports passkey sign-in takes about 8.5 s versus 31.2 s for traditional MFA.",
+     "main": false
+    },
+    {
+     "id": "k6c",
+     "fact": "The figures in FIDO's Passkey Index are self-reported.",
+     "main": false
+    },
+    {
+     "id": "k6d",
+     "fact": "FIDO's Passkey Index reports 36% of accounts enrolled.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k7",
+   "point": "Synced passkeys can be exported or shared, so NIST SP 800-63B allows them at AAL2 with conditions but not AAL3, which needs non-exportable keys; verifiers must check User Verified.",
+   "importance": "core",
+   "sources": [
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "Synced passkeys can be exported or shared.",
+     "main": false
+    },
+    {
+     "id": "k7b",
+     "fact": "NIST SP 800-63B allows synced passkeys at AAL2 with conditions.",
+     "main": true
+    },
+    {
+     "id": "k7c",
+     "fact": "NIST SP 800-63B does not allow synced passkeys at AAL3, which needs non-exportable keys.",
+     "main": false
+    },
+    {
+     "id": "k7d",
+     "fact": "Under NIST SP 800-63B, verifiers accepting synced passkeys must check the User Verified flag.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k8",
+   "point": "Account recovery is left to the relying party and is a weak point: losing all devices or switching ecosystems without a cross-platform manager may force fallback recovery flows, and sync-fabric compromise is a risk.",
+   "importance": "core",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/",
+    "https://fidoalliance.org/passkeys/"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "Account recovery for passkeys is left to the relying party and is a weak point.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "Losing all devices or switching ecosystems without a cross-platform passkey manager may force fallback account-recovery flows.",
+     "main": false
+    },
+    {
+     "id": "k8c",
+     "fact": "Compromise of the sync fabric is a risk for synced passkeys.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k9",
+   "point": "Cross-device sign-in uses the hybrid transport (QR code plus Bluetooth Low Energy proximity check), so the phone must be physically near the laptop.",
+   "importance": "secondary",
+   "sources": [
+    "https://fidoalliance.org/passkeys/",
+    "https://developers.google.com/identity/passkeys"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "Cross-device passkey sign-in uses the hybrid transport (QR code plus Bluetooth Low Energy proximity check).",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "With hybrid cross-device sign-in the phone must be physically near the laptop.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k10",
+   "point": "Adoption hurdles: device-bound passkeys do not move to new devices, some regulatory regimes do not yet recognise passkeys as MFA, and users need UX reassurance (e.g., that biometrics are not sent to the server).",
+   "importance": "secondary",
+   "sources": [
+    "https://fidoalliance.org/passkeys/",
+    "https://developers.google.com/identity/passkeys"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "Device-bound passkeys do not move to new devices, which is an adoption hurdle.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "Some regulatory regimes do not yet recognise passkeys as MFA.",
+     "main": false
+    },
+    {
+     "id": "k10c",
+     "fact": "Passkey users need UX reassurance, e.g., that biometrics are not sent to the server.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k11",
+   "point": "Revocation is hard: RP-specific keys cannot be centrally revoked like PKI certificates; NIST suggests central identity accounts, SSO and periodic key review as mitigations.",
+   "importance": "secondary",
+   "sources": [
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "Passkey revocation is hard because RP-specific keys cannot be centrally revoked like PKI certificates.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "NIST suggests central identity accounts, SSO and periodic key review as mitigations for passkey revocation.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k12",
+   "point": "Attestation lets RPs verify authenticator properties at registration, but NIST says its absence should not block public-facing use.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.w3.org/TR/webauthn-3/",
+    "https://pages.nist.gov/800-63-4/sp800-63b/syncable/"
+   ],
+   "as_of": null,
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "Passkey (WebAuthn) attestation lets relying parties verify authenticator properties at registration.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "NIST says the absence of passkey attestation should not block public-facing use.",
+     "main": false
+    }
+   ]
+  }
+ ]
+}

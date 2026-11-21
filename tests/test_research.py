@@ -11,8 +11,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import research_jobs, runtime, server
 from deepseek_search_everywhere_mcp.deep_research import get_job_store
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.settings import LLMPricing, LLMRates, Settings
 
 
@@ -84,7 +85,7 @@ class DeepResearchUpstream:
                 }
             # Second chat is synthesis
             if self.fail_synthesis:
-                return {"ok": False, "error": {"code": "rate_limit", "message": "Synthesis limited"}}
+                return _fail("rate_limit", "Synthesis limited")
             return {
                 "ok": True,
                 "data": {
@@ -108,17 +109,17 @@ async def test_research_validations(fake_upstream: Any) -> None:
     # Empty topic
     res = await server.deepseek_research("   ")
     assert res["ok"] is False
-    assert res["error"]["code"] == "empty_query"
+    assert res["error"]["reason"] == "empty_query"
 
     # Too long topic
-    res = await server.deepseek_research("x" * 501)
+    res = await server.deepseek_research("x" * (server.MAX_TOPIC + 1))
     assert res["ok"] is False
-    assert res["error"]["code"] == "topic_too_long"
+    assert res["error"]["reason"] == "topic_too_long"
 
     # Invalid depth
     res = await server.deepseek_research("valid topic", depth="extreme")  # type: ignore[arg-type]
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
 
 async def test_research_end_to_end_success(fake_upstream: Any) -> None:
@@ -179,7 +180,7 @@ async def test_research_finishing_within_inline_wait_returns_inline(fake_upstrea
 async def test_research_exceeding_inline_wait_returns_running(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -212,7 +213,7 @@ async def test_research_exceeding_inline_wait_returns_running(
 async def test_research_cancellation_does_not_cancel_background_job(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=10.0))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=10.0))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -240,7 +241,7 @@ async def test_research_cancellation_does_not_cancel_background_job(
 async def test_running_research_progress_carries_timing(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -268,7 +269,7 @@ async def test_progress_reports_a_synthesis_sub_step(fake_upstream: Any) -> None
 async def test_research_duplicate_joins_running_job(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -289,7 +290,7 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        server,
+        runtime,
         "get_settings",
         lambda: Settings(research_inline_wait=0.01, research_max_jobs=3),
     )
@@ -310,7 +311,7 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
 
     res4 = await server.deepseek_research("topic 4", depth="low")
     assert res4["ok"] is False
-    assert res4["error"]["code"] == "rate_limited_local"
+    assert res4["error"]["reason"] == "rate_limited_local"
     assert "At most 3 research jobs" in res4["error"]["message"]
     assert "deepseek_check_research" in res4["error"]["message"]
 
@@ -318,7 +319,7 @@ async def test_research_concurrency_limit_returns_rate_limited_local(
 async def test_check_research_long_poll_returns_polled_done(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.05))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.05))
 
     class SlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -332,7 +333,7 @@ async def test_check_research_long_poll_returns_polled_done(
     assert running_env["status"] == "running"
     job_id = running_env["job_id"]
 
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.20))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.20))
     polled_env = await server.deepseek_check_research(job_id)
     assert polled_env["ok"] is True
     assert polled_env["status"] == "done"
@@ -343,7 +344,7 @@ async def test_check_research_long_poll_returns_polled_done(
 async def test_check_research_returns_running_when_still_not_done(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.02))
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.02))
 
     class VerySlowUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -367,12 +368,12 @@ async def test_check_research_returns_running_when_still_not_done(
 async def test_check_research_unknown_or_expired_job_id() -> None:
     res = await server.deepseek_check_research("non-existent-uuid")
     assert res["ok"] is False
-    assert res["error"]["code"] == "job_not_found"
-    assert "deepseek_research" in res["error"]["message"]
+    assert res["error"]["reason"] == "job_not_found"
+    assert "deepseek_quick_research" in res["error"]["message"]
 
     res_empty = await server.deepseek_check_research("   ")
     assert res_empty["ok"] is False
-    assert res_empty["error"]["code"] == "bad_request"
+    assert res_empty["error"]["reason"] == "bad_request"
 
 
 async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -384,10 +385,10 @@ async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytes
     job = list(store._jobs.values())[0]
     job_id = job.job_id
 
-    monkeypatch.setattr(server, "_clock", lambda: job.completed_at + 1801.0)
+    monkeypatch.setattr(runtime, "_clock", lambda: job.completed_at + 1801.0)
     check_res = await server.deepseek_check_research(job_id)
     assert check_res["ok"] is False
-    assert check_res["error"]["code"] == "job_not_found"
+    assert check_res["error"]["reason"] == "job_not_found"
 
 
 @pytest.mark.parametrize(
@@ -396,7 +397,6 @@ async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytes
         ("low", {"type": "disabled"}, None, 16384, True),
         ("medium", {"type": "enabled"}, "low", 32768, False),
         ("high", {"type": "enabled"}, "high", 65536, False),
-        ("max", {"type": "enabled"}, "max", 131072, False),
     ],
 )
 async def test_synthesis_tier_payload_contracts(
@@ -554,7 +554,7 @@ async def test_deadline_budgeter_shrinks_phases_and_aborts_synthesis_if_too_late
         nonlocal curr_time
         return curr_time
 
-    monkeypatch.setattr(server, "_clock", fake_clock)
+    monkeypatch.setattr(runtime, "_clock", fake_clock)
 
     class AdvancingUpstream(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -570,7 +570,7 @@ async def test_deadline_budgeter_shrinks_phases_and_aborts_synthesis_if_too_late
     assert any("deadline reached" in note for note in res["notes"])
 
 
-async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
+async def test_gap_fill_batches_up_to_k20_sources(fake_upstream: Any) -> None:
     stub_results = [
         {
             "title": f"Stub Source {i}",
@@ -578,10 +578,10 @@ async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
             "snippet": f"Short snippet {i}",
             "content": f"Short {i}",
         }
-        for i in range(1, 25)
+        for i in range(1, 21)
     ]
 
-    class K24Upstream(DeepResearchUpstream):
+    class K20Upstream(DeepResearchUpstream):
         def __init__(self) -> None:
             super().__init__(subqueries=["q1", "q2", "q3", "q4"])
             self.fetch_calls: list[dict[str, Any]] = []
@@ -590,8 +590,8 @@ async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
             if path == server.SEARCH_PATH:
                 self.searches.append(kwargs.get("payload") or {})
                 idx = len(self.searches) - 1
-                start = idx * 6
-                return {"ok": True, "data": {"results": stub_results[start : start + 6]}}
+                start = idx * 5
+                return {"ok": True, "data": {"results": stub_results[start : start + 5]}}
             if path == server.FETCH_PATH:
                 payload = kwargs.get("payload") or {}
                 self.fetch_calls.append(payload)
@@ -605,197 +605,22 @@ async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
                 }
             return await super().__call__(method, path, **kwargs)
 
-    upstream = K24Upstream()
+    upstream = K20Upstream()
     fake_upstream(upstream)
 
-    res = await server.deepseek_research("k24 test topic", depth="max")
+    res = await server.deepseek_research("k20 test topic", depth="high")
     assert res["ok"] is True
     assert res["status"] == "done"
-    assert len(upstream.fetch_calls) == 24
+    assert len(upstream.fetch_calls) == 20
     assert res["synthesized"] is True
-    assert len(res["sources"]) == 24
-
-
-async def test_round2_gap_analysis_executes_on_max_depth(fake_upstream: Any) -> None:
-    class R2Upstream(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            if path == "/v1/chat/completions":
-                self.chats.append(kwargs.get("payload") or {})
-                if len(self.chats) == 1:
-                    # Decomposition (R1)
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["q1", "q2"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                if len(self.chats) == 2:
-                    # Round 2 gap analysis
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["r2 missing angle"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                # Synthesis
-                return {
-                    "ok": True,
-                    "data": {
-                        "choices": [
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "Comprehensive synthesis report with R2 sources [1].",
-                                }
-                            }
-                        ]
-                    },
-                }
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = R2Upstream()
-    fake_upstream(upstream)
-
-    res = await server.deepseek_research("max depth topic", depth="max")
-    assert res["ok"] is True
-    assert res["synthesized"] is True
-    assert "r2 missing angle" in res["subqueries"]
-    assert len(upstream.chats) == 3
-
-
-async def test_round2_steering_rejection_falls_back_to_r1(fake_upstream: Any) -> None:
-    class SteeredUpstream(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            if path == "/v1/chat/completions":
-                self.chats.append(kwargs.get("payload") or {})
-                if len(self.chats) == 1:
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["q1", "q2"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                if len(self.chats) == 2:
-                    # R2 returns steered queries containing attacker URLs and unauthorized sites
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps(
-                                            {
-                                                "queries": [
-                                                    "https://attacker.com/leak",
-                                                    "site:evil-steer.org pwn",
-                                                ]
-                                            }
-                                        ),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                return {
-                    "ok": True,
-                    "data": {
-                        "choices": [
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "Synthesis based on clean R1 sources [1].",
-                                }
-                            }
-                        ]
-                    },
-                }
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = SteeredUpstream()
-    fake_upstream(upstream)
-
-    res = await server.deepseek_research("steer test topic", depth="max")
-    assert res["ok"] is True
-    assert res["synthesized"] is True
-    assert any("Round 2 gap query validation failed" in note for note in res["notes"])
-    assert not any("attacker.com" in q or "evil-steer" in q for q in res["subqueries"])
-
-
-async def test_round2_chat_exception_or_hang_falls_back_to_r1(fake_upstream: Any) -> None:
-    class FailingR2Upstream(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            if path == "/v1/chat/completions":
-                self.chats.append(kwargs.get("payload") or {})
-                if len(self.chats) == 1:
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["q1", "q2"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                if len(self.chats) == 2:
-                    return {
-                        "ok": False,
-                        "error": {"code": "upstream_error", "message": "R2 model failed"},
-                    }
-                return {
-                    "ok": True,
-                    "data": {
-                        "choices": [
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "Synthesis continues with R1 [1].",
-                                }
-                            }
-                        ]
-                    },
-                }
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = FailingR2Upstream()
-    fake_upstream(upstream)
-
-    res = await server.deepseek_research("fail r2 topic", depth="max")
-    assert res["ok"] is True
-    assert res["synthesized"] is True
-    assert any("Round 2 gap analysis failed" in note for note in res["notes"])
+    assert len(res["sources"]) == 20
 
 
 async def test_synthesis_cost_ceiling_aborts_and_returns_sources(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     settings = Settings(research_cost_ceiling_usd=0.0005)
-    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    monkeypatch.setattr(runtime, "get_settings", lambda: settings)
 
     upstream = DeepResearchUpstream()
     fake_upstream(upstream)
@@ -878,7 +703,7 @@ async def test_lean_envelope_contains_no_page_content_on_all_fallbacks(
 
     # 2. Cost ceiling exceeded fallback
     settings = Settings(research_cost_ceiling_usd=0.0005)
-    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    monkeypatch.setattr(runtime, "get_settings", lambda: settings)
     upstream2 = DeepResearchUpstream()
     fake_upstream(upstream2)
 
@@ -911,25 +736,6 @@ async def test_research_progress_reporting_with_context(fake_upstream: Any) -> N
     assert calls[3].args == (4.0, 4.0)
 
 
-async def test_research_progress_reporting_with_context_max_depth(fake_upstream: Any) -> None:
-    upstream = DeepResearchUpstream(subqueries=["subq1", "subq2", "subq3", "subq4"])
-    fake_upstream(upstream)
-
-    ctx = MagicMock()
-    ctx.report_progress = AsyncMock()
-
-    res = await server.deepseek_research("quantum max topic", depth="max", ctx=ctx)
-    assert res["ok"] is True
-    assert ctx.report_progress.await_count == 5
-    calls = ctx.report_progress.await_args_list
-    phases = [c.kwargs.get("message") for c in calls]
-    assert any("Decomposing" in p for p in phases)
-    assert any("Searching" in p for p in phases)
-    assert any("Analyzing gaps" in p for p in phases)
-    assert any("Fetching gap pages" in p for p in phases)
-    assert any("Synthesizing" in p for p in phases)
-
-
 async def test_research_progress_reporting_resilient_to_context_exceptions(fake_upstream: Any) -> None:
     upstream = DeepResearchUpstream()
     fake_upstream(upstream)
@@ -942,7 +748,7 @@ async def test_research_progress_reporting_resilient_to_context_exceptions(fake_
     assert res["synthesized"] is True
 
 
-@pytest.mark.parametrize("depth", ["low", "medium", "high", "max"])
+@pytest.mark.parametrize("depth", ["low", "medium", "high"])
 async def test_fake_clock_44s_inline_for_every_depth(depth: str, fake_upstream: Any) -> None:
     upstream = DeepResearchUpstream()
     fake_upstream(upstream)
@@ -954,7 +760,7 @@ async def test_fake_clock_44s_inline_for_every_depth(depth: str, fake_upstream: 
     assert res["depth"] == depth
 
 
-@pytest.mark.parametrize("depth", ["low", "medium", "high", "max"])
+@pytest.mark.parametrize("depth", ["low", "medium", "high"])
 async def test_fake_clock_46s_running_for_every_depth(
     depth: str, fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -997,8 +803,8 @@ def _install_counting_pipeline(monkeypatch: pytest.MonkeyPatch) -> list[dict[str
             "_meta": {"cost_usd": 0.0123, "untrusted_content": True},
         }
 
-    monkeypatch.setattr(server, "_execute_research_pipeline", fake_pipeline)
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=5.0))
+    monkeypatch.setattr(research_jobs, "_execute_research_pipeline", fake_pipeline)
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=5.0))
     return calls
 
 
@@ -1044,10 +850,10 @@ async def test_research_refresh_true_starts_new_job(monkeypatch: pytest.MonkeyPa
 async def test_research_finished_result_not_reused_after_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _install_counting_pipeline(monkeypatch)
     monkeypatch.setattr(
-        server, "get_settings", lambda: Settings(research_inline_wait=5.0, research_job_ttl=100.0)
+        runtime, "get_settings", lambda: Settings(research_inline_wait=5.0, research_job_ttl=100.0)
     )
     now = [1000.0]
-    monkeypatch.setattr(server, "_clock", lambda: now[0])
+    monkeypatch.setattr(runtime, "_clock", lambda: now[0])
 
     await server.deepseek_research("ttl topic", depth="low")
     now[0] += 99.0
@@ -1106,7 +912,7 @@ async def test_synthesis_retry_cost_includes_failed_first_attempt(
             "raw": {},
         }
 
-    monkeypatch.setattr(server, "_chat_request", fake_chat_request)
+    monkeypatch.setattr(runtime, "_chat_request", fake_chat_request)
     res = await server.deepseek_research("cost retry topic", depth="medium")
     assert res["ok"] is True
     assert res["synthesized"] is True
@@ -1122,7 +928,7 @@ async def test_research_job_error_is_redacted(monkeypatch: pytest.MonkeyPatch) -
     async def failing_pipeline(**kwargs: Any) -> dict[str, Any]:
         raise RuntimeError(f"upstream rejected key {secret}")
 
-    monkeypatch.setattr(server, "_execute_research_pipeline", failing_pipeline)
+    monkeypatch.setattr(research_jobs, "_execute_research_pipeline", failing_pipeline)
     res = await server.deepseek_research("redaction topic", depth="low")
     assert res["ok"] is False
     assert secret not in json.dumps(res)
@@ -1136,7 +942,7 @@ async def test_research_cost_ceiling_uses_configured_pricing(
         research_cost_ceiling_usd=1.0,
         llm_pricing=LLMPricing(peak=expensive, off_peak=expensive),
     )
-    monkeypatch.setattr(server, "get_settings", lambda: settings)
+    monkeypatch.setattr(runtime, "get_settings", lambda: settings)
     fake_upstream(DeepResearchUpstream())
 
     res = await server.deepseek_research("configured pricing topic", depth="low")
@@ -1172,6 +978,18 @@ def _chat_ok(content: str, cost: float = 0.0, finish: str = "stop") -> dict[str,
     }
 
 
+def _pin_words(monkeypatch: pytest.MonkeyPatch, target: int, ceiling: int, depth: str = "low") -> None:
+    """Pin the word budget of one depth so the condense tests do not follow the shipped ladder."""
+    import dataclasses
+
+    from deepseek_search_everywhere_mcp import deep_research
+
+    cfg = deep_research.DEPTH_CONFIG[depth]
+    monkeypatch.setitem(
+        deep_research.DEPTH_CONFIG, depth, dataclasses.replace(cfg, target_words=target, max_words=ceiling)
+    )
+
+
 def _install_condense_chat(
     monkeypatch: pytest.MonkeyPatch, long_report: str, condense_result: dict[str, Any] | None
 ) -> list[dict[str, Any]]:
@@ -1187,7 +1005,7 @@ def _install_condense_chat(
         assert condense_result is not None, "unexpected extra chat call"
         return condense_result
 
-    monkeypatch.setattr(server, "_chat_request", fake_chat_request)
+    monkeypatch.setattr(runtime, "_chat_request", fake_chat_request)
     return calls
 
 
@@ -1195,65 +1013,30 @@ def _long_report(words: int) -> str:
     return "## Findings\n\n" + ("alpha beta gamma delta " * (words // 4)).strip() + " [1][2]."
 
 
-async def test_overlength_report_is_condensed(fake_upstream: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_overlength_report_is_kept_as_written_not_condensed(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _pin_words(monkeypatch, 400, 480)
     fake_upstream(DeepResearchUpstream())
-    short = "## Findings\n\nShort and dense [1][2]."
-    calls = _install_condense_chat(monkeypatch, _long_report(600), _chat_ok(short, cost=0.003))
+    calls = _install_condense_chat(monkeypatch, _long_report(600), None)
     res = await server.deepseek_research("condense topic", depth="low")  # ceiling 480 words
     assert res["ok"] is True and res["synthesized"] is True
-    assert "Short and dense [1][2]." in res["report"]
-    assert len(calls) == 3
-    cond = calls[2]
-    assert cond["thinking"] == {"type": "disabled"}
-    assert cond["temperature"] == 0.0
-    assert "response_format" not in cond
-    system = cond["messages"][0]["content"]
-    assert "400" in system and "[n]" in system
-    assert any("condensed" in n.lower() for n in res["notes"])
-    assert res["cost_breakdown"]["llm"] == pytest.approx(0.013, abs=1e-6)
+    assert "alpha beta gamma delta" in res["report"]
+    assert len(calls) == 2  # decomposition + synthesis only; no condense call (ADR 0011)
+    assert any("it was kept as written" in n.lower() for n in res["notes"])
+    assert res["cost_breakdown"]["llm"] == pytest.approx(0.01, abs=1e-6)
 
 
 async def test_report_within_ceiling_is_not_condensed(
     fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _pin_words(monkeypatch, 400, 480)
     fake_upstream(DeepResearchUpstream())
     calls = _install_condense_chat(monkeypatch, _long_report(440), None)
     res = await server.deepseek_research("no condense topic", depth="low")
     assert res["synthesized"] is True
     assert len(calls) == 2
-    assert not any("condensed" in n.lower() for n in res["notes"])
-
-
-async def test_condense_failure_keeps_original_with_note(
-    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake_upstream(DeepResearchUpstream())
-    failed = {"ok": False, "error": {"code": "internal_error", "message": "boom"}, "cost_usd": 0.0}
-    _install_condense_chat(monkeypatch, _long_report(600), failed)
-    res = await server.deepseek_research("condense fail topic", depth="low")
-    assert res["synthesized"] is True
-    assert "alpha beta gamma" in res["report"]
-    assert any("condens" in n.lower() and "kept" in n.lower() for n in res["notes"])
-
-
-@pytest.mark.parametrize(
-    "bad",
-    [
-        _chat_ok("", cost=0.002),
-        _chat_ok("Invented a new citation [7].", cost=0.002),
-        _chat_ok(_long_report(700), cost=0.002),
-    ],
-    ids=["empty", "new-citation-id", "not-shorter"],
-)
-async def test_condense_rejected_results_keep_original_and_bill_cost(
-    bad: dict[str, Any], fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake_upstream(DeepResearchUpstream())
-    _install_condense_chat(monkeypatch, _long_report(600), bad)
-    res = await server.deepseek_research("condense reject topic", depth="low")
-    assert "alpha beta gamma" in res["report"]
-    assert any("kept" in n.lower() for n in res["notes"])
-    assert res["cost_breakdown"]["llm"] == pytest.approx(0.012, abs=1e-6)
+    assert not any("it was kept as written" in n.lower() for n in res["notes"])
 
 
 async def test_research_sources_have_clean_urls_titles_and_dates(fake_upstream: Any) -> None:
@@ -1311,7 +1094,7 @@ async def test_research_pipeline_skips_denylisted_sources_and_honours_empty_deny
 
 async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = {"now": 1000.0}
-    monkeypatch.setattr(server, "_clock", lambda: clock["now"])
+    monkeypatch.setattr(runtime, "_clock", lambda: clock["now"])
     gate = asyncio.Event()
 
     async def gated_pipeline(*, job: Any, clean_topic: str, depth: str, **kwargs: Any) -> dict[str, Any]:
@@ -1330,8 +1113,8 @@ async def test_check_research_done_reports_elapsed_since_job_start(monkeypatch: 
             "_meta": {"cost_usd": 0.0, "untrusted_content": True},
         }
 
-    monkeypatch.setattr(server, "_execute_research_pipeline", gated_pipeline)
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(research_inline_wait=0.01))
+    monkeypatch.setattr(research_jobs, "_execute_research_pipeline", gated_pipeline)
+    monkeypatch.setattr(runtime, "get_settings", lambda: Settings(research_inline_wait=0.01))
 
     started = await server.deepseek_research("Elapsed polled topic", depth="low")
     assert started["status"] == "running"
@@ -1411,39 +1194,25 @@ async def test_research_flags_unverified_numbers_in_envelope(fake_upstream: Any)
     assert any("unverified number(s)" in n for n in res["notes"])
 
 
-async def test_research_drops_unverified_sentences_on_request(fake_upstream: Any) -> None:
-    results = [
+def test_research_verify_numbers_drop_mode() -> None:
+    from deepseek_search_everywhere_mcp.deep_research import ground_report_numbers
+
+    sources = [
         {
+            "id": 1,
             "title": "Bremer 2025 Study",
             "url": "https://example.com/1",
             "content": "Bremer evaluated 4 RCTs with 200 participants. " * 5,
         },
     ]
     report = "Bremer reported 11 studies [1]. Bremer evaluated 4 RCTs with 200 participants [1]."
-    fake_upstream(DeepResearchUpstream(search_results=results, report_text=report))
-    res = await server.deepseek_research("drop topic", depth="low", unverified="drop")
-    assert res["ok"] is True
-    assert "11 studies" not in res["report"]
-    assert "200 participants" in res["report"]
-    assert "[unverified]" not in res["report"]
-    assert res["unverified_number_count"] == 1
-    assert res["unverified_numbers"][0]["number"] == "11"
-    assert any("Removed 1 sentence(s)" in n for n in res["notes"])
-
-
-async def test_research_unverified_mode_is_part_of_the_job_key(fake_upstream: Any) -> None:
-    results = [{"title": "T", "url": "https://example.com/1", "content": "Value is 4. " * 30}]
-    fake_upstream(DeepResearchUpstream(search_results=results, report_text="Value is 9 [1]."))
-    flagged = await server.deepseek_research("key topic", depth="low")
-    dropped = await server.deepseek_research("key topic", depth="low", unverified="drop")
-    assert "[unverified]" in flagged["report"]
-    assert dropped.get("cached") is not True
-    assert "9" not in (dropped["report"] or "")
-
-
-async def test_research_rejects_an_unknown_unverified_mode() -> None:
-    res = await server.deepseek_research("topic", unverified="hide")  # type: ignore[arg-type]
-    assert res["error"]["code"] == "bad_request"
+    cleaned, unverified, count, notes = ground_report_numbers(report, sources, drop=True)
+    assert "11 studies" not in cleaned
+    assert "200 participants" in cleaned
+    assert "[unverified]" not in cleaned
+    assert count == 1
+    assert unverified[0]["number"] == "11"
+    assert any("Removed 1 sentence(s)" in n for n in notes)
 
 
 async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
@@ -1464,7 +1233,7 @@ async def test_research_sources_preference_and_type(fake_upstream: Any) -> None:
 
     res_invalid = await server.deepseek_research("therapy", depth="low", sources="invalid")
     assert res_invalid["ok"] is False
-    assert res_invalid["error"]["code"] == "bad_request"
+    assert res_invalid["error"]["reason"] == "bad_request"
 
 
 async def test_research_debug_dump_hook(
@@ -1497,6 +1266,34 @@ async def test_research_debug_dump_hook(
     assert "report" in dump_data
     assert "raw_report" in dump_data or "raw_model_report" in dump_data
     assert "unverified_numbers" in dump_data
+    assert dump_data["subqueries"] and isinstance(dump_data["aspects"], list)
+    trace = dump_data["stage_trace"]
+    assert [entry["stage"] for entry in trace] == [
+        "decompose",
+        "retrieve",
+        "rank",
+        "gap_fill",
+        "select",
+        "synthesize",
+        "finalize",
+    ]
+    entered = [entry["entered_ms"] for entry in trace]
+    assert entered == sorted(entered)
+    for entry in trace:
+        assert isinstance(entry["duration_ms"], int) and entry["duration_ms"] >= 0
+        assert isinstance(entry["counters"], dict)
+    counters = {entry["stage"]: entry["counters"] for entry in trace}
+    assert counters["decompose"]["queries"] >= 1
+    assert counters["decompose"]["fallback"] is False
+    assert counters["retrieve"]["searches_ok"] >= 1
+    assert counters["retrieve"]["results"] >= 1
+    assert counters["rank"]["selected"] == len(dump_data["sources"])
+    assert counters["select"]["out_sources"] == len(dump_data["synthesis_context"])
+    assert counters["select"]["context_chars"] > 0
+    assert counters["synthesize"]["retry"] is False
+    assert isinstance(counters["synthesize"]["prompt_tokens"], int)
+    assert counters["finalize"]["words_out"] > 0
+    assert "stage_trace" not in res2 and "trace" not in res2
 
     # 3. When dump write fails: job still succeeds (failure tolerated)
     blocking_file = tmp_path / "not_a_dir"
@@ -1515,7 +1312,7 @@ async def test_research_without_readable_content_returns_sources_only(fake_upstr
     class EmptyPages(DeepResearchUpstream):
         async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
             if path == server.FETCH_PATH:
-                return {"ok": False, "error": {"code": "not_found", "message": "gone", "status": 404}}
+                return _fail("not_found", "gone", 404)
             return await super().__call__(method, path, **kwargs)
 
     fake_upstream(EmptyPages(search_results=[{"title": "Empty", "url": "https://a.test/1", "content": ""}]))
@@ -1537,30 +1334,58 @@ async def test_research_stops_before_synthesis_when_the_deadline_is_near(
     assert len(upstream.chats) == 1  # decomposition only, no synthesis call
 
 
-async def test_round_two_is_skipped_without_deadline_budget(
-    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(server._ResearchRun, "remaining", lambda self: 30.0)
-    fake_upstream(DeepResearchUpstream())
-    res = await server.deepseek_research("skip round two topic", depth="max")
-    assert res["synthesized"] is True
-    assert "Round 2 skipped due to deadline budget." in res["notes"]
+class FlakySearchUpstream(DeepResearchUpstream):
+    """Raise a timeout on the second search, as a slow upstream query would."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.search_calls = 0
+
+    async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        if path == server.SEARCH_PATH:
+            self.search_calls += 1
+            if self.search_calls == 2:
+                raise TimeoutError("slow query")
+        return await super().__call__(method, path, **kwargs)
 
 
-async def test_round_two_without_search_results_keeps_round_one(fake_upstream: Any) -> None:
-    class FailingR2Search(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            payload = kwargs.get("payload") or {}
-            if path == server.SEARCH_PATH and "gap angle" in payload.get("query", ""):
-                return {"ok": False, "error": {"code": "upstream_error", "message": "down", "status": 502}}
-            if path == "/v1/chat/completions" and len(self.chats) == 1:
-                self.chats.append(payload)
-                return _chat_reply(json.dumps({"queries": ["gap angle one", "gap angle two"]}))
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = FailingR2Search()
+async def test_research_continues_when_one_search_times_out(fake_upstream: Any) -> None:
+    upstream = FlakySearchUpstream()
     fake_upstream(upstream)
-    res = await server.deepseek_research("round two search topic", depth="max")
+
+    res = await server.deepseek_research("one slow query", depth="low")
+
+    assert res["ok"] is True
     assert res["synthesized"] is True
-    assert "Round 2 search produced no results; proceeding with Round 1 sources." in res["notes"]
-    assert not any("gap angle" in q for q in res["subqueries"])
+    assert any("failed or timed out" in note for note in res["notes"])
+
+
+async def test_failed_research_job_leaves_a_debug_dump(
+    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_upstream(DeepResearchUpstream())
+    monkeypatch.setenv("DEEPSEEK_MCP_DEBUG_DUMP_DIR", str(tmp_path / "dumps"))
+
+    def explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("rank exploded")
+
+    monkeypatch.setattr(research_jobs, "rank_and_diversify_sources", explode)
+
+    res = await server.deepseek_research("failing topic", depth="low")
+
+    assert res["ok"] is False
+    assert res["error"]["code"] == "internal_error"
+    dumps = list((tmp_path / "dumps").glob("*.json"))
+    assert len(dumps) == 1
+    data = json.loads(dumps[0].read_text(encoding="utf-8"))
+    assert data["status"] == "failed"
+    assert "rank exploded" in data["error"]
+    assert [entry["stage"] for entry in data["stage_trace"]] == ["decompose", "retrieve", "rank"]
+    assert data["stage_trace"][-1]["counters"]["error"] == "rank exploded"
+
+
+def test_research_source_reports_content_length() -> None:
+    source = research_jobs._research_source(
+        1, {"url": "https://a.test", "title": "T", "content": "abcd"}, False
+    )
+    assert source["chars"] == 4

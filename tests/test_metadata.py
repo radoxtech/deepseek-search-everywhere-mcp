@@ -66,7 +66,7 @@ def test_fetch_many_meta_and_cost(fake_upstream):
     fake_upstream(responses={"/v1/tools/fetch": _fetch_response()})
 
     urls = ["https://example.com/1", "https://example.com/2"]
-    res = asyncio.run(server.deepseek_fetch_many(urls))
+    res = asyncio.run(server.deepseek_fetch(urls))
     assert res["ok"] is True
     assert res["untrusted_content"] is True
     # 2 upstream requests = 2 * 0.00075 = 0.0015

@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp.tools.search import _search_one
 
 
 def _realistic_results(n: int = 3) -> list[dict[str, Any]]:
@@ -55,18 +56,14 @@ def test_default_summary_is_short_without_snippet(fake_upstream):
 def test_fallback_summary_with_content_derived_budget(fake_upstream):
     results = [dict(item, content="") for item in _realistic_results(1)]
     fake_upstream(default={"ok": True, "data": {"results": results}})
-    envelope = asyncio.run(
-        server.deepseek_search("asyncio tasks", count=1, content="full", max_total_chars=2000)
-    )
+    envelope = asyncio.run(_search_one("asyncio tasks", count=1, content="full", max_total_chars=2000))
     assert 2000 <= len(envelope["results"][0]["summary"]) < 2100
 
 
 def test_per_result_budget_derived_from_max_total_chars(fake_upstream):
     results = [dict(item, content="A" * 10000) for item in _realistic_results(2)]
     fake_upstream(default={"ok": True, "data": {"results": results}})
-    envelope = asyncio.run(
-        server.deepseek_search("asyncio tasks", count=2, content="full", max_total_chars=2000)
-    )
+    envelope = asyncio.run(_search_one("asyncio tasks", count=2, content="full", max_total_chars=2000))
     assert envelope["ok"] is True
     # Derived per_result is max(500, 2000 // 2) = 1000
     for res in envelope["results"]:

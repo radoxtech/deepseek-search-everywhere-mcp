@@ -1,0 +1,122 @@
+{
+ "id": "science-solid-state-batteries",
+ "topic": "Solid-state batteries for electric vehicles: technical challenges, leading electrolyte approaches and commercialization timeline",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "Solid-state cells swap the liquid electrolyte for a solid one and can use a lithium-metal anode (about 3,860 mAh/g versus about 372 for graphite), promising higher energy density.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.crugroup.com/en/communities/thought-leadership/2025/from-smartphones-to-flying-taxis-the-coming-age-of-all-solid-state-batteries/"
+   ],
+   "as_of": "2025-10"
+  },
+  {
+   "id": "k2",
+   "point": "The three main inorganic electrolyte families are sulfides, oxides and halides, plus polymers; sulfides and oxides are the most developed for automotive all-solid-state cells.",
+   "importance": "secondary",
+   "sources": [
+    "https://pubs.rsc.org/en/content/articlehtml/2026/ee/d5ee05181a",
+    "https://www.crugroup.com/en/communities/thought-leadership/2025/from-smartphones-to-flying-taxis-the-coming-age-of-all-solid-state-batteries/"
+   ],
+   "as_of": "2026-01"
+  },
+  {
+   "id": "k3",
+   "point": "Sulfide electrolytes (e.g. argyrodite Li6PS5Cl, about 1 mS/cm) conduct ions well but are air-sensitive, can release H2S, and have a narrow electrochemical window and instability against lithium metal.",
+   "importance": "core",
+   "sources": [
+    "https://pubs.rsc.org/en/content/articlehtml/2026/ee/d5ee05181a"
+   ],
+   "as_of": "2026-01"
+  },
+  {
+   "id": "k4",
+   "point": "Oxide electrolytes such as garnet LLZO are stable and conductive (about 1e-3 to 1e-2 S/cm) but brittle, need high-temperature sintering and suffer high interfacial impedance and poor lithium wettability.",
+   "importance": "core",
+   "sources": [
+    "https://pubs.rsc.org/en/content/articlehtml/2026/ee/d5ee05181a"
+   ],
+   "as_of": "2026-01"
+  },
+  {
+   "id": "k5",
+   "point": "Polymer electrolytes are cheaper and technically easier to make but their performance lags liquid electrolytes; halides are a newer route with oxidation, moisture and indium-cost issues.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.crugroup.com/en/communities/thought-leadership/2025/from-smartphones-to-flying-taxis-the-coming-age-of-all-solid-state-batteries/",
+    "https://pubs.rsc.org/en/content/articlehtml/2026/ee/d5ee05181a"
+   ],
+   "as_of": "2026-01"
+  },
+  {
+   "id": "k6",
+   "point": "Core engineering challenge is the solid-solid interface: volume changes during cycling cause cracking and contact loss, so cells often need high stack pressure, which adds cost and lowers cell-level density.",
+   "importance": "core",
+   "sources": [
+    "https://pubs.rsc.org/en/content/articlehtml/2026/ee/d5ee05181a",
+    "https://www.crugroup.com/en/communities/thought-leadership/2025/from-smartphones-to-flying-taxis-the-coming-age-of-all-solid-state-batteries/"
+   ],
+   "as_of": "2026-01"
+  },
+  {
+   "id": "k7",
+   "point": "Lithium dendrites can still penetrate solid electrolytes via cracks, grain boundaries and pores; high stiffness alone does not stop them, and sulfides show crack-first, dendrite-following failure.",
+   "importance": "core",
+   "sources": [
+    "https://pubs.rsc.org/en/content/articlehtml/2026/ee/d5ee05181a"
+   ],
+   "as_of": "2026-01"
+  },
+  {
+   "id": "k8",
+   "point": "Cost and manufacturing scale are major barriers: all-solid-state cells cost roughly CNY 3-5/Wh versus an industry target below CNY 2/Wh, and sulfide electrolyte output is only tens of tonnes.",
+   "importance": "core",
+   "sources": [
+    "https://news.metal.com/en/newscontent/103984967-smm-solid-state-battery-h1-2026-review-from-proof-of-concept-to-pre-production-sprint"
+   ],
+   "as_of": "2026-07"
+  },
+  {
+   "id": "k9",
+   "point": "Toyota's first solid-state EV target has repeatedly slipped; it now cites 2027-2028 (other sources say end of decade), with Idemitsu's electrolyte plant due in 2027.",
+   "importance": "core",
+   "sources": [
+    "https://www.batterydesign.net/solid-state-production-timelines/",
+    "https://www.crugroup.com/en/communities/thought-leadership/2025/from-smartphones-to-flying-taxis-the-coming-age-of-all-solid-state-batteries/"
+   ],
+   "as_of": "2026-09"
+  },
+  {
+   "id": "k10",
+   "point": "Samsung SDI targets sulfide all-solid-state mass production from late 2027; QuantumScape's Eagle Line pilot started in 2026; BYD plans small-batch fitment in 2027.",
+   "importance": "core",
+   "sources": [
+    "https://www.batterydesign.net/solid-state-production-timelines/",
+    "https://news.metal.com/en/newscontent/103984967-smm-solid-state-battery-h1-2026-review-from-proof-of-concept-to-pre-production-sprint"
+   ],
+   "as_of": "2026-09"
+  },
+  {
+   "id": "k11",
+   "point": "Most 2026-2028 vehicle deployments are semi-solid or demonstration fleets; NIO's semi-solid pack was reportedly discontinued after a few hundred units, and test vehicles are a poor guide to production timing.",
+   "importance": "secondary",
+   "sources": [
+    "https://www.batterydesign.net/solid-state-production-timelines/"
+   ],
+   "as_of": "2026-09"
+  },
+  {
+   "id": "k12",
+   "point": "Forecasts see tiny all-solid-state volumes by 2028 (about 3.5 GWh) and real scale (>50 GWh/yr) only after 2030, with about 10% penetration by 2035 per one analyst.",
+   "importance": "core",
+   "sources": [
+    "https://news.metal.com/en/newscontent/103984967-smm-solid-state-battery-h1-2026-review-from-proof-of-concept-to-pre-production-sprint",
+    "https://www.crugroup.com/en/communities/thought-leadership/2025/from-smartphones-to-flying-taxis-the-coming-age-of-all-solid-state-batteries/"
+   ],
+   "as_of": "2026-07"
+  }
+ ]
+}

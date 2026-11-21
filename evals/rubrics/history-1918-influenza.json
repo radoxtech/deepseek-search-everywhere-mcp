@@ -1,0 +1,442 @@
+{
+ "id": "history-1918-influenza",
+ "topic": "The 1918 influenza pandemic: origins, death toll estimates, and why it was so deadly",
+ "status": "holdout",
+ "prepared": "2026-11-18",
+ "reviewed": "2026-11-18",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "The 1918-1919 'Spanish' influenza pandemic was caused by an H1N1 virus with genes of avian origin; CDC states about 500 million people (one-third of the world's population) were infected, at least 50 million died worldwide and about 675,000 died in the United States.",
+   "importance": "core",
+   "sources": [
+    "https://archive.cdc.gov/www_cdc_gov/flu/pandemic-resources/1918-commemoration/1918-pandemic-history.htm"
+   ],
+   "as_of": "2018-03",
+   "atoms": [
+    {
+     "id": "k1a",
+     "fact": "The 1918 pandemic was caused by an H1N1 influenza A virus with genes of avian origin.",
+     "main": true
+    },
+    {
+     "id": "k1b",
+     "fact": "About 500 million people, one-third of the world's population, became infected during the pandemic.",
+     "main": false
+    },
+    {
+     "id": "k1c",
+     "fact": "CDC states that at least 50 million people died worldwide.",
+     "main": false
+    },
+    {
+     "id": "k1d",
+     "fact": "About 675,000 of the deaths occurred in the United States.",
+     "main": false
+    },
+    {
+     "id": "k1e",
+     "fact": "In the United States the virus was first identified in military personnel in spring 1918.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k2",
+   "point": "The conventional global death toll is about 50 million, with some authors giving up to 100 million; because civil registration covered only part of the world, published estimates span roughly a factor of six and the true figure cannot be established with certainty.",
+   "importance": "core",
+   "sources": [
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article",
+    "https://academic.oup.com/aje/article/187/12/2561/5092383"
+   ],
+   "as_of": "2018-12",
+   "atoms": [
+    {
+     "id": "k2a",
+     "fact": "Taubenberger and Morens (2006, Emerging Infectious Diseases) put total 1918-1919 pandemic deaths at approximately 50 million.",
+     "main": true
+    },
+    {
+     "id": "k2b",
+     "fact": "The same review said the death toll was arguably as high as 100 million.",
+     "main": false
+    },
+    {
+     "id": "k2c",
+     "fact": "Published global death estimates for the pandemic span roughly a factor of six, from about 17 million to about 100 million.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k3",
+   "point": "Competing estimate: Spreeuwenberg et al. (2018), using all-cause vital statistics for 13 countries plus British India and controlling for underlying mortality trends, estimated about 17.4 million deaths (about 15 million in 1918 and 2.5 million in 1919) and judged totals above 25 million unrealistic, but Chandra and Christensen (2019) argue the British India component (6.17 million) is a significant underestimate because colonial death registration was severely incomplete.",
+   "importance": "core",
+   "sources": [
+    "https://academic.oup.com/aje/article/187/12/2561/5092383",
+    "https://academic.oup.com/aje/article-abstract/188/7/1404/5368300"
+   ],
+   "as_of": "2019-03",
+   "atoms": [
+    {
+     "id": "k3a",
+     "fact": "Spreeuwenberg et al. (2018) estimated total 1918-1919 pandemic mortality at 17.4 million deaths worldwide.",
+     "main": true
+    },
+    {
+     "id": "k3b",
+     "fact": "Their estimate comprised about 15 million deaths in 1918 and about 2.5 million in 1919.",
+     "main": false
+    },
+    {
+     "id": "k3c",
+     "fact": "They concluded that simulations of a total above 25 million deaths are not realistic given the underlying mortality rates they used.",
+     "main": false
+    },
+    {
+     "id": "k3d",
+     "fact": "Excluding British India, their estimate falls to about 11.2 million deaths.",
+     "main": false
+    },
+    {
+     "id": "k3e",
+     "fact": "Chandra and Christensen (2019) argue that the 6.17 million figure used for British India is a significant underestimate because the Statistical Abstract for British India severely under-registered deaths, by an estimated 35 to 55 percent depending on region.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k4",
+   "point": "Age pattern: mortality followed a distinctive W-shaped curve with an extra peak in young adults aged about 20-40, nearly half of influenza-related deaths were in that age group, and people under 65 accounted for more than 99% of excess influenza-related deaths (versus 36% in 1957 and 48% in 1968).",
+   "importance": "core",
+   "sources": [
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article"
+   ],
+   "as_of": "2006-01",
+   "atoms": [
+    {
+     "id": "k4a",
+     "fact": "Age-specific death rates in 1918 formed a W-shaped curve, adding a third peak of deaths in young adults aged about 20-40 to the usual peaks in the very young and the elderly.",
+     "main": true
+    },
+    {
+     "id": "k4b",
+     "fact": "Nearly half of the influenza-related deaths in the 1918 pandemic were in young adults aged 20-40.",
+     "main": false
+    },
+    {
+     "id": "k4c",
+     "fact": "Persons under 65 accounted for more than 99% of all excess influenza-related deaths in 1918-1919, compared with 36% in the 1957 H2N2 pandemic and 48% in the 1968 H3N2 pandemic.",
+     "main": false
+    },
+    {
+     "id": "k4d",
+     "fact": "Influenza and pneumonia death rates for those aged 15-34 in 1918-1919 were more than 20 times higher than in previous years.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k5",
+   "point": "The pandemic came in three waves within about a year: a spring wave from March 1918 with high illness but death rates in most places not appreciably above normal, a highly fatal global second wave from September to November 1918, and a third wave in early 1919; within a country the waves were compressed into about 8-9 months.",
+   "importance": "secondary",
+   "sources": [
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article"
+   ],
+   "as_of": "2006-01",
+   "atoms": [
+    {
+     "id": "k5a",
+     "fact": "The 1918-1919 pandemic occurred in three distinct waves within about a 12-month period.",
+     "main": true
+    },
+    {
+     "id": "k5b",
+     "fact": "The first (spring) wave began in March 1918; illness rates were high but death rates in most locales were not appreciably above normal.",
+     "main": false
+    },
+    {
+     "id": "k5c",
+     "fact": "The second (fall) wave spread globally from September to November 1918 and was highly fatal.",
+     "main": false
+    },
+    {
+     "id": "k5d",
+     "fact": "A third wave occurred in early 1919 in many nations.",
+     "main": false
+    },
+    {
+     "id": "k5e",
+     "fact": "The 1918-1919 waves were typically compressed into about 8-9 months, in contrast to the 1889-1892 recurrences, which were spread over more than three years.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k6",
+   "point": "The geographic origin is unresolved: candidates include Etaples in France, northern China and Camp Funston/Haskell County in Kansas, but Worobey, Cox and Gill (2019) consider each weak (the March 1918 Funston outbreak was mild and New York City already showed high influenza mortality in February 1918, and Chinese and Southeast Asian labourers' cases lagged rather than led others), and judge the chance that any surveillance captured a precise epicentre to be close to zero.",
+   "importance": "core",
+   "sources": [
+    "https://academic.oup.com/emph/article/2019/1/18/5298310",
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article"
+   ],
+   "as_of": "2019-01",
+   "atoms": [
+    {
+     "id": "k6a",
+     "fact": "The geographic origin of the 1918 pandemic virus remains unresolved; proposed sites include Etaples (France), China and Camp Funston/Haskell County (Kansas).",
+     "main": true
+    },
+    {
+     "id": "k6b",
+     "fact": "Worobey, Cox and Gill note that the March 1918 Camp Funston outbreak was mild, with many cases but few deaths, and that New York City already showed very high influenza mortality in February 1918.",
+     "main": false
+    },
+    {
+     "id": "k6c",
+     "fact": "They note that influenza cases among Chinese and Southeast Asian labourers and military recruits lagged rather than led cases among other groups, arguing against the Chinese Labour Corps hypothesis.",
+     "main": false
+    },
+    {
+     "id": "k6d",
+     "fact": "They conclude that the chance a very precise epicentre of the pandemic was captured in contemporary records is close to zero.",
+     "main": false
+    },
+    {
+     "id": "k6e",
+     "fact": "The 2006 Emerging Infectious Diseases review notes the pandemic's three waves spread more or less simultaneously in Europe, Asia and North America over about 12 months.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k7",
+   "point": "Genetically, the pandemic virus appears to have emerged shortly before 1918: Worobey et al. (2014) infer that a human H1 virus (whose lineage traces to a common ancestor around 1907) acquired avian N1 and internal-protein genes in a reassortment about 1915, while earlier work found the 1918 genes not closely matched at the nucleotide level to sampled wild-bird viruses.",
+   "importance": "secondary",
+   "sources": [
+    "https://core.ac.uk/download/28997507.pdf",
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article"
+   ],
+   "as_of": "2014-04",
+   "atoms": [
+    {
+     "id": "k7a",
+     "fact": "Worobey et al. (2014) infer that the 1918 pandemic virus arose when a human H1 virus acquired the remaining seven gene segments, including avian N1 neuraminidase and internal protein genes, from an avian source.",
+     "main": true
+    },
+    {
+     "id": "k7b",
+     "fact": "They date the most recent common ancestor of the pandemic and seasonal human H1 lineages to 1907 (range 1903-1910).",
+     "main": false
+    },
+    {
+     "id": "k7c",
+     "fact": "They date the reassortment producing the pandemic virus ancestor to about 1915, within a window of 1913 to 1916.",
+     "main": false
+    },
+    {
+     "id": "k7d",
+     "fact": "The 2006 Emerging Infectious Diseases review noted that the 1918 nucleoprotein gene resembles wild-bird virus genes at the amino acid level but is very divergent at the nucleotide level, leaving the virus's avian origin puzzling.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k8",
+   "point": "Most deaths involved secondary bacterial pneumonia rather than the virus alone: Morens, Taubenberger and Fauci (2008) reviewed lung sections from 58 autopsies and bacteriologic data covering 8,398 autopsies and implicated common upper-respiratory bacteria (pneumococci, streptococci, staphylococci), at a time with no antibiotics and no influenza vaccine.",
+   "importance": "core",
+   "sources": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC2599911/",
+    "https://archive.cdc.gov/www_cdc_gov/flu/pandemic-resources/1918-commemoration/1918-pandemic-history.htm"
+   ],
+   "as_of": "2008-10",
+   "atoms": [
+    {
+     "id": "k8a",
+     "fact": "Morens, Taubenberger and Fauci concluded that the majority of deaths in the 1918-1919 pandemic likely resulted directly from secondary bacterial pneumonia caused by common upper respiratory tract bacteria.",
+     "main": true
+    },
+    {
+     "id": "k8b",
+     "fact": "They reviewed recut lung tissue sections from 58 influenza fatalities of 1918-1919.",
+     "main": false
+    },
+    {
+     "id": "k8c",
+     "fact": "They reviewed 109 published reports providing bacteriologic data from 173 autopsy series covering 8,398 individual autopsies in 15 countries.",
+     "main": false
+    },
+    {
+     "id": "k8d",
+     "fact": "The bacteria most commonly implicated were pneumococci, streptococci and staphylococci.",
+     "main": false
+    },
+    {
+     "id": "k8e",
+     "fact": "CDC states that in 1918 there was no vaccine against influenza infection and no antibiotics to treat secondary bacterial infections.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k9",
+   "point": "Why the 1918 virus was so lethal is still not fully explained: its genome was sequenced from preserved 1918 tissue and the virus was reconstructed in 2005, yet CDC says the properties that made it so devastating are not well understood, and the 2006 review argues the age pattern cannot be explained by viral properties alone.",
+   "importance": "core",
+   "sources": [
+    "https://archive.cdc.gov/www_cdc_gov/flu/pandemic-resources/1918-commemoration/1918-pandemic-history.htm",
+    "https://archive.cdc.gov/www_cdc_gov/flu/pandemic-resources/reconstruction-1918-virus.html",
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article"
+   ],
+   "as_of": "2018-03",
+   "atoms": [
+    {
+     "id": "k9a",
+     "fact": "CDC states that the properties that made the 1918 virus so devastating are not well understood.",
+     "main": true
+    },
+    {
+     "id": "k9b",
+     "fact": "CDC states that the 1918 virus was reconstructed in 2005, with results published that October.",
+     "main": false
+    },
+    {
+     "id": "k9c",
+     "fact": "The 2006 Emerging Infectious Diseases review argues that explaining the 1918 age-mortality pattern requires looking beyond properties of the virus to host and environmental factors, such as antibody-dependent infection enhancement from prior exposures and coinfecting agents.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k10",
+   "point": "Why young adults died: Worobey et al. (2014) propose that adults aged about 20-40 were most vulnerable because their childhood exposure was to a putative H3N8 virus circulating about 1889-1900, with the mortality peak falling in those born 1889-1893, while older people may have been partly protected by earlier H1-like exposure; this remains a hypothesis.",
+   "importance": "secondary",
+   "sources": [
+    "https://core.ac.uk/download/28997507.pdf",
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article"
+   ],
+   "as_of": "2014-04",
+   "atoms": [
+    {
+     "id": "k10a",
+     "fact": "Worobey et al. propose that high 1918 mortality among adults aged about 20 to 40 was due primarily to their childhood exposure to a putative H3N8 virus that circulated from about 1889 until about 1900.",
+     "main": true
+    },
+    {
+     "id": "k10b",
+     "fact": "They report that the peak in young-adult mortality occurred precisely in those born from 1889 to 1893.",
+     "main": false
+    },
+    {
+     "id": "k10c",
+     "fact": "They note that elderly individuals may have been protected from the 1918 virus by childhood exposure to an H1N1-like virus.",
+     "main": false
+    },
+    {
+     "id": "k10d",
+     "fact": "The 2006 Emerging Infectious Diseases review notes that persons over 75 had lower influenza and pneumonia case-fatality rates in 1918 than in the prepandemic period of 1911-1917.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k11",
+   "point": "Severity was extreme and uneven: case-fatality exceeded 2.5% versus under 0.1% in other pandemics, even though more than 95% of cases in most industrialised-nation locales were mild, and excess mortality varied 31-fold across places (0.25% in Wisconsin versus 7.8% in India's Central Provinces and Berar), with per-head income explaining about half of the variance.",
+   "importance": "secondary",
+   "sources": [
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article",
+    "https://www.cidrap.umn.edu/influenza-general/study-1918-pandemic-now-would-kill-62-million"
+   ],
+   "as_of": "2006-12",
+   "atoms": [
+    {
+     "id": "k11a",
+     "fact": "The 2006 Emerging Infectious Diseases review states that 1918-1919 case-fatality rates were above 2.5%, compared with below 0.1% in other influenza pandemics.",
+     "main": true
+    },
+    {
+     "id": "k11b",
+     "fact": "The same review states that more than 95% of influenza cases in most locales in industrialised nations in 1918 were mild.",
+     "main": false
+    },
+    {
+     "id": "k11c",
+     "fact": "Murray et al. (Lancet 2006) found that excess mortality in the 1918 pandemic differed 31-fold between the lowest and highest areas.",
+     "main": false
+    },
+    {
+     "id": "k11d",
+     "fact": "In the Murray et al. data Wisconsin had the lowest excess mortality at 0.25% and India's Central Provinces and Berar the highest at 7.8%.",
+     "main": false
+    },
+    {
+     "id": "k11e",
+     "fact": "Murray et al. found that per-capita income explained about half of the variance in 1918 pandemic mortality.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k12",
+   "point": "The 1918 virus is the ancestor of later influenza A viruses: the 1957 H2N2 and 1968 H3N2 pandemic viruses carry key genes from it and almost all human influenza A cases since have been caused by its descendants; its genome was recovered from archival 1918 autopsy material identified in 1995 and from a victim's lungs preserved in Alaskan permafrost at Brevig Mission.",
+   "importance": "secondary",
+   "sources": [
+    "https://wwwnc.cdc.gov/eid/article/12/1/05-0979_article",
+    "https://archive.cdc.gov/www_cdc_gov/flu/pandemic-resources/reconstruction-1918-virus.html"
+   ],
+   "as_of": "2006-01",
+   "atoms": [
+    {
+     "id": "k12a",
+     "fact": "Almost all human influenza A cases since 1918, apart from infections acquired directly from avian viruses, have been caused by descendants of the 1918 virus.",
+     "main": true
+    },
+    {
+     "id": "k12b",
+     "fact": "The H2N2 and H3N2 viruses that caused the 1957 and 1968 pandemics are composed in part of key genes from the 1918 virus.",
+     "main": false
+    },
+    {
+     "id": "k12c",
+     "fact": "A scientific team identified archival 1918 influenza autopsy material in 1995 and began sequencing the virus's RNA, publishing an initial genetic characterisation in 1997.",
+     "main": false
+    },
+    {
+     "id": "k12d",
+     "fact": "Lungs preserved in permafrost from a 1918 victim buried at Brevig Mission, Alaska, recovered in 1997, yielded the full hemagglutinin and neuraminidase gene sequences of the 1918 virus.",
+     "main": false
+    }
+   ]
+  },
+  {
+   "id": "k13",
+   "point": "The fall 1918 wave was clinically far more severe than the influenza outbreaks that preceded it: in 39 US Army training camps, admissions peaked at about 46 and 51 cases per 1,000 troops in January and April 1918 against 164 per 1,000 in October 1918, case-fatality was about 1% through winter-spring 1917-1918 against 5.2% at the pandemic's onset in September-October 1918, and pneumonia complicated 7% and 5.5% of influenza illnesses at the earlier peaks against 19% in September-October 1918.",
+   "importance": "secondary",
+   "sources": [
+    "https://doi.org/10.1093/ofid/ofv021"
+   ],
+   "as_of": "2015-02",
+   "atoms": [
+    {
+     "id": "k13a",
+     "fact": "Chertow et al. (2015) examined influenza in 39 domestic US Army training camps before and during the 1918 pandemic.",
+     "main": true
+    },
+    {
+     "id": "k13b",
+     "fact": "Camp influenza admissions peaked at 46 cases per 1,000 troops in January 1918 and 51 per 1,000 in April 1918, against 164 per 1,000 in October 1918.",
+     "main": false
+    },
+    {
+     "id": "k13c",
+     "fact": "Case fatality remained approximately 1 percent through winter-spring 1917-1918, against 5.2 percent at the pandemic's onset in September-October 1918.",
+     "main": false
+    },
+    {
+     "id": "k13d",
+     "fact": "Influenza complicated by pneumonia accounted for 7 percent and 5.5 percent of influenza illnesses at the two pre-pandemic peaks, against 19 percent in September-October 1918.",
+     "main": false
+    }
+   ]
+  }
+ ]
+}

@@ -93,7 +93,7 @@ def test_initialize_reports_server_instructions(client: TestClient) -> None:
     response = _post_initialize(client, AUTH)
     instructions = response.json()["result"].get("instructions")
     assert instructions is not None
-    assert "Default to deepseek_research" in instructions
+    assert "deepseek_quick_research" in instructions
     assert 'sources="academic"' in instructions
     assert 'sources="technical"' in instructions
 
@@ -174,7 +174,7 @@ def test_tools_list_returns_every_tool(client: TestClient) -> None:
     assert response.status_code == 200
     names = [tool["name"] for tool in response.json()["result"]["tools"]]
     assert names == [tool.__name__ for tool in server.TOOLS]
-    assert len(names) == len(server.TOOLS) == 9
+    assert len(names) == len(server.TOOLS) == 7
 
 
 def test_tools_call_uses_stubbed_upstream(client: TestClient, fake_upstream: Any) -> None:

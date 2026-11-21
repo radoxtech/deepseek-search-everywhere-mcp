@@ -13,7 +13,7 @@ PAGE = "Plain page text with an escaped \\(paren\\). " * 100
 def test_search_results_report_chars_only(fake_upstream):
     item = {"title": "T", "url": URL, "site_name": "Example", "content": PAGE}
     fake_upstream(default={"ok": True, "data": {"results": [item]}})
-    envelope = asyncio.run(server.deepseek_search("q", count=1, content="full", max_total_chars=300))
+    envelope = asyncio.run(server.deepseek_search("q", count=1, content="full"))
     result = envelope["results"][0]
     assert result["chars"] == len(result["content"])
     assert "content_chars" not in result
@@ -35,9 +35,9 @@ def test_every_tool_uses_chars(fake_upstream):
         }
     )
     single = asyncio.run(server.deepseek_fetch(URL))
-    many = asyncio.run(server.deepseek_fetch_many([URL]))
+    many = asyncio.run(server.deepseek_fetch([URL]))
     search = asyncio.run(server.deepseek_search("q", count=1, content="full"))
-    search_many = asyncio.run(server.deepseek_search_many(["q"], count=1, content="full"))
+    search_many = asyncio.run(server.deepseek_search(["q"], count=1, content="full"))
     for entry in (single, many["results"][0], search["results"][0], search_many["results"][0]["results"][0]):
         assert entry["chars"] == len(entry["content"])
         assert "content_chars" not in entry

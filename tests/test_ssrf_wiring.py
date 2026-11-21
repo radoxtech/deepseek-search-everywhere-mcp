@@ -39,7 +39,7 @@ def upstream(fake_upstream: Any) -> Upstream:
 async def test_blocked_urls_never_reach_upstream(upstream: Upstream, url: str) -> None:
     result = await server.deepseek_fetch(url)
     assert result["ok"] is False
-    assert result["error"]["code"] == "ssrf_blocked"
+    assert result["error"]["reason"] == "ssrf_blocked"
     assert upstream.calls == []
 
 
@@ -47,19 +47,19 @@ async def test_blocked_urls_never_reach_upstream(upstream: Upstream, url: str) -
 async def test_blocked_url_is_not_cached_or_rate_limited(upstream: Upstream, refresh: bool) -> None:
     for _ in range(3):
         result = await server.deepseek_fetch("http://10.0.0.1/", refresh=refresh)
-        assert result["error"]["code"] == "ssrf_blocked"
+        assert result["error"]["reason"] == "ssrf_blocked"
     assert upstream.calls == []
 
 
 async def test_wrong_scheme_keeps_bad_url_code(upstream: Upstream) -> None:
     result = await server.deepseek_fetch("ftp://example.com/file")
-    assert result["error"]["code"] == "bad_url"
+    assert result["error"]["reason"] == "bad_url"
     assert upstream.calls == []
 
 
 async def test_malformed_url_maps_to_bad_url(upstream: Upstream) -> None:
     result = await server.deepseek_fetch("http://")
-    assert result["error"]["code"] == "bad_url"
+    assert result["error"]["reason"] == "bad_url"
     assert upstream.calls == []
 
 
@@ -73,6 +73,6 @@ async def test_public_url_proceeds_to_upstream(upstream: Upstream) -> None:
 def test_reject_url_helper_is_reusable() -> None:
     assert server._reject_url("https://example.com/") is None
     rejected = server._reject_url("http://127.0.0.1/")
-    assert rejected is not None and rejected["error"]["code"] == "ssrf_blocked"
+    assert rejected is not None and rejected["error"]["reason"] == "ssrf_blocked"
     rejected = server._reject_url("http://")
-    assert rejected is not None and rejected["error"]["code"] == "bad_url"
+    assert rejected is not None and rejected["error"]["reason"] == "bad_url"

@@ -81,12 +81,29 @@ def sanitize_json(text: str) -> tuple[dict[str, Any] | None, str | None]:
     try:
         parsed = json.loads(candidate)
     except json.JSONDecodeError as exc:
+        repaired = _repair_json_candidate(candidate)
+        if repaired is not None and isinstance(repaired, dict):
+            return repaired, None
         return None, f"Failed to parse extraction JSON: {exc}."
 
     if not isinstance(parsed, dict):
         return None, f"Expected a JSON object, got {type(parsed).__name__}."
 
     return parsed, None
+
+
+def _repair_json_candidate(candidate: str) -> dict[str, Any] | None:
+    """Repair common LLM JSON errors: trailing commas before closing braces."""
+    # Strip trailing commas before } or ]
+    c1 = re.sub(r",\s*([}\]])", r"\1", candidate)
+    try:
+        parsed = json.loads(c1)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    return None
 
 
 def validate_fields(data: dict[str, Any], fields: list[str]) -> dict[str, Any]:

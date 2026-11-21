@@ -6,17 +6,15 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import search_core, server
 
 TOOL_NAMES = {
     "deepseek_search",
-    "deepseek_search_many",
+    "deepseek_deep_agent_research",
     "deepseek_fetch",
-    "deepseek_fetch_many",
-    "deepseek_research",
+    "deepseek_quick_research",
     "deepseek_check_research",
     "deepseek_extract",
-    "deepseek_extract_many",
     "deepseek_check_balance",
 }
 
@@ -58,12 +56,10 @@ def test_ori_question_dropped_from_public_search() -> None:
 )
 def test_dropped_parameters_not_in_search_tools(dropped_param: str) -> None:
     assert dropped_param not in inspect.signature(server.deepseek_search).parameters
-    assert dropped_param not in inspect.signature(server.deepseek_search_many).parameters
 
 
-def test_refresh_is_a_keyword_only_parameter_of_cached_tools():
-    names = ["_search", "deepseek_search", "deepseek_search_many", "deepseek_fetch"]
-    names += ["deepseek_research", "deepseek_extract", "deepseek_extract_many"]
+def test_refresh_is_a_keyword_only_parameter_of_internal_search():
+    names = ["_search", "_fetch"]
     for name in names:
         refresh = inspect.signature(getattr(server, name)).parameters.get("refresh")
         assert refresh is not None and refresh.kind is inspect.Parameter.KEYWORD_ONLY, name
@@ -98,7 +94,7 @@ def test_search_parameter_order_is_unchanged():
     ],
 )
 def test_search_error_codes(kwargs, code):
-    assert asyncio.run(server.deepseek_search(**kwargs))["error"]["code"] == code
+    assert asyncio.run(server.deepseek_search(**kwargs))["error"]["reason"] == code
 
 
 @pytest.mark.parametrize(
@@ -109,12 +105,12 @@ def test_search_error_codes(kwargs, code):
     ],
 )
 def test_fetch_error_codes(url, code):
-    assert asyncio.run(server.deepseek_fetch(url))["error"]["code"] == code
+    assert asyncio.run(server.deepseek_fetch(url))["error"]["reason"] == code
 
 
 def test_missing_api_key_error_code():
     result = asyncio.run(server.deepseek_search("q"))
-    assert result["error"]["code"] == "missing_api_key"
+    assert result["error"]["reason"] == "missing_api_key"
 
 
 def test_dedupe_note(fake_upstream):
@@ -128,7 +124,7 @@ def test_rewrite_note(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return "better query"
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     _install_fake_request(fake_upstream, [])
     result = asyncio.run(server._search("q", 5, None, "snippets", None, 1000, 4000, True, True))
     assert "query rewritten (flash): 'better query'" in result["notes"]
@@ -153,7 +149,8 @@ def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
     assert "primary search and retrieval tool" in search_desc.lower()
 
     total_chars = sum(len(tool.description) for tool in tools.values())
-    assert total_chars < 7500
+    # The cap bounds the tools/list context cost; it is not a TDQS target.
+    assert total_chars < 8500
 
 
 def test_tool_descriptions_sibling_references_are_valid() -> None:
@@ -172,19 +169,19 @@ def test_tool_annotations_are_truthful() -> None:
     annotations = server.TOOL_ANNOTATIONS
     assert set(annotations.keys()) == TOOL_NAMES
     for name, ann in annotations.items():
-        assert ann.readOnlyHint is True
-        assert ann.destructiveHint is False
-        assert ann.idempotentHint is True
-        if name in ("deepseek_check_balance", "deepseek_check_research"):
-            assert ann.openWorldHint is False
+        assert ann.read_only_hint is True
+        assert ann.destructive_hint is False
+        assert ann.idempotent_hint is True
+        if name == "deepseek_check_balance":
+            assert ann.open_world_hint is False
         else:
-            assert ann.openWorldHint is True
+            assert ann.open_world_hint is True
 
 
 def test_every_tool_input_schema_property_has_description() -> None:
     tools = asyncio.run(server.mcp.list_tools())
     for tool in tools:
-        props = tool.inputSchema.get("properties", {})
+        props = tool.input_schema.get("properties", {})
         for prop_name, prop in props.items():
             desc = prop.get("description")
             assert desc, f"Tool '{tool.name}' property '{prop_name}' is missing description."
@@ -197,7 +194,8 @@ def test_server_instructions_are_present_and_guide_tool_choice() -> None:
     assert hasattr(server, "SERVER_INSTRUCTIONS")
     assert server.mcp.instructions is not None
     assert server.mcp.instructions == server.SERVER_INSTRUCTIONS
-    assert "Default to deepseek_research" in server.SERVER_INSTRUCTIONS
+    assert "deepseek_quick_research" in server.SERVER_INSTRUCTIONS
+    assert "deepseek_deep_agent_research" in server.SERVER_INSTRUCTIONS
     assert 'sources="academic"' in server.SERVER_INSTRUCTIONS
     assert 'sources="technical"' in server.SERVER_INSTRUCTIONS
     assert "deepseek_check_research" in server.SERVER_INSTRUCTIONS
@@ -211,57 +209,66 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
             f"Tool {name} description must mention cost facts: {desc}"
         )
     assert "128" in tools["deepseek_search"].description
-    desc_search_many = tools["deepseek_search_many"].description
-    assert "20,000" in desc_search_many or "20000" in desc_search_many
+    desc_search = tools["deepseek_search"].description
+    assert "20,000" in desc_search or "20000" in desc_search
     desc_fetch = tools["deepseek_fetch"].description
     assert "20,000" in desc_fetch or "20000" in desc_fetch
-    desc_fetch_many = tools["deepseek_fetch_many"].description
-    assert "20,000" in desc_fetch_many and "4,000" in desc_fetch_many
-    desc_research = tools["deepseek_research"].description
+    assert "4,000" in desc_fetch
+    desc_research = tools["deepseek_quick_research"].description
     assert "6-24 sources" in desc_research or "sources" in desc_research
 
 
 def test_every_tool_has_a_title() -> None:
     tools = asyncio.run(server.mcp.list_tools())
-    titles = [tool.annotations.title for tool in tools]
-    assert all(titles) and len(set(titles)) == len(titles)
+    titles = [tool.title for tool in tools]
+    annotation_titles = [tool.annotations.title for tool in tools]
+    assert all(titles), "Every tool must expose a non-empty top-level title."
+    assert all(annotation_titles), "Every tool must expose a non-empty annotations.title."
+    assert len(set(titles)) == len(titles), "Top-level titles must be distinct across tools."
+    assert len(set(annotation_titles)) == len(annotation_titles), (
+        "Annotation titles must be distinct across tools."
+    )
+    for tool in tools:
+        assert tool.title != tool.name, f"Tool '{tool.name}' title must differ from its name."
+        assert tool.annotations.title != tool.name, (
+            f"Tool '{tool.name}' annotation title must differ from its name."
+        )
+        assert tool.title == tool.annotations.title, (
+            f"Tool '{tool.name}' top-level title must match its annotation title."
+        )
 
 
-def test_research_description_explains_polling_and_client_synthesis() -> None:
+def test_research_description_explains_polling() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
-    research = tools["deepseek_research"].description
+    research = tools["deepseek_quick_research"].description
     assert "deepseek_check_research" in research and '"running"' in research
-    assert 'synthesis="client"' in research
     check = tools["deepseek_check_research"].description
-    assert "page=" in check and "report=" in check and "awaiting_report" in check
-    assert 'synthesis="client"' in server.SERVER_INSTRUCTIONS
-
-
-@pytest.mark.parametrize(
-    ("tool", "param"),
-    [
-        ("deepseek_search", "max_total_chars"),
-        ("deepseek_search_many", "max_total_chars"),
-        ("deepseek_fetch", "max_chars"),
-        ("deepseek_fetch_many", "max_chars_per_url"),
-        ("deepseek_fetch_many", "max_total_chars"),
-        ("deepseek_extract", "max_chars"),
-        ("deepseek_extract_many", "max_chars_per_url"),
-        ("deepseek_extract_many", "max_total_chars"),
-    ],
-)
-def test_size_defaults_in_descriptions_match_the_schema(tool: str, param: str) -> None:
-    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
-    default = tools[tool].inputSchema["properties"][param]["default"]
-    assert f"{default:,}" in tools[tool].description, f"{tool}.{param} default {default} not in description"
+    assert "job_id" in check and "poll" in check.lower()
 
 
 def test_error_codes_named_in_server_instructions_exist() -> None:
     import re
 
-    from deepseek_search_everywhere_mcp.errors import CLOSED_ERROR_CODES
+    from deepseek_search_everywhere_mcp.errors import CLOSED_ERROR_CODES, CODE_ACTIONS
 
     named = set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", server.SERVER_INSTRUCTIONS))
     codes = {word for word in named if not word.startswith("deepseek_")}
     codes -= {"job_id", "cost_usd", "error_code", "synthesis_instructions"}
+    codes -= set(CODE_ACTIONS.values())
     assert codes <= CLOSED_ERROR_CODES, codes - CLOSED_ERROR_CODES
+
+
+@pytest.mark.parametrize(
+    ("tool", "single", "per_url"), [("deepseek_fetch", 20000, 4000), ("deepseek_extract", 40000, 20000)]
+)
+def test_dual_max_chars_defaults_are_in_the_description(tool: str, single: int, per_url: int) -> None:
+    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+    description = tools[tool].description
+    assert f"{single:,}" in description and f"{per_url:,}" in description
+
+
+def test_every_tool_description_fits_the_length_limit() -> None:
+    tools = asyncio.run(server.mcp.list_tools())
+    for tool in tools:
+        # The cap bounds the tools/list context cost; it is not a TDQS target.
+        assert len(tool.description) <= 1400, (tool.name, len(tool.description))

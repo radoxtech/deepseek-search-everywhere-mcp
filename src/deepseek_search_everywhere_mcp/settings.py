@@ -32,7 +32,7 @@ DEFAULT_SOURCE_DENYLIST: tuple[str, ...] = ()
 # Default level for this package's, the MCP SDK's and uvicorn's loggers: quiet unless asked.
 DEFAULT_LOG_LEVEL = "WARNING"
 
-# deepseek_fetch_many never runs more fetches than this at once.
+# A deepseek_fetch URL list never runs more fetches than this at once.
 MAX_BATCH_CONCURRENCY = 5
 
 
@@ -47,9 +47,33 @@ class LLMRates:
 class LLMPricing:
     peak: LLMRates = LLMRates(cache_hit_per_1m=0.006, cache_miss_per_1m=0.30, output_per_1m=1.20)
     off_peak: LLMRates = LLMRates(cache_hit_per_1m=0.003, cache_miss_per_1m=0.15, output_per_1m=0.60)
+    # A flat-rate host charges the same at any hour; these replace the two DeepSeek periods above.
+    flat: LLMRates | None = None
 
 
 DEFAULT_LLM_PRICING = LLMPricing()
+
+# DeepInfra lists DeepSeek-V4.1-Flash at 0.20 / 0.60 / 0.006 per 1M with a 51% discount, normal tier,
+# which is 0.098 / 0.294 / 0.0029. Measured from the provider's model list on 2026-11-20.
+DEEPINFRA_PRICING = LLMPricing(
+    flat=LLMRates(cache_hit_per_1m=0.0029, cache_miss_per_1m=0.098, output_per_1m=0.294)
+)
+
+# DeepInfra lists DeepSeek-V4-Flash-0731 at 0.06 / 0.18 / 0.015 per 1M (standard tier).
+DEEPINFRA_FLASH_0731_PRICING = LLMPricing(
+    flat=LLMRates(cache_hit_per_1m=0.015, cache_miss_per_1m=0.06, output_per_1m=0.18)
+)
+
+
+def active_chat_pricing() -> LLMPricing:
+    """Pricing for the chat host: flat for a third-party host, the DeepSeek periods otherwise."""
+    host = os.environ.get("DEEPSEEK_CHAT_BASE_URL", "").rstrip("/")
+    if host and host != os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/"):
+        model = os.environ.get("DEEPSEEK_CHAT_MODEL", "")
+        if "0731" in model:
+            return DEEPINFRA_FLASH_0731_PRICING
+        return DEEPINFRA_PRICING
+    return DEFAULT_LLM_PRICING
 
 
 def get_pricing_period(when: datetime | None = None) -> str:

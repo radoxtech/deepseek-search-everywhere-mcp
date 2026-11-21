@@ -1,0 +1,109 @@
+{
+  "id": "sport-zone2",
+  "topic": "Zone 2 training for endurance athletes: physiological rationale, how intensity is defined and what the research evidence shows",
+  "status": "draft",
+  "prepared": "2026-11-17",
+  "key_points": [
+    {
+      "id": "k1",
+      "point": "Zone 2 has no single standard definition: it is usually the intensity at or below the first lactate/ventilatory threshold (LT1/VT1), about 2 mmol/L lactate or lower, often approximated at roughly 68-75% of max heart rate.",
+      "importance": "core",
+      "sources": [
+        "https://pubmed.ncbi.nlm.nih.gov/20861519/",
+        "https://fasterskier.com/2025/07/zone-2-training-the-latest-fad/"
+      ],
+      "as_of": "2025-07"
+    },
+    {
+      "id": "k2",
+      "point": "Terminology and zone models differ (three-zone vs five-zone; 'anaerobic threshold' used for both VT1 and VT2); percent-HRmax, %VO2max or MET prescriptions ignore individual variability, so threshold-anchored intensity is preferred.",
+      "importance": "core",
+      "sources": [
+        "https://www.frontiersin.org/articles/10.3389/fphys.2021.682233/full"
+      ],
+      "as_of": "2021-06"
+    },
+    {
+      "id": "k3",
+      "point": "Rationale: San-Millan and Brooks found fat oxidation inversely related to blood lactate across athletes, moderately active people and metabolic syndrome, proposing both as indirect markers of mitochondrial function and metabolic flexibility; evidence is correlational.",
+      "importance": "core",
+      "sources": [
+        "https://link.springer.com/10.1007/s40279-017-0751-x"
+      ],
+      "as_of": "2018-01"
+    },
+    {
+      "id": "k4",
+      "point": "Mechanistic caveat: training volume appears the main driver of mitochondrial content, while intensity (high-intensity intervals at 90% or more of maximal aerobic power) drives gains in mitochondrial respiratory function.",
+      "importance": "core",
+      "sources": [
+        "https://www.physoc.org/?p=66152"
+      ],
+      "as_of": "2018-01"
+    },
+    {
+      "id": "k5",
+      "point": "Descriptive studies of elite endurance athletes show about 80% of sessions at low intensity (around 2 mmol/L lactate) and about 20% high intensity, which motivates the polarized/zone-2-heavy model.",
+      "importance": "core",
+      "sources": [
+        "https://pubmed.ncbi.nlm.nih.gov/20861519/"
+      ],
+      "as_of": "2010-09"
+    },
+    {
+      "id": "k6",
+      "point": "A 2025 individual-participant network meta-analysis (13 studies, 348 athletes) found no difference between polarized and pyramidal training for VO2max (SMD -0.06) or time-trial performance (SMD -0.05).",
+      "importance": "core",
+      "sources": [
+        "https://www.stir.ac.uk/research/hub/publication/2095779",
+        "https://www.fisiologiadelejercicio.com/wp-content/uploads/2025/02/Which-Training-Intensity-Distribution-Intervention-will.pdf"
+      ],
+      "as_of": "2025-03"
+    },
+    {
+      "id": "k7",
+      "point": "Evidence limitations: interventions lasted only 3-18 weeks, several studies had high risk of bias or were non-randomized, women were about 15% of participants, and intensity was classified from heart-rate time-in-zone.",
+      "importance": "core",
+      "sources": [
+        "https://www.fisiologiadelejercicio.com/wp-content/uploads/2025/02/Which-Training-Intensity-Distribution-Intervention-will.pdf"
+      ],
+      "as_of": "2025-03"
+    },
+    {
+      "id": "k8",
+      "point": "Interval training counterpoint: HIIT and sprint interval training improve aerobic fitness and mitochondrial content similarly to moderate continuous training; at matched volume HIIT tends to raise VO2max more.",
+      "importance": "core",
+      "sources": [
+        "https://pubmed.ncbi.nlm.nih.gov/27748956/"
+      ],
+      "as_of": "2017-01"
+    },
+    {
+      "id": "k9",
+      "point": "Subgroup results suggest competitive athletes may gain more VO2max from polarized and recreational athletes from pyramidal training (SMD -0.63 between subgroups), but this is confounded by baseline fitness and is hypothesis-generating.",
+      "importance": "secondary",
+      "sources": [
+        "https://www.fisiologiadelejercicio.com/wp-content/uploads/2025/02/Which-Training-Intensity-Distribution-Intervention-will.pdf"
+      ],
+      "as_of": "2025-03"
+    },
+    {
+      "id": "k10",
+      "point": "Practical criticism: lactate thresholds can vary day to day, so fixed lactate or heart-rate zone numbers may be imprecise; lab testing is costly. This is an expert opinion piece, not a trial.",
+      "importance": "secondary",
+      "sources": [
+        "https://fasterskier.com/2025/07/zone-2-training-the-latest-fad/"
+      ],
+      "as_of": "2025-07"
+    },
+    {
+      "id": "k11",
+      "point": "Seiler's review noted that adding more high-intensity interval work to already well-trained athletes did not convincingly yield long-term performance gains.",
+      "importance": "secondary",
+      "sources": [
+        "https://pubmed.ncbi.nlm.nih.gov/20861519/"
+      ],
+      "as_of": "2010-09"
+    }
+  ]
+}

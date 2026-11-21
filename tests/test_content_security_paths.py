@@ -9,12 +9,9 @@ import pytest
 
 from deepseek_search_everywhere_mcp.server import (
     deepseek_extract,
-    deepseek_extract_many,
     deepseek_fetch,
-    deepseek_fetch_many,
     deepseek_research,
     deepseek_search,
-    deepseek_search_many,
 )
 
 FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures" / "injection"
@@ -70,7 +67,7 @@ async def test_search_path_sanitization(monkeypatch: pytest.MonkeyPatch, injecti
             },
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._request", fake_request)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._request", fake_request)
     res = await deepseek_search("test query", content="full", refresh=True)
     assert res["ok"] is True
     first = res["results"][0]
@@ -102,8 +99,8 @@ async def test_search_many_path_sanitization(monkeypatch: pytest.MonkeyPatch, in
             },
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._request", fake_request)
-    res = await deepseek_search_many(["test query 1"], content="full", refresh=True)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._request", fake_request)
+    res = await deepseek_search(["test query 1"], content="full", refresh=True)
     assert res["ok"] is True
     first = res["results"][0]["results"][0]
     _assert_content_is_sanitized(first["content"])
@@ -122,7 +119,7 @@ async def test_fetch_path_sanitization(monkeypatch: pytest.MonkeyPatch, injectio
             },
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._request", fake_request)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._request", fake_request)
     res = await deepseek_fetch("https://example.com/page", refresh=True)
     assert res["ok"] is True
     _assert_content_is_sanitized(res["content"])
@@ -144,8 +141,8 @@ async def test_fetch_many_path_sanitization(monkeypatch: pytest.MonkeyPatch, inj
             },
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._request", fake_request)
-    res = await deepseek_fetch_many(["https://example.com/page1"], refresh=True)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._request", fake_request)
+    res = await deepseek_fetch(["https://example.com/page1"], refresh=True)
     assert res["ok"] is True
     first = res["results"][0]
     _assert_content_is_sanitized(first["content"])
@@ -173,8 +170,8 @@ async def test_extract_path_sanitization(monkeypatch: pytest.MonkeyPatch, inject
             "cost_usd": 0.0001,
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._fetch", fake_fetch)
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._chat_request", fake_chat_request)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.fetch_core._fetch", fake_fetch)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._chat_request", fake_chat_request)
 
     res = await deepseek_extract("https://example.com/extract", fields=["notes", "tracker", "action"])
     assert res["ok"] is True
@@ -205,10 +202,10 @@ async def test_extract_many_path_sanitization(
             "cost_usd": 0.0001,
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._fetch", fake_fetch)
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._chat_request", fake_chat_request)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.fetch_core._fetch", fake_fetch)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._chat_request", fake_chat_request)
 
-    res = await deepseek_extract_many(["https://example.com/1"], fields=["field"])
+    res = await deepseek_extract(["https://example.com/1"], fields=["field"])
     assert res["ok"] is True
     data = res["results"][0]["data"]
     assert "\u200b" not in data["field"]
@@ -233,7 +230,7 @@ async def test_research_path_sanitization(monkeypatch: pytest.MonkeyPatch, injec
             },
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._request", fake_request)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._request", fake_request)
     res = await deepseek_research("ai security", refresh=True)
     assert res["ok"] is True
     first_source = res["sources"][0]
@@ -271,8 +268,8 @@ async def test_deep_research_path_sanitization(
             "cost_usd": 0.0002,
         }
 
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._chat_request", fake_chat_request)
-    monkeypatch.setattr("deepseek_search_everywhere_mcp.server._search", fake_search)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.runtime._chat_request", fake_chat_request)
+    monkeypatch.setattr("deepseek_search_everywhere_mcp.search_core._search", fake_search)
 
     res = await deepseek_research("ai security", depth="low", refresh=True)
     assert res["ok"] is True

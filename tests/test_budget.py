@@ -8,8 +8,9 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
 from deepseek_search_everywhere_mcp.budget import DailyBudgetTracker
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
 
@@ -121,7 +122,7 @@ def test_server_enforces_budget_exceeded(fake_upstream, tmp_path):
 
     # Wire tracker to temporary state file
     tracker = DailyBudgetTracker(limit_usd=0.001, state_path=state_file)
-    server._budget_tracker = tracker
+    runtime._budget_tracker = tracker
 
     # First search succeeds
     res1 = asyncio.run(server.deepseek_search("test1"))
@@ -131,7 +132,7 @@ def test_server_enforces_budget_exceeded(fake_upstream, tmp_path):
     # Second search exceeds budget
     res2 = asyncio.run(server.deepseek_search("test2"))
     assert res2["ok"] is False
-    assert res2["error"]["code"] == "budget_exceeded"
+    assert res2["error"]["reason"] == "budget_exceeded"
     assert res2["error"]["status"] == 402
     assert "Daily spend limit" in res2["error"]["message"]
 
@@ -218,7 +219,7 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
     settings = Settings(daily_budget_usd=limit)
     set_settings(settings)
     server.reset_state()
-    server._budget_tracker = tracker
+    runtime._budget_tracker = tracker
 
     # Mock responses with a small delay to induce a concurrency race in reserve
     async def delayed_handler(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -236,14 +237,14 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
                     "usage": {"prompt_tokens": 10, "completion_tokens": 10},
                 },
             }
-        return {"ok": False, "error": {"code": "not_found", "message": "Unknown path"}}
+        return _fail("not_found", "Unknown path")
 
     fake_upstream(delayed_handler)
 
     # Launch 20 mixed concurrent requests (search, fetch)
     tasks = []
     for i in range(10):
-        tasks.append(server.deepseek_search(f"query_{i}", refresh=True, rewrite=False))
+        tasks.append(server.deepseek_search(f"query_{i}", refresh=True))
         tasks.append(server.deepseek_fetch(f"http://example.com/page_{i}", refresh=True))
 
     results = await asyncio.gather(*tasks)
@@ -254,7 +255,9 @@ async def test_concurrency_mixed_search_fetch_chat_never_exceeds_limit(
         f"Budget breached! Spent {status['spent_usd']}, limit {limit}"
     )
     # Check that budget_exceeded occurred on excess requests
-    failures = [r for r in results if not r.get("ok") and r.get("error", {}).get("code") == "budget_exceeded"]
+    failures = [
+        r for r in results if not r.get("ok") and r.get("error", {}).get("reason") == "budget_exceeded"
+    ]
     assert len(failures) > 0
 
     set_settings(None)

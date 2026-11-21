@@ -10,7 +10,6 @@ import asyncio
 import json
 import math
 import os
-import pathlib
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -23,6 +22,7 @@ from .redact import redact
 from .settings import get_settings
 
 BASE_DEFAULT = "https://api.deepseek.com"
+CHAT_PATH_MARKER = "/chat/completions"
 FETCH_PATH = "/v1/tools/fetch"
 
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -88,31 +88,61 @@ def _base_url() -> str:
     return os.environ.get("DEEPSEEK_BASE_URL", BASE_DEFAULT).rstrip("/")
 
 
-def _api_key() -> str:
-    """Return the DeepSeek key from ``DEEPSEEK_API_KEY`` or an auth JSON file, else ``""``.
+def _chat_base_url() -> str:
+    """Base URL for chat completions, which may point at a different provider than search.
 
-    Without ``DEEPSEEK_AUTH_JSON`` the legacy opencode location is tried.
+    Search and fetch exist only on the DeepSeek endpoint, while chat completions are plain
+    OpenAI-compatible and can run on a cheaper host. ``DEEPSEEK_CHAT_BASE_URL`` selects that host;
+    unset, chat uses the same endpoint as search.
     """
-    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-    if key:
-        return key
-    configured = os.environ.get("DEEPSEEK_AUTH_JSON")
-    candidates = (
-        [pathlib.Path(configured).expanduser()]
-        if configured
-        else [
-            pathlib.Path.home() / ".local/share/opencode/auth.json",
-        ]
-    )
-    for candidate in candidates:
-        try:
-            data = json.loads(candidate.read_text())
-            found = (data.get("deepseek") or {}).get("key") or ""
-        except (OSError, ValueError):
-            continue
-        if found.strip():
-            return found.strip()
-    return ""
+    return (os.environ.get("DEEPSEEK_CHAT_BASE_URL") or _base_url()).rstrip("/")
+
+
+def _chat_api_key() -> str:
+    """Key for the chat host, falling back to the search key when chat shares the DeepSeek endpoint."""
+    if _chat_base_url() == _base_url():
+        return _api_key()
+    return os.environ.get("DEEPSEEK_CHAT_API_KEY", "").strip() or _api_key()
+
+
+def _chat_model(model: str) -> str:
+    """Provider-specific model name for chat; ``DEEPSEEK_CHAT_MODEL`` overrides it when set."""
+    override = os.environ.get("DEEPSEEK_CHAT_MODEL", "").strip()
+    if override and _chat_base_url() != _base_url():
+        return override
+    return model
+
+
+def _is_chat_path(path: str) -> bool:
+    return path.endswith(CHAT_PATH_MARKER)
+
+
+def _chat_path(path: str, base: str) -> str:
+    """Strip a duplicated ``/v1`` when the configured chat host already includes it.
+
+    DeepSeek exposes ``https://api.deepseek.com`` and expects ``/v1/chat/completions``. Hosts modelled on
+    the OpenAI SDK, like DeepInfra, are configured as ``https://api.deepinfra.com/v1/openai`` and expect
+    ``/chat/completions``. Concatenating blindly produces ``/v1/openai/v1/chat/completions`` and a 404.
+    """
+    if base.rstrip("/").endswith("/v1/openai") and path.startswith("/v1/"):
+        return path[len("/v1") :]
+    return path
+
+
+def _chat_headers(base: str) -> dict[str, str]:
+    """Service tier for hosts that price requests by tier; normal tier unless overridden."""
+    if base.rstrip("/").endswith("/v1/openai"):
+        return {"x-deepinfra-service-tier": os.environ.get("DEEPSEEK_CHAT_TIER", "default")}
+    return {}
+
+
+def _api_key() -> str:
+    """Return the DeepSeek key from ``DEEPSEEK_API_KEY``, else ``""``.
+
+    The key comes from the environment and nowhere else: a server that reads a credential file
+    behaves differently for each user and cannot be audited from its own settings.
+    """
+    return os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
 
 def _scrub(envelope: dict[str, Any], key: str) -> dict[str, Any]:
@@ -215,14 +245,17 @@ async def request(
     budget (``deadline`` if specified, else ``timeout``); a second attempt is made only
     if at least 50% of the total budget remains after the first attempt and any backoff delay.
     """
-    key = _api_key()
+    chat = _is_chat_path(path)
+    key = _chat_api_key() if chat else _api_key()
     if not key:
-        return _fail(
-            "missing_api_key", "No DeepSeek key: set DEEPSEEK_API_KEY or a readable DEEPSEEK_AUTH_JSON."
-        )
+        where = "DEEPSEEK_CHAT_API_KEY" if chat else "DEEPSEEK_API_KEY"
+        return _fail("missing_api_key", f"No key for {path}: set {where}.")
 
-    url = f"{_base_url()}{path}"
+    base = _chat_base_url() if chat else _base_url()
+    url = f"{base}{_chat_path(path, base) if chat else path}"
     headers = {"Authorization": f"Bearer {key}"}
+    if chat:
+        headers.update(_chat_headers(base))
     last: dict[str, Any] = _fail("request_failed", "No attempt was made.")
 
     budget = deadline if deadline is not None else timeout

@@ -7,13 +7,14 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, server
+from deepseek_search_everywhere_mcp.errors import _fail
 
 PAGE = {"ok": True, "data": {"title": "T", "content": "page text " * 50}}
 RESULT = {"title": "T", "url": "https://example.com/x", "content": "c " * 200}
 SEARCH = {"ok": True, "data": {"results": [RESULT]}}
 BALANCE = {"ok": True, "data": {"is_available": True, "balance_infos": []}}
-ERROR = {"ok": False, "error": {"code": "upstream_error", "message": "boom", "status": 500}}
+ERROR = _fail("upstream_error", "boom", 500)
 
 
 class SlowUpstream:
@@ -37,7 +38,7 @@ class SlowUpstream:
 @pytest.fixture
 def clocked(monkeypatch, fake_clock, fake_upstream):
     """Install the fake clock and return a factory for a slow upstream on it."""
-    monkeypatch.setattr(server, "_clock", fake_clock.monotonic)
+    monkeypatch.setattr(runtime, "_clock", fake_clock.monotonic)
 
     def install(step: float, answer: dict[str, Any] | None = None) -> SlowUpstream:
         return fake_upstream(SlowUpstream(fake_clock, step, answer))
@@ -48,7 +49,7 @@ def clocked(monkeypatch, fake_clock, fake_upstream):
 CALLS = {
     "search": lambda: server.deepseek_search("q", count=1),
     "fetch": lambda: server.deepseek_fetch("https://example.com/x"),
-    "fetch_many": lambda: server.deepseek_fetch_many(["https://example.com/x"]),
+    "fetch_many": lambda: server.deepseek_fetch(["https://example.com/x"]),
     "balance": lambda: server.deepseek_check_balance(),
 }
 
@@ -68,13 +69,13 @@ def test_error_envelope_reports_elapsed_ms(clocked, name):
     if name == "fetch_many":  # the batch itself succeeds; the failure is per item
         assert envelope["partial"] is True
     else:
-        assert envelope["error"]["code"] == "upstream_error"
+        assert envelope["error"]["reason"] == "upstream_error"
     assert envelope["elapsed_ms"] == 40
 
 
 def test_local_rejection_reports_elapsed_ms():
     envelope = asyncio.run(server.deepseek_search("   "))
-    assert envelope["error"]["code"] == "empty_query"
+    assert envelope["error"]["reason"] == "empty_query"
     assert isinstance(envelope["elapsed_ms"], int) and envelope["elapsed_ms"] >= 0
 
 
@@ -88,7 +89,7 @@ def test_cache_hit_reports_its_own_time(clocked):
 
 
 def test_shared_error_envelope_is_not_mutated(clocked):
-    error = {"ok": False, "error": {"code": "upstream_error", "message": "boom"}}
+    error = _fail("upstream_error", "boom")
     clocked(0.01, error)
     envelope = asyncio.run(server.deepseek_fetch("https://example.com/x"))
     assert "elapsed_ms" in envelope

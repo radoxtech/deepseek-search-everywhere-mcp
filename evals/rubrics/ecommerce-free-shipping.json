@@ -1,0 +1,110 @@
+{
+  "id": "ecommerce-free-shipping",
+  "topic": "Effect of free-shipping thresholds on conversion rate, average order value and returns in online retail",
+  "status": "draft",
+  "prepared": "2026-11-17",
+  "key_points": [
+    {
+      "id": "k1",
+      "point": "Shipping costs are a major conversion barrier: a Baymard survey (Feb 2024, 1,012 US adults) found 48% abandoned a cart because extra costs such as shipping, tax or fees were too high.",
+      "importance": "core",
+      "sources": [
+        "https://www.emarketer.com/content/extra-costs-are-the-top-reason-consumers-abandon-online-carts"
+      ],
+      "as_of": "2024-02"
+    },
+    {
+      "id": "k2",
+      "point": "Lewis, Singh and Fay (Marketing Science 2006): consumers are very sensitive to shipping charges; fees affect both purchase incidence and basket size, and threshold free shipping generates extra sales but can be unprofitable.",
+      "importance": "core",
+      "sources": [
+        "https://econpapers.repec.org/RePEc:inm:ormksc:v:25:y:2006:i:1:p:51-64"
+      ],
+      "as_of": "2006-01"
+    },
+    {
+      "id": "k3",
+      "point": "Hirche et al. (2021): at a European retailer (26.2M orders) moving to a EUR 2.95 fee with EUR 20 free threshold raised sales (about +45%) and orders (+44%) where fees fell; conversion not measured directly.",
+      "importance": "core",
+      "sources": [
+        "https://www.rug.nl/feb/research/som-research-reports/som-research-reports-2021/2021012-mark-def.pdf"
+      ],
+      "as_of": "2021-06"
+    },
+    {
+      "id": "k4",
+      "point": "Same study: threshold policy had no significant effect on order value, while return probability rose slightly (e.g. 52.30% to 54.56% in the fee-decrease group); filler items added to reach the threshold were returned less.",
+      "importance": "core",
+      "sources": [
+        "https://www.rug.nl/feb/research/som-research-reports/som-research-reports-2021/2021012-mark-def.pdf"
+      ],
+      "as_of": "2021-06"
+    },
+    {
+      "id": "k5",
+      "point": "Shehu et al. (J Marketing Research, 2020): free shipping raised purchase incidence (.404 vs .397) and return share (.337 vs .333) in a field experiment, mainly via riskier products; simulation: volume +11% but profit -0.7%.",
+      "importance": "core",
+      "sources": [
+        "https://research-api.cbs.dk/ws/portalfiles/portal/67886147/edlira_shehu_et_al_free_shipping_promotions_and_product_returns_acceptedversion.pdf"
+      ],
+      "as_of": "2020-01"
+    },
+    {
+      "id": "k6",
+      "point": "Simulation (Becerril-Arreola, Leng, Parlar, EJOR 2013): a USD 75 threshold raised mean order size (63.13 vs 58.61 baseline) but conversion was 19.40% versus 21.65% for free shipping on all orders (baseline 18.37%).",
+      "importance": "core",
+      "sources": [
+        "https://cptra.ln.edu.hk/~mmleng/assets/pfs-accepted-2013-04-08.pdf"
+      ],
+      "as_of": "2013-04"
+    },
+    {
+      "id": "k7",
+      "point": "Evidence on average order value is mixed: observational natural experiment found no significant effect, while simulations and vendor A/B tests report increases; effect depends on how far the threshold sits above typical baskets.",
+      "importance": "core",
+      "sources": [
+        "https://www.rug.nl/feb/research/som-research-reports/som-research-reports-2021/2021012-mark-def.pdf",
+        "https://www.intelligems.io/resources/customer-stories/boost-aov-by-upping-your-free-shipping-threshold"
+      ],
+      "as_of": "2021-06"
+    },
+    {
+      "id": "k8",
+      "point": "Profitability depends on margin and return-handling cost: with 42.5% gross margin a threshold beat fixed fees for return costs up to EUR 12 per return; free shipping can lift volume yet cut profit.",
+      "importance": "core",
+      "sources": [
+        "https://www.rug.nl/feb/research/som-research-reports/som-research-reports-2021/2021012-mark-def.pdf",
+        "https://research-api.cbs.dk/ws/portalfiles/portal/67886147/edlira_shehu_et_al_free_shipping_promotions_and_product_returns_acceptedversion.pdf"
+      ],
+      "as_of": "2021-06"
+    },
+    {
+      "id": "k9",
+      "point": "An Intelligems vendor A/B test (one sports brand) raising a USD 100 threshold to USD 500 reported AOV about +6% and revenue per visitor about +12%; conversion effect is stated inconsistently and profit not reported.",
+      "importance": "secondary",
+      "sources": [
+        "https://www.intelligems.io/resources/customer-stories/boost-aov-by-upping-your-free-shipping-threshold"
+      ],
+      "as_of": "2025-01"
+    },
+    {
+      "id": "k10",
+      "point": "Model results suggest the optimal threshold is high and rises with shipping cost relative to inventory costs (about USD 156 in the base simulation), so no universal threshold exists.",
+      "importance": "secondary",
+      "sources": [
+        "https://cptra.ln.edu.hk/~mmleng/assets/pfs-accepted-2013-04-08.pdf"
+      ],
+      "as_of": "2013-04"
+    },
+    {
+      "id": "k11",
+      "point": "Generalizability caveat: the most rigorous studies come from single European retailers or simulations, and vendor case studies carry commercial interest; category and customer segment matter.",
+      "importance": "secondary",
+      "sources": [
+        "https://research-api.cbs.dk/ws/portalfiles/portal/67886147/edlira_shehu_et_al_free_shipping_promotions_and_product_returns_acceptedversion.pdf",
+        "https://www.intelligems.io/resources/customer-stories/boost-aov-by-upping-your-free-shipping-threshold"
+      ],
+      "as_of": null
+    }
+  ]
+}

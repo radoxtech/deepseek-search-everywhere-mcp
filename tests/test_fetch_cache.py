@@ -7,13 +7,14 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import fetch_core, runtime, server
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.ratelimit import RateLimiter
 from deepseek_search_everywhere_mcp.settings import Settings
 
 URL = "https://example.com/article"
 PAGE = {"title": "Article", "content": "\\# Heading\n\nBody text\\, with escapes" + "x" * 500}
-NOT_FOUND = {"ok": False, "error": {"code": "not_found", "message": "failed to fetch URL"}}
+NOT_FOUND = _fail("not_found", "failed to fetch URL")
 
 
 class Upstream:
@@ -52,7 +53,7 @@ def upstream(fake_upstream: Any) -> Upstream:
 def limiter(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> RateLimiter:
     """A limiter on a frozen clock, so token balances are exact."""
     instance = RateLimiter.from_settings(Settings(), clock=fake_clock.monotonic)
-    monkeypatch.setattr(server, "_rate_limiter", instance)
+    monkeypatch.setattr(runtime, "_rate_limiter", instance)
     return instance
 
 
@@ -75,7 +76,7 @@ async def test_second_identical_fetch_is_served_from_cache(upstream: Upstream) -
 async def test_shaping_options_share_one_upstream_call(upstream: Upstream) -> None:
     full = await server.deepseek_fetch(URL)
     short = await server.deepseek_fetch(URL, max_chars=20)
-    raw = await server.deepseek_fetch(URL, clean=False)
+    raw = await fetch_core._fetch(URL, False, 20000, refresh=False)
     assert len(upstream.calls) == 1
     assert short["cached"] is True and raw["cached"] is True
     assert short["truncated"] is True and full["truncated"] is False
@@ -86,7 +87,7 @@ async def test_shaping_options_share_one_upstream_call(upstream: Upstream) -> No
 
 async def test_cached_page_is_not_truncated_by_shaping(upstream: Upstream) -> None:
     await server.deepseek_fetch(URL, max_chars=10)
-    again = await server.deepseek_fetch(URL, clean=False)
+    again = await fetch_core._fetch(URL, False, 20000, refresh=False)
     assert again["cached"] is True
     assert again["content"] == PAGE["content"]
 
@@ -176,7 +177,7 @@ async def test_invalid_url_touches_neither_cache_nor_limiter(
     upstream: Upstream, limiter: RateLimiter
 ) -> None:
     result = await server.deepseek_fetch("ftp://example.com/file")
-    assert result["error"]["code"] == "bad_url"
+    assert result["error"]["reason"] == "bad_url"
     assert upstream.calls == []
     assert limiter.buckets["fetch"].tokens == limiter.buckets["fetch"].burst
 
@@ -203,12 +204,10 @@ async def test_invalid_url_touches_neither_cache_nor_limiter(
 async def test_404_suggests_search_only_for_pdf_and_reddit(
     upstream: Upstream, url: str, advice: bool
 ) -> None:
-    upstream.responses = [
-        {"ok": False, "error": {"code": "not_found", "message": "failed to fetch URL", "status": 404}}
-    ]
+    upstream.responses = [_fail("not_found", "failed to fetch URL", 404)]
     result = await server.deepseek_fetch(url)
     assert result["ok"] is False
-    assert result["error"]["code"] == "not_found"
+    assert result["error"]["reason"] == "not_found"
     assert result["error"]["status"] == 404
     assert ("deepseek_search" in result["error"]["message"]) is advice
     assert result["error"]["message"].startswith("failed to fetch URL")

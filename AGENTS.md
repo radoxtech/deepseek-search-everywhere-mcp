@@ -2,10 +2,10 @@
 
 ## Project overview
 
-`deepseek-search-everywhere-mcp` is a Python MCP server exposing 9 tools over the DeepSeek Search & Fetch API
-(stdio by default, optional bearer-protected HTTP): `deepseek_search`, `deepseek_search_many`, `deepseek_fetch`,
-`deepseek_fetch_many`, `deepseek_extract`, `deepseek_extract_many`, `deepseek_research` (cited multi-source
-reports in four depth tiers, run as background jobs; with `synthesis="client"` the agent writes the report),
+`deepseek-search-everywhere-mcp` is a Python MCP server exposing 7 tools over the DeepSeek Search & Fetch API
+(stdio by default, optional bearer-protected HTTP): `deepseek_search`, `deepseek_fetch`, `deepseek_extract`,
+`deepseek_quick_research` (fast single-pass cited multi-source reports in four depth tiers),
+`deepseek_deep_agent_research` (autonomous multi-round research agent with evidence autostop),
 `deepseek_check_research` (collects a running research job, pages client-synthesis sources and verifies a
 client's report) and `deepseek_check_balance`.
 
@@ -32,9 +32,10 @@ scripts/smoke_docker.sh                     # build, verify non-root UID and tes
 
 ## Code layout (`src/deepseek_search_everywhere_mcp/`)
 
-- `server.py`: FastMCP server; the 9 tool definitions, result shaping, research job orchestration
-  (`_ResearchRun` and one function per pipeline phase, `_finalize_report` shared by server and client
-  synthesis), chat gateway.
+- `server.py`: FastMCP server; tool registration, instructions, runtime assembly.
+- `tools/`: modular tool definitions (`research.py`, `agent.py`, `search.py`, `fetch.py`, `extract.py`, `balance.py`).
+- `agent_research.py`: autonomous multi-round research agent with entity-anchored gap detection, evidence matrix accounting and Wald sequential autostop.
+- `research_jobs.py`: research job orchestration (`_ResearchRun`, pipeline execution, report finalization).
 - `deep_research.py`: `DEPTH_CONFIG` tiers, research job store, decomposition and synthesis prompts, citation
   normalization, source ranking, client-synthesis context paging and the synthesis output filter.
 - `extract.py`: extraction prompts, JSON handling and evidence verification.
@@ -59,7 +60,7 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 
 ## Conventions
 
-- Python >= 3.11, fully typed, line length 110 (ruff: E, F, I, UP, B).
+- Python >= 3.12, fully typed, line length 110 (ruff: E, F, I, UP, B).
 - Global runtime state is created lazily and cleared by the module's `reset_state()`; `tests/conftest.py`
   calls it around every test.
 - No global asyncio primitives (locks, events, queues) at module level.
@@ -69,7 +70,50 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 - Never commit implementation plans, roadmaps, or temporary design documents into the repository;
   keep plans strictly as agent session artifacts or local untracked scratchpads.
 - Developer tooling: setting env `DEEPSEEK_MCP_DEBUG_DUMP_DIR` causes research jobs to write `<job_id>.json`
-  debug dumps (topic, depth, sources, synthesis_context, raw and final report, unverified numbers).
+  debug dumps (topic, depth, subqueries, aspects, sources, synthesis_context, raw and final report,
+  unverified numbers, notes and a per-stage `stage_trace` with timings and counters). The trace never
+  enters the public envelope.
+
+## Evaluation, experiments and decision records
+
+Any change that claims to improve the quality of a tool's output is an experiment, and an experiment
+needs a record before it needs code. Quality means rubric coverage and citation faithfulness as
+measured by the harness in `evals/`; "feels better" is not a result.
+
+- **Register:** `evals/EXPERIMENTS.md` holds one entry per experiment (`E01`, `E02`, …) with `Change`
+  (the parameter or code path, before → after), `Claim` (the mechanism, not "better quality"), `Arms`,
+  `Criterion`, `Result` (mean, sd, t, cost, wall) and `Verdict`.
+- **ADR:** a decision that changes shipped behaviour or a default (word budgets, limits, retrieval
+  parameters, prompts, envelope shape) also gets a numbered record in `evals/adr/NNNN-<topic>.md` with
+  Status, Context, Decision, Evidence, Consequences and the alternatives rejected. Link the experiment
+  id from the ADR and the ADR from the register entry.
+- **Order of work:** write the hypothesis and the success criterion first, run, record, decide. Do not
+  implement a quality change that has no entry and no criterion.
+- **Verdicts:** `keep`, `revert`, `reject`, `inconclusive`. Only `keep` lands in `src/`. A change that
+  loses is reverted in its own commit and its numbers stay in the register, so nobody retries it.
+- **Both arms, same session:** an experiment compares a baseline measured in the same batch with the
+  variant, never a number stored from an earlier session. The upstream model, its pricing and the
+  judge drift between sessions, so a stale baseline turns drift into an apparent gain. Run the
+  baseline arm again next to the variant (same topics, repeats, depth and judge protocol) and record
+  both; a before/after pair from one day is the unit of evidence.
+- **Number discipline:** compare only runs judged by the same protocol; use at least two repeats and the
+  three control topics before a `keep`; record what each run cost in the ledger. A single repeat has
+  already produced +3.5 pp and −1.3 pp for the same change.
+- **The noise floor is measured, not assumed:** two runs of the identical configuration differ by 7.2 pp
+  on average (range −14 to +10 pp, `E07`). A threshold below that band is meaningless for one report;
+  judge a change on the paired mean over six or more topics and require t > 2.
+- **History is append-only:** a later experiment supersedes an earlier one with a new entry and flips
+  the ADR status to `superseded`, linking the successor. Never rewrite old numbers.
+- **Enforced by CI:** the `Eval gate` workflow fails a pull request that touches
+  `research_jobs.py`, `deep_research.py`, `search_core.py`, `gap_fill.py` or `settings.py` without changing
+  `evals/EXPERIMENTS.md`, unless the PR carries the `no-eval` label. release-please PRs are skipped.
+- **Documentation & measurement sync:** after every algorithmic update or accepted experiment (`keep`)
+  that alters empirical latency, cost, coverage percentages or default behaviors, all affected empirical
+  numbers and benchmarks in `README.md` must be re-verified against live evals and updated to maintain strict
+  accuracy.
+- Record in English, like the rest of the repository. The harness, its register and its ADRs are kept
+  local for now (`evals/` is gitignored); when they are promoted into the repository, move the ADRs to
+  `docs/adr/` and keep the ids so existing links survive.
 
 ## Invariants (do not change without an explicit maintainer decision)
 
@@ -90,7 +134,6 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 - SSRF checks are static: never resolve DNS locally (the page is fetched remotely by DeepSeek).
 - Errors are never cached.
 - No telemetry.
-- Keep the legacy opencode `auth.json` credential fallback.
 
 ## Branching & workflow
 
@@ -117,6 +160,14 @@ Tests live in `tests/` (`tests/live/` holds the opt-in live suite); `scripts/` h
 - PR titles must also be Conventional Commits, because squash merges use them as the commit message.
 - Versions are bumped only by release-please. Never edit the version in `pyproject.toml` or `server.json` by hand.
 - `CHANGELOG.md` entries after 0.2.0 are generated; do not edit them manually.
+
+## Chat host override (development only)
+
+`DEEPSEEK_CHAT_BASE_URL`, `DEEPSEEK_CHAT_API_KEY`, `DEEPSEEK_CHAT_MODEL` and `DEEPSEEK_CHAT_TIER` move
+chat completions to a cheaper OpenAI-compatible host; search and fetch stay on DeepSeek, which is the only
+host serving the search API. It exists to keep experiment costs down and is deliberately **not** described
+in the README: README prices stay DeepSeek off-peak, the documented default. When the host changes, cost
+accounting switches to that host's flat rate, because `cost_usd` must reflect what was billed.
 
 ## Security
 

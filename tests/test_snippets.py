@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from deepseek_search_everywhere_mcp.snippets import extract_snippets, split_sections
+from deepseek_search_everywhere_mcp.snippets import extract_snippets, prune_source_content, split_sections
 
 SAMPLE_DOC = """# Introduction to Quantum Computing
 
@@ -144,3 +144,47 @@ def test_extract_snippets_stopword_fallback_is_capped():
     content, count = extract_snippets(big, "the a and", max_snippets=1)
     assert count == 1
     assert len(content) <= 1700
+
+
+def test_prune_source_content_short_text_unchanged():
+    short = "Short document content with fewer than max characters."
+    assert prune_source_content(short, query_terms=["short"], max_chars=1000) == short
+
+
+def test_prune_source_content_prioritizes_query_and_metrics():
+    filler = (
+        "This is an ordinary generic paragraph without any specific figures or numbers. "
+        "It contains standard filler descriptions of normal activities that occur regularly."
+    )
+    salient1 = (
+        "In benchmark tests with PostgreSQL version 17, incremental backup reduced backup duration "
+        "by 85% from 450 seconds down to 68 seconds with pg_basebackup."
+    )
+    salient2 = (
+        "Warning: a common error encountered during backup replication is WAL stream interruption, "
+        "resulting in a limit reached table state."
+    )
+    doc = f"{filler}\n\n{salient1}\n\n{filler}\n\n{salient2}\n\n{filler}"
+    pruned = prune_source_content(doc, query_terms=["postgresql", "backup", "duration"], max_chars=400)
+    assert salient1 in pruned
+    assert "85%" in pruned
+
+
+def test_prune_source_content_preserves_document_order():
+    p1 = "First critical finding on version 1.0 with 500 items tested in benchmark."
+    filler = "Generic filler text that takes up space and does not contain numbers or relevant terms."
+    p2 = "Second critical finding on version 2.0 with 900 items tested in benchmark."
+    doc = f"{p1}\n\n{filler}\n\n{filler}\n\n{p2}"
+    pruned = prune_source_content(doc, query_terms=["critical", "version"], max_chars=300)
+    pos1 = pruned.find("First critical finding")
+    pos2 = pruned.find("Second critical finding")
+    assert pos1 != -1 and pos2 != -1
+    assert pos1 < pos2
+
+
+def test_prune_source_content_bounds_chars():
+    long_doc = "\n\n".join(
+        f"Paragraph {i} has version {i} with score {i * 10}% in benchmark." for i in range(100)
+    )
+    pruned = prune_source_content(long_doc, query_terms=["version"], max_chars=500)
+    assert len(pruned) <= 500

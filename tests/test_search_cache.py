@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import runtime, search_core, server
+from deepseek_search_everywhere_mcp.errors import _fail
 
 RESULTS = [
     {"title": "One", "url": "https://example.com/one", "site_name": "Example", "content": "a" * 500},
@@ -94,7 +95,7 @@ async def test_refresh_bypasses_cache_read(upstream: Upstream) -> None:
 
 
 async def test_errors_are_not_cached(upstream: Upstream) -> None:
-    upstream.response = {"ok": False, "error": {"code": "http_500", "message": "boom"}}
+    upstream.response = _fail("http_500", "boom")
     first = await _search()
     second = await _search()
     assert first["ok"] is False and second["ok"] is False
@@ -114,7 +115,7 @@ async def test_api_key_is_not_part_of_the_cache_key(
     upstream: Upstream, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await _search()
-    monkeypatch.setattr(server, "_api_key", lambda: "another-key")
+    monkeypatch.setattr(runtime, "_api_key", lambda: "another-key")
     assert (await _search())["cached"] is True
     assert len(upstream.calls) == 1
 
@@ -133,7 +134,7 @@ async def test_failed_rewrite_is_not_cached(upstream: Upstream, monkeypatch: pyt
         rewrites.append(query)
         return None
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     await _search(rewrite=True)
     second = await _search(rewrite=True)
     assert len(rewrites) == 2
@@ -147,7 +148,7 @@ async def test_refresh_still_uses_rewrite_cache(upstream: Upstream, monkeypatch:
         rewrites.append(query)
         return "rewritten query"
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     await _search(rewrite=True)
     await _search(rewrite=True, refresh=True)
     assert len(rewrites) == 1

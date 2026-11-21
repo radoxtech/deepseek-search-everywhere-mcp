@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import search_core, server
 from deepseek_search_everywhere_mcp.filters import fit_query
 
 
@@ -113,22 +113,22 @@ def test_http_error_non_json_body():
 
 def test_search_rejects_empty_query():
     result = asyncio.run(server._search("", 5, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "empty_query"
+    assert result["error"]["reason"] == "empty_query"
 
 
 def test_search_rejects_long_query():
     result = asyncio.run(server._search("a" * 129, 5, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "query_too_long"
+    assert result["error"]["reason"] == "query_too_long"
 
 
 def test_search_rejects_bad_count():
     result = asyncio.run(server._search("test", 0, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "bad_count"
+    assert result["error"]["reason"] == "bad_count"
 
 
 def test_search_rejects_bad_lang():
     result = asyncio.run(server._search("test", 5, None, False, "polish", 1000, 4000))
-    assert result["error"]["code"] == "bad_lang"
+    assert result["error"]["reason"] == "bad_lang"
 
 
 def test_api_key_env_wins(monkeypatch):
@@ -136,35 +136,25 @@ def test_api_key_env_wins(monkeypatch):
     assert server._api_key() == "env-key"
 
 
-def test_api_key_auth_json_fallback(monkeypatch, tmp_path):
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    auth = tmp_path / "auth.json"
-    auth.write_text(json.dumps({"deepseek": {"key": "file-key"}}))
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(auth))
-    assert server._api_key() == "file-key"
-
-
 def test_api_key_missing(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     assert server._api_key() == ""
 
 
 def test_search_without_key_returns_error(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     result = asyncio.run(server._search("test", 1, None, False, None, 1000, 4000))
-    assert result["error"]["code"] == "missing_api_key"
+    assert result["error"]["reason"] == "missing_api_key"
 
 
 def test_fetch_rejects_non_http_url():
     result = asyncio.run(server.deepseek_fetch("ftp://example.com/file"))
-    assert result["error"]["code"] == "bad_url"
+    assert result["error"]["reason"] == "bad_url"
 
 
 def test_fetch_rejects_long_url():
     result = asyncio.run(server.deepseek_fetch("https://x.test/" + "a" * 9000))
-    assert result["error"]["code"] == "url_too_long"
+    assert result["error"]["reason"] == "url_too_long"
 
 
 def _search_response(results):
@@ -313,7 +303,7 @@ def test_rewrite_disabled_never_calls_rewrite(monkeypatch, fake_upstream):
     async def boom(query):
         raise AssertionError("_rewrite_query must not be called")
 
-    monkeypatch.setattr(server, "_rewrite_query", boom)
+    monkeypatch.setattr(search_core, "_rewrite_query", boom)
     result, _ = _run_search(fake_upstream, [], rewrite=False)
     assert result["ok"] is True
 
@@ -322,7 +312,7 @@ def test_rewrite_uses_rewritten_query_and_sets_original(monkeypatch, fake_upstre
     async def fake_rewrite(query):
         return "how sleep works"
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     result, calls = _run_search(fake_upstream, [], query="jak działa sen", rewrite=True)
     search_calls = [c for c in calls if c["path"] == "/v1/tools/search"]
     assert search_calls[0]["payload"]["query"] == "how sleep works"
@@ -335,7 +325,7 @@ def test_rewrite_noop_adds_no_note(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return query
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     result, calls = _run_search(fake_upstream, [], query="test query", rewrite=True)
     assert calls[0]["payload"]["query"] == "test query"
     assert "query_original" not in result
@@ -346,7 +336,7 @@ def test_rewrite_failure_falls_back_to_original(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return None
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     result, calls = _run_search(fake_upstream, [], query="test query", rewrite=True)
     assert calls[0]["payload"]["query"] == "test query"
     assert result["query_used"] == "test query"
@@ -358,7 +348,7 @@ def test_rewrite_skipped_when_lang_is_set(monkeypatch, fake_upstream):
     async def boom(query):
         raise AssertionError("_rewrite_query must not be called with lang")
 
-    monkeypatch.setattr(server, "_rewrite_query", boom)
+    monkeypatch.setattr(search_core, "_rewrite_query", boom)
     result, calls = _run_search(fake_upstream, [], query="test query", lang="pl", rewrite=True)
     assert calls[0]["payload"]["query"] == "lang:pl test query"
     assert "query_original" not in result
@@ -369,11 +359,10 @@ def test_rewrite_with_missing_key_makes_no_chat_call(monkeypatch, tmp_path):
     async def boom(query):
         raise AssertionError("_rewrite_query must not be called without a key")
 
-    monkeypatch.setattr(server, "_rewrite_query", boom)
+    monkeypatch.setattr(search_core, "_rewrite_query", boom)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_AUTH_JSON", str(tmp_path / "absent.json"))
     result = asyncio.run(server._search("test", 1, None, False, None, 1000, 4000, True, True))
-    assert result["error"]["code"] == "missing_api_key"
+    assert result["error"]["reason"] == "missing_api_key"
 
 
 def test_rewrite_payload_is_flash_without_thinking(fake_upstream):
@@ -411,7 +400,7 @@ def test_rewrite_path_sets_ori_question_to_original(monkeypatch, fake_upstream):
     async def fake_rewrite(query):
         return "how sleep works"
 
-    monkeypatch.setattr(server, "_rewrite_query", fake_rewrite)
+    monkeypatch.setattr(search_core, "_rewrite_query", fake_rewrite)
     _, calls = _run_search(fake_upstream, [], query="jak działa sen", rewrite=True)
     assert calls[0]["payload"]["ori_question"] == "jak działa sen"
 

@@ -57,7 +57,7 @@ def _configure_logging(level: str) -> None:
     """Send log records to stderr and apply ``level`` to this package's and the SDK's loggers.
 
     The levels are set on the loggers themselves, so they hold even when the root logger was
-    already configured (FastMCP configures it once when the first server is built).
+    already configured (the MCP SDK configures it once when the first server is built).
     """
     level = level.upper()
     logging.basicConfig(level=level)
@@ -88,7 +88,7 @@ async def _check() -> int:
     print(f"base_url: {server._base_url()}")
     print(f"DeepSeek key: {'set' if key else 'MISSING'}")
     if not key:
-        print("Set DEEPSEEK_API_KEY or point DEEPSEEK_AUTH_JSON at a JSON file.")
+        print("Set DEEPSEEK_API_KEY.")
         return 1
     result = await server.deepseek_check_balance()
     print(json.dumps(result, ensure_ascii=False, indent=2))

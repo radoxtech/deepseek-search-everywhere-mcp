@@ -19,6 +19,28 @@ htmlcov/
 .env.*
 !.env.example
 
+# Local scripts tied to this machine's setup (provider checks, personal tooling)
+scripts/local/
+scripts/dev/
+scripts/demo_tui.py
+scripts/record_opencode_demo.sh
+
+# Demo recording toolchain: depends on this machine's Playwright/Chromium paths,
+# so the scripts stay local; only the finished GIF is published.
+demo/
+
+# Local-only scratch and tooling config
+GROWTH_PLAN.md
+opencode.json
+.opencode_demo_env/
+*.mov
+*.mp4
+*.raw.gif
+*.fileloc
+
+# Lockfile: the project builds with hatchling; uv is only a dev runtime (see scripts/smoke_package.sh)
+uv.lock
+
 # Local runtime state
 .sisyphus/
 *.log
@@ -31,3 +53,9 @@ plans/
 # OS and editors
 .DS_Store
 .idea/
+
+# Evaluation harness output: runs, debug dumps and archived reports stay local
+evals/results/
+evals/dumps/
+evals/archive/
+evals/topics-local.json

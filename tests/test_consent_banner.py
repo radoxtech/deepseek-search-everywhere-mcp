@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 
-from deepseek_search_everywhere_mcp import server
+from deepseek_search_everywhere_mcp import fetch_core, server
 from deepseek_search_everywhere_mcp.boilerplate import remove_boilerplate, strip_consent_banner
 
 # A shortened IAB TCF consent dialog as DeepSeek renders it for a Polish news site. The server is
@@ -96,7 +96,7 @@ def test_fetch_of_a_banner_only_page_returns_empty_content_with_a_note(fake_upst
 
 def test_fetch_strip_boilerplate_off_keeps_the_banner(fake_upstream):
     fake_upstream(default={"ok": True, "data": {"title": "Article", "content": BANNER_EN + "\n" + ARTICLE}})
-    envelope = asyncio.run(server.deepseek_fetch(URL, strip_boilerplate=False))
+    envelope = asyncio.run(fetch_core._fetch(URL, True, 20000, refresh=False, strip_boilerplate=False))
     assert envelope["content"].startswith("## We value your privacy")
 
 

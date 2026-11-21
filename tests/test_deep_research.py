@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from typing import Any
 
 import pytest
 
@@ -13,6 +14,7 @@ from deepseek_search_everywhere_mcp.deep_research import (
     build_decomposition_messages,
     build_synthesis_messages,
     build_synthesis_system_prompt,
+    classify_source_type,
     parse_subqueries,
     report_body_words,
     select_synthesis_context,
@@ -45,9 +47,10 @@ def test_select_synthesis_context_caps_at_sources_and_chars():
         for i in range(1, 30)
     ]
     selected_low = select_synthesis_context(sources, depth="low")
-    assert len(selected_low) == 6
+    assert len(selected_low) == deep_research.DEPTH_CONFIG["low"].k_sources
+    cap_low = deep_research.DEPTH_CONFIG["low"].total_source_chars
     total_chars_low = sum(len(s["content"]) for s in selected_low)
-    assert total_chars_low <= 60000
+    assert total_chars_low <= cap_low
     assert [s["id"] for s in selected_low] == list(range(1, len(selected_low) + 1))
 
     huge_sources = [
@@ -55,7 +58,7 @@ def test_select_synthesis_context_caps_at_sources_and_chars():
         for i in range(1, 30)
     ]
     selected_huge = select_synthesis_context(huge_sources, depth="low")
-    assert sum(len(s["content"]) for s in selected_huge) <= 60000
+    assert sum(len(s["content"]) for s in selected_huge) <= cap_low
 
 
 def test_build_synthesis_messages():
@@ -1385,3 +1388,419 @@ def test_academic_mode_strict_exclusion_and_fallback_notes() -> None:
     assert all(s["source_type"] == "blog" for s in selected_2[2:])
     assert len(notes_2) > 0
     assert any("Retained non-scholarly" in n for n in notes_2)
+
+
+# --- Number grounding: formatting, rounding, signs and derived values ---------------------------------------
+
+
+def _ground(sentence: str, *contents: str) -> tuple[str, list[dict[str, str]], int, list[str]]:
+    sources = [{"title": f"S{i}", "content": c} for i, c in enumerate(contents, start=1)]
+    return deep_research.ground_report_numbers(sentence, sources)
+
+
+@pytest.mark.parametrize(
+    ("sentence", "content"),
+    [
+        ("The dose was 7.2 mg [1].", "patients took semaglutide 7·2 mg weekly"),
+        ("The review covered 34,367 participants [1].", "comprising 34 367 participants"),
+        ("The review covered 34,367 participants [1].", "comprising 34 367 participants"),
+        ("The cohort had 1,234,567 people [1].", "a cohort of 1 234 567 people"),
+        ("The cohort had 92 078 people [1].", "92,078 participants were included"),
+        ("Models above 10^25 FLOP are covered [1].", "trained with more than 10²⁵ FLOPs"),
+        ("Models above 10²³ FLOP are covered [1].", "compute greater than 10^23 FLOP"),
+        ("Models above 10^25 FLOP are covered [1].", "compute greater than 1025 FLOP (floating point)"),
+        ("Providers follow Articles 53 and 55 [1].", "Article 55: Obligations of providers"),
+        ("Version 17 added incremental backups [1].", "PostgreSQL 17 adds incremental backup"),
+        ("It reports STEP 1—86.4% reached 5% loss [1].", "86.4% reached at least 5% loss"),
+        ("Weight fell −15.4% [1].", "Weight reductions were 15.4% at week 176"),
+        ("About 34% responded [1].", "a response rate of 34.4%"),
+        ("The mean difference was 4.6 points [1].", "MD 4.61 (95% CI 3.2 to 6.0)"),
+        ("Revenue reached 1.2 million euros [1].", "revenue of 1,200,000 euros"),
+        ("Revenue reached 1.2 million euros [1].", "revenue of 1,234,567 euros"),
+        ("Revenue reached 1,200,000 euros [1].", "revenue of 1.2 million euros"),
+        ("Tirzepatide added 4.6 percentage points [1].", "an extra 4.6% weight loss"),
+        ("GI events hit 70.8% vs 61.2%, a 9.6-point gap [1].", "70.8% with 7.2 mg and 61.2% with 2.4 mg"),
+    ],
+)
+def test_grounding_accepts_formatting_rounding_and_derived(sentence: str, content: str) -> None:
+    report, unverified, count, _ = _ground(sentence, content)
+    assert (unverified, count) == ([], 0), unverified
+    assert "[unverified]" not in report
+
+
+@pytest.mark.parametrize(
+    ("sentence", "content", "flagged"),
+    [
+        ("About 35% responded [1].", "a response rate of 34.4%", "35%"),
+        ("They enrolled 12 people [1].", "they enrolled 12.3 thousand people", "12"),
+        ("They enrolled 22 people [1].", "updated in 2022 with new people", "22"),
+        ("Weight rose −15.4% [1].", "Weight was 15.4% higher at week 176", "-15.4%"),
+        ("Models above 10^24 FLOP are covered [1].", "trained with more than 10²⁵ FLOPs", "10^24"),
+        (
+            "GI events hit 70.8% vs 61.2%, a 9.9-point gap [1].",
+            "70.8% with 7.2 mg and 61.2% with 2.4 mg",
+            "9.9",
+        ),
+    ],
+)
+def test_grounding_still_flags_near_misses(sentence: str, content: str, flagged: str) -> None:
+    _, unverified, count, _ = _ground(sentence, content)
+    assert count == 1
+    assert unverified[0]["number"] == flagged
+
+
+def test_grounding_names_the_one_other_source_holding_a_number() -> None:
+    _, unverified, count, notes = _ground(
+        "The trial reported −18.7% weight change [1].", "no numbers here", "achieved −18.7% at week 72"
+    )
+    assert count == 1
+    assert unverified[0]["found_in"] == "[2]"
+    assert "exactly one other source" in notes[0]
+
+
+def test_grounding_names_no_source_for_a_common_small_number() -> None:
+    _, unverified, _, _ = _ground("There were 12 studies [1].", "no numbers here", "12 studies were included")
+    assert "found_in" not in unverified[0]
+
+
+def test_grounding_notes_derived_numbers() -> None:
+    _, _, count, notes = _ground(
+        "GI events hit 70.8% vs 61.2%, a 9.6-point gap [1].", "70.8% with 7.2 mg and 61.2% with 2.4 mg"
+    )
+    assert count == 0
+    assert any("computed from other cited numbers" in note for note in notes)
+
+
+# --- Research plan, prompts and their inputs ----------------------------------------------------------------
+
+
+def test_research_plan_returns_queries_and_aspects() -> None:
+    raw = (
+        '{"aspects": [{"kind": "primary", "aspect": "official spec", "looking_for": "the RFC", '
+        '"query": "IETF HTTP/3 specification RFC"}, {"kind": "numbers", "aspect": "adoption", '
+        '"looking_for": "share of requests", "query": "HTTP/3 share of requests Cloudflare Radar"}]}'
+    )
+    queries, aspects = deep_research.parse_research_plan(raw, "HTTP/3 adoption", max_queries=3)
+    assert queries == ["IETF HTTP/3 specification RFC", "HTTP/3 share of requests Cloudflare Radar"]
+    assert [(a.kind, a.aspect, a.looking_for) for a in aspects] == [
+        ("primary", "official spec", "the RFC"),
+        ("numbers", "adoption", "share of requests"),
+    ]
+
+
+def test_research_plan_drops_paraphrases_and_placeholders() -> None:
+    raw = (
+        '{"queries": ["HTTP/3 adoption problems explained", "QUIC 0-RTT replay attack mitigation", '
+        '"QUIC 0-RTT replay attack mitigations", "new search query"]}'
+    )
+    queries, aspects = deep_research.parse_research_plan(raw, "HTTP/3 adoption problems explained", 4)
+    assert queries == ["QUIC 0-RTT replay attack mitigation"]
+    assert aspects == []
+
+
+def test_research_plan_keeps_one_query_when_all_are_paraphrases() -> None:
+    raw = '{"queries": ["HTTP/3 adoption problems", "adoption problems HTTP/3"]}'
+    assert deep_research.parse_subqueries(raw, "HTTP/3 adoption problems", 3) == ["HTTP/3 adoption problems"]
+
+
+def test_decomposition_puts_date_language_and_topic_in_the_user_message() -> None:
+    system, user = deep_research.build_decomposition_messages(
+        "Effect of X on Y", max_queries=3, lang="pl", today="2026-11-18"
+    )
+    assert "2026" not in system["content"]
+    assert "Today's date: 2026-11-18" in user["content"]
+    assert "Search language: Polish" in user["content"]
+    assert "Research topic: Effect of X on Y" in user["content"]
+    assert "exactly 3 aspects" in user["content"]
+    assert "json" in system["content"]
+
+
+def test_synthesis_message_carries_plan_index_metadata_and_closing_reminder() -> None:
+    aspects = [deep_research.ResearchAspect("official requirements", "primary", "the article", "q")]
+    sources = [
+        {
+            "id": 1,
+            "title": "Trial",
+            "url": "https://www.nejm.org/doi/x",
+            "date": "2025-03-01",
+            "source_type": "rct",
+            "content": "word " * 2000,
+        }
+    ]
+    system, user = build_synthesis_messages(
+        "Effect of X on Y", sources, aspects=aspects, lang="de", today="2026-11-18"
+    )
+    text = user["content"]
+    assert "Today's date: 2026-11-18" in text and "Report language: German" in text
+    assert "1. [primary] official requirements (looking for: the article)" in text
+    assert "[1] Trial — rct · 2025-03-01 · nejm.org" in text
+    assert "Source 1: rct · 2025-03-01 · nejm.org" in text
+    assert "[source 1, continued]" in text
+    tail = text[text.rindex("word word") :]
+    assert "Research Topic: Effect of X on Y" in tail and "official requirements" in tail
+    assert f"exactly {deep_research.SECTION_COUNTS['medium']} sections" in tail
+    assert "2026-11-18" not in system["content"]
+
+
+def test_continuation_markers_keep_the_source_text() -> None:
+    content = ("alpha beta\n" * 1500).strip()
+    marked = deep_research._with_continuation_markers(content, 7)
+    assert marked.count("[source 7, continued]") >= 3
+    assert marked.replace("\n[source 7, continued]\n", "") == content
+
+
+def test_client_synthesis_prompt_allows_only_paging_tools() -> None:
+    prompt = build_synthesis_system_prompt("medium", client=True)
+    assert "Call no tools except to fetch the remaining pages" in prompt
+    assert "user message" not in prompt
+    assert "never in the report" in prompt
+
+
+def test_r2_gap_message_has_aspects_date_and_language() -> None:
+    aspects = [deep_research.ResearchAspect("official requirements", "primary", "", "q")]
+    system, user = deep_research.build_r2_gap_messages(
+        "Effect of X on Y",
+        [{"title": "Trial", "url": "https://www.nejm.org/doi/x", "snippet": "We randomized 400 adults"}],
+        ["q"],
+        aspects,
+        lang="fr",
+        today="2026-11-18",
+    )
+    assert "json" in system["content"] and '"review"' in system["content"]
+    assert "Today's date: 2026-11-18" in user["content"] and "Search language: French" in user["content"]
+    assert "1. [primary] official requirements" in user["content"]
+    assert "Trial (" in user["content"] and "nejm.org)" in user["content"]
+
+
+def test_condense_prompt_keeps_facts_language_and_ceiling() -> None:
+    system = deep_research.build_condense_messages("report", "medium")[0]["content"]
+    cfg = DEPTH_CONFIG["medium"]
+    assert str(cfg.target_words) in system and str(cfg.max_words) in system
+    assert "Never remove numbers, dates, names or versions" in system
+    assert "keep the language of the report" in system
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://eur-lex.europa.eu/eli/reg/2024/1/oj", "official"),
+        ("https://digital-strategy.ec.europa.eu/en/policies/x", "official"),
+        ("https://www.fda.gov/drugs/x", "official"),
+        ("https://www.gov.uk/guidance/x", "official"),
+        ("https://www.legifrance.gouv.fr/x", "official"),
+        ("https://www.drugoffice.gov.hk/x", "official"),
+        ("https://www.who.int/news-room/x", "official"),
+        ("https://www.canada.ca/en/x", "official"),
+        ("https://www.freshfields.com/en/insights/x", "commentary"),
+        ("https://www.lexology.com/library/detail.aspx?g=x", "commentary"),
+        ("https://manpages.ubuntu.com/manpages/x", "documentation"),
+        ("https://raw.githubusercontent.com/a/b/main/README.md", "repository"),
+        ("https://govtech.com/x", "other"),
+        ("https://example.com/government-plans", "other"),
+    ],
+)
+def test_classify_official_commentary_and_tool_hosts(url: str, expected: str) -> None:
+    assert classify_source_type(url, "Title", "") == expected
+
+
+def test_scholarly_government_hosts_keep_scholarly_types() -> None:
+    assert classify_source_type("https://pubmed.ncbi.nlm.nih.gov/38123456/", "A cohort", "") == "study"
+
+
+# --- Source selection: primary quota, translations and language ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "The trial showed that the drug is safe and that the effect was large for most of the patients "
+            * 3,
+            "en",
+        ),
+        ("Die Studie zeigt, dass die Wirkung mit der Dosis steigt und sich nicht auf den Placebo " * 3, "de"),
+        ("Studien visar att det är en effekt som inte har med dosen att göra och den är stor " * 3, "sv"),
+        ("该研究表明，药物的效果与剂量有关，并且在大多数患者中是安全的。" * 3, "zh"),
+        ("この研究では、薬の効果は用量に関係していることが示されました。" * 3, "ja"),
+        ("12 34 56 78", None),
+        ("", None),
+    ],
+)
+def test_text_language(text: str, expected: str | None) -> None:
+    assert deep_research.text_language(text) == expected
+
+
+_TABLE = "Results: 12.4% vs 8.1%, 1,407 adults, 34.5 kg, 0.77 HR, 95.2% CI, 2.31 ratio, 18.7% loss. "
+
+
+def _src(i: int, content: str, url: str | None = None) -> dict[str, Any]:
+    return {"id": i, "title": f"T{i}", "url": url or f"https://s{i}.test/a", "content": content}
+
+
+def test_translation_of_a_kept_source_is_dropped() -> None:
+    english = _src(1, "The trial reported the following figures for the patients and the placebo. " + _TABLE)
+    swedish = _src(
+        2, "Studien visar att det är en effekt som inte har med dosen att göra och den är stor. " + _TABLE
+    )
+    other = _src(3, "Another study with 41.2% and 7.7% and 3,900 people and 2.9 kg and 0.55 and 63.1%.")
+    kept, dropped, moved = deep_research.drop_duplicate_sources([english, swedish, other], "en")
+    assert [s["id"] for s in kept] == [1, 3]
+    assert (dropped, moved) == (1, 0)
+
+
+def test_copy_in_the_target_language_replaces_a_foreign_one() -> None:
+    swedish = _src(
+        1, "Studien visar att det är en effekt som inte har med dosen att göra och den är stor. " + _TABLE
+    )
+    english = _src(
+        2, "The trial reported the following figures for the patients and the placebo. " * 2 + _TABLE
+    )
+    kept, dropped, _ = deep_research.drop_duplicate_sources([swedish, english], "en")
+    assert [s["id"] for s in kept] == [2] and dropped == 1
+
+
+def test_sources_in_another_language_go_last() -> None:
+    german = _src(
+        1, "Die Studie zeigt, dass die Wirkung mit der Dosis steigt und sich nicht auf den Placebo " * 2
+    )
+    english = _src(
+        2, "The trial showed that the drug is safe and that the effect was large for most of the patients"
+    )
+    kept, dropped, moved = deep_research.drop_duplicate_sources([german, english], "en")
+    assert [s["id"] for s in kept] == [2, 1] and (dropped, moved) == (0, 1)
+
+
+def test_select_context_uses_the_requested_language() -> None:
+    german = _src(
+        1, "Die Studie zeigt, dass die Wirkung mit der Dosis steigt und sich nicht auf den Placebo " * 2
+    )
+    english = _src(
+        2, "The trial showed that the drug is safe and that the effect was large for most of the patients"
+    )
+    notes: list[str] = []
+    picked = select_synthesis_context([german, english], depth="low", notes=notes, lang="de")
+    assert [s["url"] for s in picked] == ["https://s1.test/a", "https://s2.test/a"]
+    assert any("another language than 'de'" in n for n in notes)
+
+
+def test_primary_quota_swaps_in_the_best_unpicked_primary() -> None:
+    blogs = [{"url": f"https://blog{i}.test/blog/x", "title": f"B{i}", "content": ""} for i in range(6)]
+    official = {"url": "https://www.fda.gov/drugs/x", "title": "Label", "content": ""}
+    selected, swapped = deep_research.apply_primary_quota(blogs[:3], [*blogs, official], 3)
+    assert swapped == 1
+    assert [s["title"] for s in selected] == ["B0", "B1", "Label"]
+
+
+def test_rank_notes_a_primary_swap() -> None:
+    results = [
+        [{"url": f"https://blog{i}.test/blog/x", "title": f"B{i}", "content": "x"} for i in range(5)],
+        [{"url": "https://www.fda.gov/drugs/x", "title": "Label", "content": "x"}],
+    ]
+    selected, notes = deep_research.rank_and_diversify_sources(results, k_sources=3)
+    assert any(s["title"] == "Label" for s in selected)
+
+
+@pytest.mark.parametrize(
+    ("query", "topic", "kind", "expected"),
+    [
+        (
+            "STEP 1 SURMOUNT-1 semaglutide tirzepatide NEJM",
+            "Obesity drugs",
+            "primary",
+            "STEP 1 SURMOUNT-1 semaglutide tirzepatide",
+        ),
+        (
+            "Wilding et al. (2021) semaglutide weight loss",
+            "Obesity drugs",
+            "primary",
+            "Wilding semaglutide weight loss",
+        ),
+        ("N Engl J Med tirzepatide results", "Obesity drugs", "numbers", "tirzepatide results"),
+        (
+            "PostgreSQL 17 incremental backup 2026 benchmarks",
+            "PostgreSQL 17 backups",
+            "numbers",
+            "PostgreSQL 17 incremental backup benchmarks",
+        ),
+        ("AI Act GPAI enforcement 2026", "AI Act obligations", "current", "AI Act GPAI enforcement 2026"),
+        ("AI Act 2026 deadlines", "AI Act 2026 timeline", "limits", "AI Act 2026 deadlines"),
+        ("NEJM", "Obesity drugs", "primary", "NEJM"),
+    ],
+)
+def test_clean_query_strips_publication_details_and_stray_year(
+    query: str, topic: str, kind: str, expected: str
+) -> None:
+    assert deep_research.clean_query(query, topic, kind, year=2026) == expected
+
+
+def test_research_plan_cleans_aspect_queries() -> None:
+    raw = (
+        '{"aspects": [{"kind": "primary", "aspect": "trial results", "looking_for": "x", '
+        '"query": "SURMOUNT-1 tirzepatide NEJM"}]}'
+    )
+    queries, aspects = deep_research.parse_research_plan(raw, "Obesity drugs", 3)
+    assert queries == ["SURMOUNT-1 tirzepatide"]
+    assert aspects[0].query == "SURMOUNT-1 tirzepatide"
+
+
+def test_prompts_steer_to_findings_not_publications() -> None:
+    assert "never its publication details" in deep_research.DECOMPOSE_SYSTEM_PROMPT
+    assert "never list publications, authors or journals" in build_synthesis_system_prompt("medium")
+
+
+def test_rank_stats_count_drops_duplicates_and_overflow() -> None:
+    stats: dict[str, Any] = {}
+    subq_results = [
+        [
+            {"url": "https://example.com/a?utm_source=x", "title": "A"},
+            {"url": "https://example.com/b", "title": "B"},
+            {"url": "https://example.com/c", "title": "C"},
+        ],
+        [
+            {"url": "https://example.com/a", "title": "A again"},
+            {"url": "https://other.org/d", "title": "D"},
+        ],
+    ]
+    selected, _ = deep_research.rank_and_diversify_sources(subq_results, 3, stats=stats)
+    assert stats["pool_pages"] == 5
+    assert stats["canonical_duplicates"] == 1
+    assert stats["cap_overflow"] == 1
+    assert stats["selected"] == len(selected) == 3
+    assert stats["k_sources"] == 3
+
+
+def test_select_stats_count_empty_k_cut_and_chars() -> None:
+    stats: dict[str, Any] = {}
+    sources = [
+        {"id": 1, "url": "https://a.test/1", "content": "x" * 5000},
+        {"id": 2, "url": "https://a.test/2", "content": ""},
+        {"id": 3, "url": "https://a.test/3", "content": "y" * 5000},
+    ]
+    selected = select_synthesis_context(sources, depth="low", stats=stats)
+    assert stats["in_sources"] == 3
+    assert stats["empty_content"] == 1
+    assert stats["out_sources"] == len(selected) == 2
+    assert stats["total_chars"] == sum(len(s["content"]) for s in selected)
+    assert stats["k_cut"] == 0
+    assert stats["truncated_pages"] == 0
+
+
+def test_grounding_checks_a_paragraph_that_starts_with_a_heading() -> None:
+    context = [{"id": 1, "url": "https://a.test", "title": "A", "content": "The cost was 12 USD per kWh."}]
+    report = "## Cost\nIt costs 320 USD per kWh [1]."
+
+    cleaned, unverified, count, _notes = deep_research.ground_report_numbers(report, context)
+
+    assert count == 1
+    assert cleaned.startswith("## Cost")
+    assert "[unverified]" in cleaned
+
+
+def test_grounding_keeps_a_heading_paragraph_without_cited_numbers() -> None:
+    context = [{"id": 1, "url": "https://a.test", "title": "A", "content": "Text."}]
+    report = "## Cost\nThe report has no numbers here."
+
+    cleaned, unverified, count, _notes = deep_research.ground_report_numbers(report, context)
+
+    assert count == 0
+    assert cleaned == report

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import urllib.parse
+from collections.abc import Callable
 from typing import Any
 
 # Unicode Tag characters: U+E0000 - U+E007F
@@ -52,6 +53,54 @@ _MD_IMAGE_RE = re.compile(r"(?<!\\)!\[(?P<alt>[^\]]*)\]\((?P<url>[^\)]*)\)")
 # same character class and backtracked exponentially on an unterminated link such as
 # ``[x](aaaa...`` (4 KB was enough to peg a CPU for minutes); this form is linear.
 _MD_LINK_RE = re.compile(r"(?<!\!)\[(?P<label>[^\]]*)\]\((?P<url>[^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)")
+
+
+# Start finders for ``_sub_bracketed``: where a markdown image / link can begin (same lookbehinds as above).
+_MD_IMAGE_START_RE = re.compile(r"(?<!\\)!\[")
+_MD_LINK_START_RE = re.compile(r"(?<!\!)\[")
+
+
+def _sub_bracketed(
+    pattern: re.Pattern[str],
+    start_re: re.Pattern[str],
+    opener_len: int,
+    repl: Callable[[re.Match[str]], str],
+    text: str,
+    *,
+    needs_close_paren: bool = False,
+) -> str:
+    """Linear-time equivalent of ``pattern.sub(repl, text)`` for ``[label](url)``-shaped patterns.
+
+    ``pattern.sub`` retries every opener, and each retry rescans the label up to the next ``]``
+    (or to the end of the text when there is none), which is quadratic on text such as ``[1,[1,[1,...``
+    or ``![a](![a](...``. The label ends at the first ``]`` after its opener, so once an attempt fails
+    every opener before that ``]`` fails the same way and is skipped. With ``needs_close_paren`` (images:
+    the url is ``[^)]*`` followed by ``)``) an attempt can only fail for a missing ``)`` or a missing
+    ``(`` after the ``]``; when no ``)`` is left in the text no later opener can match either.
+    """
+    last_paren = text.rfind(")") if needs_close_paren else -1
+    out: list[str] = []
+    copied = 0
+    pos = 0
+    while True:
+        start = start_re.search(text, pos)
+        if start is None:
+            break
+        begin = start.start()
+        close = text.find("]", begin + opener_len)
+        if close == -1:
+            break
+        match = pattern.match(text, begin)
+        if match is not None:
+            out.append(text[copied:begin])
+            out.append(repl(match))
+            copied = pos = match.end()
+            continue
+        if needs_close_paren and last_paren < close + 2:
+            break
+        pos = close + 1
+    out.append(text[copied:])
+    return "".join(out)
 
 
 def _is_emoji_component(char: str) -> bool:
@@ -133,7 +182,9 @@ def neutralize_markdown_images(text: str) -> tuple[str, int]:
             return f"[image: {alt}]({url})"
         return f"[image]({url})"
 
-    cleaned = _MD_IMAGE_RE.sub(_replace_image, text)
+    cleaned = _sub_bracketed(
+        _MD_IMAGE_RE, _MD_IMAGE_START_RE, 2, _replace_image, text, needs_close_paren=True
+    )
     return cleaned, count
 
 
@@ -160,7 +211,7 @@ def sanitize_markdown_links(text: str) -> tuple[str, int]:
             return f"[{label}]()"
         return match.group(0)
 
-    cleaned = _MD_LINK_RE.sub(_replace_link, text)
+    cleaned = _sub_bracketed(_MD_LINK_RE, _MD_LINK_START_RE, 1, _replace_link, text)
     return cleaned, count
 
 

@@ -1,0 +1,111 @@
+{
+ "id": "it-rust-vs-go-network",
+ "topic": "Rust versus Go for high-throughput network services: performance, memory safety, concurrency model and ecosystem trade-offs",
+ "status": "draft",
+ "prepared": "2026-11-17",
+ "key_points": [
+  {
+   "id": "k1",
+   "point": "Rust has no garbage collector: ownership and borrowing are enforced at compile time and memory is freed deterministically at scope end, avoiding GC cost and use-after-free/double-free bugs outside unsafe code.",
+   "importance": "core",
+   "sources": [
+    "https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k2",
+   "point": "Go uses a concurrent, non-moving tracing mark-sweep GC; GOGC (default 100) trades memory for CPU, and GOMEMLIMIT (Go 1.19+) sets a soft memory cap.",
+   "importance": "core",
+   "sources": [
+    "https://go.dev/doc/gc-guide"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k3",
+   "point": "Go GC pauses are short and mostly independent of heap size (historically sub-millisecond; 500 microsecond stop-the-world goal), but GC still costs CPU, assists and write barriers that can affect tail latency.",
+   "importance": "core",
+   "sources": [
+    "https://go.dev/blog/ismmkeynote",
+    "https://go.dev/doc/gc-guide"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k4",
+   "point": "Discord's Read States service had Go latency spikes about every 2 minutes from forced GC scanning a large LRU cache; the Rust port removed spikes and beat Go on latency, CPU and memory (2019, Go 1.9.2 era).",
+   "importance": "core",
+   "sources": [
+    "https://discord.com/blog/why-discord-is-switching-from-go-to-rust"
+   ],
+   "as_of": "2019-05"
+  },
+  {
+   "id": "k5",
+   "point": "Cloudflare's Rust proxy Pingora used about 70% less CPU and 67% less memory than the prior NGINX/Lua-based service, partly from architecture changes (shared connection pools, multithreading), not language alone.",
+   "importance": "core",
+   "sources": [
+    "https://blog.cloudflare.com/how-we-built-pingora-the-proxy-that-connects-cloudflare-to-the-internet/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k6",
+   "point": "Go concurrency is built-in: lightweight goroutines scheduled by the runtime with channels (CSP style); Rust async needs a runtime crate such as Tokio, uses explicit await, and futures do nothing until awaited.",
+   "importance": "core",
+   "sources": [
+    "https://go.dev/tour/concurrency/1",
+    "https://rust-lang.github.io/async-book/",
+    "https://tokio.rs/tokio/tutorial"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k7",
+   "point": "Go does not prevent data races (they can cause crashes and memory corruption); the race detector finds them only at runtime on executed paths, with 5-10x memory and 2-20x time overhead.",
+   "importance": "core",
+   "sources": [
+    "https://go.dev/doc/articles/race_detector"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k8",
+   "point": "Memory-safe languages reduce vulnerabilities: Android's memory-safety bug share fell from 76% (2019) to 24% (2024) as new code shifted to memory-safe languages including Rust.",
+   "importance": "secondary",
+   "sources": [
+    "https://security.googleblog.com/2024/09/eliminating-memory-safety-vulnerabilities-Android.html"
+   ],
+   "as_of": "2024-09"
+  },
+  {
+   "id": "k9",
+   "point": "Tokio offers a multi-threaded work-stealing scheduler suited to IO-bound workloads; it is not advised for CPU-bound parallelism (rayon instead), and async Rust still has rough edges (async traits, destruction).",
+   "importance": "secondary",
+   "sources": [
+    "https://tokio.rs/tokio/tutorial",
+    "https://rust-lang.github.io/async-book/"
+   ],
+   "as_of": null
+  },
+  {
+   "id": "k10",
+   "point": "Rust memory guarantees do not cover unsafe code, and Discord noted early async Rust needed nightly and had boilerplate-heavy, hard-to-read errors; the authors did not advocate rewriting everything in Rust.",
+   "importance": "secondary",
+   "sources": [
+    "https://discord.com/blog/why-discord-is-switching-from-go-to-rust"
+   ],
+   "as_of": "2019-05"
+  },
+  {
+   "id": "k11",
+   "point": "Go's GC can be tuned (GOGC, GOMEMLIMIT, fewer allocations, escape-analysis checks) to cut GC cost, so GC-driven latency gaps depend on workload and tuning; claims should rest on measured benchmarks.",
+   "importance": "secondary",
+   "sources": [
+    "https://go.dev/doc/gc-guide"
+   ],
+   "as_of": null
+  }
+ ]
+}

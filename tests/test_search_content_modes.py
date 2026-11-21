@@ -11,7 +11,7 @@ from deepseek_search_everywhere_mcp import server
 def test_search_content_invalid_mode() -> None:
     res = asyncio.run(server.deepseek_search("python", content="invalid"))  # type: ignore[arg-type]
     assert res["ok"] is False
-    assert res["error"]["code"] == "bad_request"
+    assert res["error"]["reason"] == "bad_request"
 
 
 def test_search_content_snippets(fake_upstream: Any) -> None:
@@ -155,7 +155,7 @@ def test_search_many_snippets_are_lean(fake_upstream: Any) -> None:
             },
         }
     )
-    res = asyncio.run(server.deepseek_search_many(["python one", "python two"], content="snippets"))
+    res = asyncio.run(server.deepseek_search(["python one", "python two"], content="snippets"))
     assert res["ok"] is True
     for block in res["results"]:
         for item in block["results"]:

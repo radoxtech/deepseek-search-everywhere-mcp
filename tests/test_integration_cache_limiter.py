@@ -15,7 +15,8 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp import server, transport
+from deepseek_search_everywhere_mcp import runtime, server, transport
+from deepseek_search_everywhere_mcp.errors import _fail
 from deepseek_search_everywhere_mcp.ratelimit import CHAT, FETCH, SEARCH, RateLimiter, Ticket
 from deepseek_search_everywhere_mcp.settings import Settings, set_settings
 
@@ -88,7 +89,7 @@ def _install_limiter(
         settings or Settings(), clock=clock.monotonic, sleep=sleep or RecordingSleep(clock)
     )
     limiter = CountingLimiter(built.buckets)
-    monkeypatch.setattr(server, "_rate_limiter", limiter)
+    monkeypatch.setattr(runtime, "_rate_limiter", limiter)
     return limiter
 
 
@@ -179,7 +180,7 @@ async def test_retried_429_takes_one_token_and_is_cached_once_it_succeeds(
     ) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
         if len(attempts) == 1:
-            return {"ok": False, "error": {"code": "upstream_rate_limited", "message": "slow down"}}, 0.0
+            return _fail("upstream_rate_limited", "slow down"), 0.0
         return {"ok": True, "data": PAGE}, None
 
     monkeypatch.setattr(transport, "_attempt", rate_limited_once)
@@ -198,11 +199,11 @@ async def test_exhausted_429_retries_are_one_token_and_not_cached(
 
     async def always_429(method: str, url: str, path: str, **_: Any) -> tuple[dict[str, Any], float | None]:
         attempts.append(path)
-        return {"ok": False, "error": {"code": "upstream_rate_limited", "message": "slow down"}}, 0.0
+        return _fail("upstream_rate_limited", "slow down"), 0.0
 
     monkeypatch.setattr(transport, "_attempt", always_429)
     first = await _search()
-    assert first["ok"] is False and first["error"]["code"] == "upstream_rate_limited"
+    assert first["ok"] is False and first["error"]["reason"] == "upstream_rate_limited"
     assert len(attempts) == 2
     assert limiter.acquired == [SEARCH]
     second = await _search()
@@ -227,7 +228,7 @@ async def test_wait_within_budget_sleeps_and_beyond_budget_fails_fast_uncached(
     assert (await _search("second"))["ok"] is True
     assert sleep.delays == [1.0]
     limited = await _search("third")
-    assert limited["error"]["code"] == "rate_limited_local"
+    assert limited["error"]["reason"] == "rate_limited_local"
     assert sleep.delays == [1.0]
     assert upstream.count(server.SEARCH_PATH) == 2
 
@@ -247,8 +248,8 @@ async def test_search_and_fetch_use_separate_buckets(
     assert search["ok"] is True and fetch["ok"] is True
     assert sorted(limiter.acquired) == [FETCH, SEARCH]
 
-    assert (await server.deepseek_fetch(URL, refresh=True))["error"]["code"] == "rate_limited_local"
-    assert (await _search("another"))["error"]["code"] == "rate_limited_local"
+    assert (await server.deepseek_fetch(URL, refresh=True))["error"]["reason"] == "rate_limited_local"
+    assert (await _search("another"))["error"]["reason"] == "rate_limited_local"
     assert (await _search())["cached"] is True
     assert (await server.deepseek_fetch(URL))["cached"] is True
 

@@ -70,7 +70,7 @@ async def test_oversized_search_response_is_rejected(upstream, sleeps) -> None:
     result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=30)
 
     assert result["ok"] is False
-    assert result["error"]["code"] == "response_too_large"
+    assert result["error"]["reason"] == "response_too_large"
     assert len(produced) <= 9  # stopped right after crossing 8 MiB
     assert sleeps == []
 
@@ -163,7 +163,7 @@ async def test_non_json_success_is_invalid_json(upstream) -> None:
 
     result = await transport.request("GET", "/user/balance", timeout=5)
 
-    assert result["error"]["code"] == "invalid_json"
+    assert result["error"]["reason"] == "invalid_json"
 
 
 async def test_timeouts_are_retried_then_reported(upstream, sleeps) -> None:
@@ -174,7 +174,7 @@ async def test_timeouts_are_retried_then_reported(upstream, sleeps) -> None:
 
     result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=30)
 
-    assert result["error"]["code"] == "timeout"
+    assert result["error"]["reason"] == "timeout"
     assert len(seen) == 2
     assert sleeps == [2.0]
 
@@ -187,7 +187,7 @@ async def test_network_errors_keep_their_code(upstream, sleeps) -> None:
 
     result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=5, attempts=1)
 
-    assert result["error"]["code"] == "network_error"
+    assert result["error"]["reason"] == "network_error"
     assert sleeps == []
 
 
@@ -346,7 +346,7 @@ async def test_slow_drip_stream_times_out(upstream) -> None:
     # Total timeout 0.1s. Each chunk is 0.05s (< 0.1s), but 10 chunks = 0.5s total.
     result = await transport.request("POST", "/v1/tools/search", payload={}, timeout=0.1, attempts=1)
     assert result["ok"] is False
-    assert result["error"]["code"] == "timeout"
+    assert result["error"]["reason"] == "timeout"
 
 
 async def test_transport_reset_state_maintains_task_reference() -> None:
