@@ -3,8 +3,8 @@
 - **Date of capture:** 2026-11-20
 - **Source:** [`llm-stats.com/leaderboards/llm-leaderboard`](https://llm-stats.com/leaderboards/llm-leaderboard) (Ranks #1–60, Pages 1 & 2) and model detail pages ([`llm-stats.com/models/<slug>`](https://llm-stats.com/models/))
 - **Capture methodology:** Live DOM extraction via `webview_browser` subagent across Page 1 (#1–30) and Page 2 (#31–60), combined with systematic extraction of the provider table column **`Context in / out`** from each individual model page on `llm-stats.com`.
-- **Related ADR:** [ADR 0012 — Modern context window and scaled research limit architecture](file:///Users/rado/repos/deepseek-search-everywhere-mcp/evals/adr/0012-modern-context-window-limit-expansion.md)
-- **Machine-readable dataset:** [evals/frontier_models.json](file:///Users/rado/repos/deepseek-search-everywhere-mcp/evals/frontier_models.json)
+- **Related ADR:** [ADR 0012 — Modern context window and scaled research limit architecture](adr/0012-modern-context-window-limit-expansion.md)
+- **Machine-readable dataset:** [evals/frontier_models.json](frontier_models.json)
 
 ---
 

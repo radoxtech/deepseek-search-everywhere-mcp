@@ -77,7 +77,22 @@ Issues = "https://github.com/radoxtech/deepseek-search-everywhere-mcp/issues"
 packages = ["src/deepseek_search_everywhere_mcp"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/evals"]
+exclude = [
+    "/evals",
+    "/plans",
+    "/.sisyphus",
+    "/build",
+    "/dist",
+    "/scripts/dev",
+    "/scripts/local",
+    "/scripts/demo_tui.py",
+    "/scripts/record_opencode_demo.sh",
+    "/GROWTH_PLAN.md",
+    "/opencode.json",
+    "/uv.lock",
+    "/*.mov",
+    "/*.mp4",
+]
 
 [tool.ruff]
 line-length = 110

@@ -763,7 +763,7 @@ and physical alignment with API provider output caps.
 
 **Result.** 1260 tests passed, 0 failures; ruff check & format 100% clean.
 
-**Verdict: keep** (see [ADR 0012](file:///Users/rado/repos/deepseek-search-everywhere-mcp/evals/adr/0012-modern-context-window-limit-expansion.md)).
+**Verdict: keep** (see [ADR 0012](adr/0012-modern-context-window-limit-expansion.md)).
 
 ### E29 — Step-by-Step Ablation & Comparison: Quick Research vs Agent Deep Research (2026-11-20, keep)
 
