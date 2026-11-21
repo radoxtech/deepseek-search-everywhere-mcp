@@ -52,7 +52,7 @@ def test_schema_has_described_properties_and_meta_alias() -> None:
     assert properties
     assert "_meta" in properties
     assert "meta" not in properties
-    assert schema.get("additionalProperties") is not True
+    assert "additionalProperties" not in schema
     assert schema["required"] == ["ok"]
     for name, prop in properties.items():
         assert prop.get("description"), f"FetchOutput.{name} has no description"

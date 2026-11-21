@@ -33,9 +33,10 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any
 
+import anyio
 from jsonschema import Draft202012Validator
-from mcp.client._memory import InMemoryTransport
 from mcp.client.session import ClientSession
+from mcp.shared.memory import create_client_server_memory_streams
 from test_agent_research import ReportPlanUpstream
 from test_research import DeepResearchUpstream
 
@@ -137,11 +138,42 @@ class _Client:
 async def _connected() -> AsyncIterator[_Client]:
     """Start a fresh server and talk to it through a real in-memory MCP client session."""
     server = create_server()
-    async with InMemoryTransport(server) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            listing = await session.list_tools()
-            yield _Client(session, {tool.name: tool for tool in listing.tools})
+    # ``MCPServer`` is a high-level wrapper; the lowlevel ``Server`` that owns ``run`` is the
+    # private attribute below, and the SDK's own in-memory transport unwraps it the same way.
+    lowlevel = server._lowlevel_server  # type: ignore[reportPrivateUsage]
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+        server_done = anyio.Event()
+
+        async def _run_server() -> None:
+            try:
+                await lowlevel.run(
+                    server_read,
+                    server_write,
+                    lowlevel.create_initialization_options(),
+                )
+            finally:
+                server_done.set()
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_run_server)
+            try:
+                async with ClientSession(client_read, client_write) as session:
+                    await session.initialize()
+                    listing = await session.list_tools()
+                    yield _Client(session, {tool.name: tool for tool in listing.tools})
+            finally:
+                # Close both write sides to EOF the server rather than cancelling it outright;
+                # the dispatcher stops on EOF, so the join is immediate for a healthy server.
+                await client_write.aclose()
+                await server_write.aclose()
+                # Bound the teardown: user code (lifespan exit) could hang forever, so fall back
+                # to cancelling when the server does not exit within the grace period.
+                with anyio.move_on_after(2.0):
+                    await server_done.wait()
+                if not server_done.is_set():
+                    tg.cancel_scope.cancel()
 
 
 def _search_results(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -233,7 +265,7 @@ async def test_server_publishes_the_contract_for_all_seven_tools(fake_upstream: 
             schema = tool.output_schema
             assert schema is not None, f"{name} has no outputSchema"
             assert isinstance(schema.get("properties"), dict) and schema["properties"], name
-            assert schema.get("additionalProperties") is not True, name
+            assert "additionalProperties" not in schema, name
             assert schema.get("required") == ["ok"], name
 
 
@@ -501,6 +533,9 @@ async def test_balance_list_dict_and_error(fake_upstream: Any) -> None:
         )
         listed = await client.call("deepseek_check_balance", {}, ok=True, expect_elapsed=True)
         assert isinstance(listed["balances"], list) and listed["is_available"] is True
+        # The balance tool has no response-level metadata: the model dump publishes the ``_meta``
+        # alias as an explicit null (never the Python field name ``meta``).
+        assert listed["_meta"] is None and "meta" not in listed
 
         fake_upstream(default={"ok": True, "data": {"is_available": False, "balances": {"currency": "USD"}}})
         mapped = await client.call("deepseek_check_balance", {}, ok=True, expect_elapsed=True)

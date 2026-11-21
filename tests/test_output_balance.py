@@ -1,4 +1,8 @@
-"""Schema tests for the ``deepseek_check_balance`` output model (TDQS T12)."""
+"""Schema tests for the ``deepseek_check_balance`` output model.
+
+The top-level object is closed and described, carries the balance fields, and exposes no
+per-request ``cost_usd``.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +42,7 @@ def test_schema_declares_properties() -> None:
 
 @pytest.mark.parametrize("schema", [_schema(), _published_schema()], ids=["model", "published"])
 def test_top_level_schema_is_not_an_open_object(schema: dict[str, Any]) -> None:
-    assert schema.get("additionalProperties") is not True
+    assert "additionalProperties" not in schema
     assert schema["properties"]
     for prop in schema["properties"].values():
         assert prop.get("description"), f"property without description: {prop}"

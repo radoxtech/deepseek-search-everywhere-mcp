@@ -67,7 +67,7 @@ def test_extract_output_schema_has_properties_and_no_open_top_level_object() -> 
     assert "ok" in properties
     assert "_meta" in properties
     assert "meta" not in properties
-    assert schema.get("additionalProperties") is not True
+    assert "additionalProperties" not in schema
     assert {"url", "data", "evidence", "results", "cost_breakdown", "elapsed_ms"} <= set(properties)
 
 

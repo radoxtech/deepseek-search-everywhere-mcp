@@ -12,7 +12,7 @@ def test_envelope_schema_has_properties_and_no_open_object() -> None:
     schema = Envelope.model_json_schema()
     properties = schema["properties"]
     assert set(properties) == {"ok", "_meta", "error"}
-    assert schema.get("additionalProperties") is not True
+    assert "additionalProperties" not in schema
 
 
 def test_envelope_schema_uses_meta_alias_not_attribute_name() -> None:

@@ -32,7 +32,7 @@ def test_published_output_schema_is_a_closed_object_with_the_search_fields() -> 
     schema = _published_output_schema()
     properties = schema.get("properties")
     assert isinstance(properties, dict) and properties
-    assert schema.get("additionalProperties") is not True
+    assert "additionalProperties" not in schema
     assert {"_meta", "results", "elapsed_ms", "skipped_queries"} <= set(properties)
     assert schema.get("required") == ["ok"]
 

@@ -165,7 +165,7 @@ def test_research_schemas_are_closed_and_described(
 ) -> None:
     schema = model.model_json_schema()
     assert "properties" in schema
-    assert schema.get("additionalProperties") is not True
+    assert "additionalProperties" not in schema
     assert schema["properties"]["_meta"]
     assert "meta" not in schema["properties"]
     for name, field in model.model_fields.items():
