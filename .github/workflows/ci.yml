@@ -106,6 +106,9 @@ jobs:
       DEEPSEEK_CHAT_BASE_URL: ${{ vars.DEEPSEEK_CHAT_BASE_URL }}
       DEEPSEEK_CHAT_API_KEY: ${{ secrets.DEEPSEEK_CHAT_API_KEY }}
       DEEPSEEK_CHAT_MODEL: ${{ vars.DEEPSEEK_CHAT_MODEL }}
+      # Per-job daily spend cap across search, fetch and chat. The scoped token's spending limit is the
+      # hard backstop; this one stops a runaway test from burning the token budget in a single run.
+      DEEPSEEK_DAILY_BUDGET_USD: "4"
     steps:
       - uses: actions/checkout@v5
 
@@ -162,6 +165,9 @@ jobs:
       DEEPSEEK_CHAT_BASE_URL: ${{ vars.DEEPSEEK_CHAT_BASE_URL }}
       DEEPSEEK_CHAT_API_KEY: ${{ secrets.DEEPSEEK_CHAT_API_KEY }}
       DEEPSEEK_CHAT_MODEL: ${{ vars.DEEPSEEK_CHAT_MODEL }}
+      # Per-job daily spend cap across search, fetch and chat. The scoped token's spending limit is the
+      # hard backstop; this one stops a runaway test from burning the token budget in a single run.
+      DEEPSEEK_DAILY_BUDGET_USD: "4"
     steps:
       - uses: actions/checkout@v5
 
