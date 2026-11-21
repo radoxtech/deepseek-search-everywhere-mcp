@@ -50,6 +50,7 @@ from deepseek_search_everywhere_mcp.deep_research import (  # noqa: E402
     ResearchJob,
     sanitize_json,
 )
+from deepseek_search_everywhere_mcp.tools.agent import DEPTH_ROUNDS  # noqa: E402
 
 RESULTS_DIR = ROOT / "evals" / "results" / "quick_vs_deep"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -193,7 +194,7 @@ async def run_deep_agent_research(
         lang=None,
         sources="any",
         kind="agent",
-        max_rounds=5,
+        max_rounds=DEPTH_ROUNDS.get(depth, 3),
         max_cost_usd=None,
         created_at=runtime._clock(),
     )
