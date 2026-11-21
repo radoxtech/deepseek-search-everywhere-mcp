@@ -198,34 +198,34 @@ Two research tools turn complex questions into cited, evidence-grounded reports.
 
 The two tools provide distinct, non-overlapping operational profiles with zero guesswork:
 
-#### 1. `deepseek_quick_research` Depth Tiers (Fast Single-Pass Pipeline, $\le 35$s)
+#### 1. `deepseek_quick_research` Depth Tiers (Fast Single-Pass Pipeline, ~10–35s)
 
 `deepseek_quick_research` accepts `depth="low" | "medium" | "high"` (default `"medium"`). It is strictly single-pass (no multi-round waits) and delivers instant cited briefings:
 
 | Tier | Subqueries | Sources Read | Context Cap | Reasoning | Word Target | Wall Time | Cost (USD) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **`low`** | 2 queries | 8 sources | 80,000 chars | Off | ~1,000 words | ~10–12s | ~$0.003 |
-| **`medium`** (default) | 3 queries | 12 sources | 150,000 chars | On (`low`) | ~1,600 words | ~20–25s | ~$0.006 |
-| **`high`** | 4 queries | 16 sources | 300,000 chars | On (`low`) | ~2,400 words | ~30–35s | ~$0.010 |
+| **`low`** | 2 queries | 8 sources | 80,000 chars | Off | ~1,000 words | ~10–15s | ~$0.003 |
+| **`medium`** (default) | 3 queries | 12 sources | 150,000 chars | On (`low`) | ~1,600 words | ~25–35s | ~$0.005 |
+| **`high`** | 4 queries | 16 sources | 300,000 chars | On (`low`) | ~2,400 words | ~35–45s | ~$0.010 |
 
-#### 2. `deepseek_deep_agent_research` Depth Tiers (Autonomous Multi-Round Loop, $\ge 55$s)
+#### 2. `deepseek_deep_agent_research` Depth Tiers (Autonomous Multi-Round Loop, $\ge 50$s)
 
 `deepseek_deep_agent_research` accepts `depth="medium" | "high" | "max"` (default `"medium"`). It guarantees iterative investigation (minimum 2 rounds) with entity-anchored gap detection:
 
 | Tier | Max Rounds | Exploration Strategy | Evidence Sources | Autostop Heuristic | Wall Time | Cost (USD) |
 |---|:---:|---|:---:|:---:|:---:|:---:|
-| **`medium`** (default) | 2 rounds | 4-aspect baseline + 1 entity-anchored gap round | Up to 14 sources | Wald sequential test ($\Delta \text{facts}=0$) | ~55–65s | ~$0.011–$0.014 |
-| **`high`** | Up to 3 rounds | 4-aspect baseline + up to 2 iterative gap rounds | Up to 20 sources | Wald sequential test ($\Delta \text{facts}=0$) | ~80–100s | ~$0.018–$0.022 |
-| **`max`** | Up to 5 rounds | Deep multi-round forensic exploration | Up to 28 sources | Wald sequential test ($\Delta \text{facts}=0$) | ~120–150s | ~$0.028–$0.035 |
+| **`medium`** (default) | 2 rounds | 4-aspect baseline + 1 entity-anchored gap round | Up to 14 sources | Wald sequential test ($\Delta \text{facts}=0$) | ~50–60s | ~$0.007–$0.010 |
+| **`high`** | Up to 3 rounds | 4-aspect baseline + up to 2 iterative gap rounds | Up to 20 sources | Wald sequential test ($\Delta \text{facts}=0$) | ~75–95s | ~$0.014–$0.018 |
+| **`max`** | Up to 5 rounds | Deep multi-round forensic exploration | Up to 28 sources | Wald sequential test ($\Delta \text{facts}=0$) | ~110–140s | ~$0.025–$0.032 |
 
 When to pick each tier:
 
 - **Quick `low`**: Instant sanity check or definition lookup with a handful of verified sources; fastest and cheapest (~10s).
-- **Quick `medium`**: Recommended default for 90% of technical specs, code libraries, and state-of-the-art overviews (~20s).
-- **Quick `high`**: Thorough single-pass briefing across multiple viewpoints without waiting for iterative rounds (~35s).
-- **Agent `medium`**: Standard multi-round investigation uncovering hidden angles and clinical trial / statutory endpoints (~60s).
-- **Agent `high`**: Multi-stakeholder decisions, architecture evaluations, or regulatory compliance reviews (~90s).
-- **Agent `max`**: Broadest, highly contested or litigious inquiries where missing an obscure detail or counter-argument is unacceptable (~135s).
+- **Quick `medium`**: Recommended default for 90% of technical specs, code libraries, and state-of-the-art overviews (~30s).
+- **Quick `high`**: Thorough single-pass briefing across multiple viewpoints without waiting for iterative rounds (~40s).
+- **Agent `medium`**: Standard multi-round investigation uncovering hidden angles and clinical trial / statutory endpoints (~55s).
+- **Agent `high`**: Multi-stakeholder decisions, architecture evaluations, or regulatory compliance reviews (~85s).
+- **Agent `max`**: Broadest, highly contested or litigious inquiries where missing an obscure detail or counter-argument is unacceptable (~125s).
 
 If the model's reasoning uses up its token allowance or returns an empty answer, the server retries once with reasoning off; if that also fails, the envelope has `synthesized: false` and returns source snippets only. An over-length report gets one cheap condensing pass.
 
