@@ -61,7 +61,10 @@ All tool responses return a JSON envelope containing the `ok` boolean:
 | Field | Present In | Description |
 |---|---|---|
 | `ok` | All | `true` on success, `false` on failure. |
-| `error` | Failures | Error details: `{ "code", "message", "status"?, "upstream_code"?, "upstream_message"? }`. |
+| `error` | Failures | Error details: `{ "code", "message", "action", "reason", "param"?, "status"?, "upstream_code"?, "upstream_message"? }`. |
+| `error.action` | Failures | Recommended next step: `retry`, `fix_input`, `change_approach`, `do_not_retry`, `start_again` or `ask_user`. |
+| `error.reason` | Failures | Fine-grained cause from the closed reason set in `errors.py`. |
+| `error.param` | Input failures | Name of the offending input parameter, omitted when no single parameter is at fault. |
 | `elapsed_ms` | All | Wall-clock execution time in milliseconds. |
 | `cost_usd` | Retrieval tools | Billed cost of the call in USD (`0.0` for cache hits). |
 | `cost_breakdown` | Extract & Research | Subtotal breakdown: `{ "search", "fetch", "llm" }` in USD. |
@@ -70,7 +73,7 @@ All tool responses return a JSON envelope containing the `ok` boolean:
 | `notes` | Successes | Diagnostic details (deduplications, truncated terms, applied filters). |
 | `partial` | Batch & Research | `true` if a subset of batch items or sources failed while the overall operation succeeded. |
 | `untrusted_content` | Web content tools | Always `true` to remind agents that retrieved text is untrusted data. |
-| `derived_from_untrusted` | Research & Extract | `true` when model-generated output is synthesized from untrusted pages. |
+| `derived_from_untrusted` | Research | `true` when model-generated research output is synthesized from untrusted pages. |
 | `injection_suspected` | Research | Count of suspect prompt injection instructions filtered from source text. |
 | `unverified_numbers` | Research | List of numeric claims in cited sentences not found verbatim in sources. |
 | `unverified_number_count` | Research | Total count of unverified numbers (0 indicates 100% numerical grounding). |
@@ -78,6 +81,10 @@ All tool responses return a JSON envelope containing the `ok` boolean:
 | `job_id` | Research | UUID of the background job (used for polling with `deepseek_check_research`). |
 | `progress` | Research (running) | Progress object: `{ "phase", "step", "of", "phase_elapsed_ms", "deadline_ms" }`. |
 | `next_action` | Research (running) | Actionable instruction advising the agent how to poll or provide input. |
+
+### Structured content and output schemas
+
+Every tool publishes an `outputSchema` in `tools/list` and returns `structuredContent` next to the text block. `structuredContent` is the validated model dump, so it is a superset of the text JSON with `null` padding for absent optional fields; the text block remains the primary payload.
 
 ---
 
