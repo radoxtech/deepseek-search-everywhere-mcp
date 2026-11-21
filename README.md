@@ -85,8 +85,8 @@ Pick the tool by what the task needs:
 
 | Task | Tool | Recommended When |
 |---|---|---|
-| Single-pass multi-source research report with citations (~25–35s) | `deepseek_quick_research` | Technical docs, specs, library comparisons, established architecture, clear consensus overviews |
-| Autonomous deep investigation with evidence gaps & autostop (~45–90s) | `deepseek_deep_agent_research` | Contested disputes, multi-sided litigation, antitrust, regulatory battles, complex policies |
+| Fast single-pass research report with citations (~25–35s) | `deepseek_quick_research` | Technical documentation, specifications, architecture comparisons, rapid factual synthesis |
+| Flagship autonomous deep investigation with gap detection (~45–90s) | `deepseek_deep_agent_research` | In-depth investigations, comprehensive state-of-the-art reports, contested disputes, and uncovering hidden details |
 | One fact, a recent event, a page to find (or up to 5 queries in parallel) | `deepseek_search` (snippets first, `content="full"` only when page text is needed) |
 | A known URL or batch of up to 10 URLs | `deepseek_fetch`; pass `query=` to get only the relevant excerpts |
 | Specific fields or a JSON schema from a page or batch of pages | `deepseek_extract` |
@@ -99,7 +99,7 @@ Research jobs have three states, and the response says which one applies:
 - `status: "running"`: call `deepseek_check_research(job_id)` until it is done; do not start the same research again.
 - `status: "needs_input"` (only with `synthesis="client"`): read the sources (`context`, further pages with `page=`), write the report and send it with `deepseek_check_research(job_id, answer=...)`.
 
-Common mistakes to avoid: a query must fit in 128 characters; parallel `deepseek_search` runs at most 5 unique queries and lists the rest in `skipped_queries`; check `partial` on batch results, because `ok` stays `true` when single items fail. The [error codes](#error-codes) table says which errors are worth retrying.
+Common mistakes to avoid: a query must fit in 128 characters; parallel `deepseek_search` runs at most 5 unique queries and lists the rest in `skipped_queries`; check `partial` on batch results, because `ok` stays `true` when single items fail. The [error codes](docs/configuration.md#4-closed-error-codes) table says which errors are worth retrying.
 
 ## Quick start
 
@@ -137,40 +137,18 @@ pip install "deepseek-search-everywhere-mcp[http]"      # adds uvicorn for the H
 uvx --from git+https://github.com/radoxtech/deepseek-search-everywhere-mcp deepseek-search-everywhere-mcp  # latest main
 ```
 
-## Install in your MCP client
+## MCP Client Configuration
 
-All stdio examples use `uvx`, so nothing is installed globally. Replace `sk-...` with your key.
+DeepSeek Search Everywhere MCP works out-of-the-box with all standard MCP clients via `uvx` (zero installation) or `pip`.
 
-### Claude Code
+### Quick Configuration (Claude Desktop, Cursor, Cline, Windsurf)
 
-```bash
-claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- \
-  uvx deepseek-search-everywhere-mcp
-```
-
-### Claude Desktop, Cursor, Cline, Roo Code, Windsurf and other `mcpServers` clients
-
-These clients use the same `mcpServers` block as the [Quick start](#quick-start); only the file differs:
-
-| Client | Configuration file |
-|---|---|
-| Claude Desktop | `claude_desktop_config.json` (Settings, Developer, Edit Config) |
-| Cursor | `.cursor/mcp.json` in the project, or `~/.cursor/mcp.json` for all projects |
-| Cline, Roo Code (VS Code) | `cline_mcp_settings.json` (MCP settings) |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-| Antigravity, Gemini CLI and other stdio clients | the client's MCP server configuration |
-
-With the package installed locally (`pip install deepseek-search-everywhere-mcp`), `"command": "deepseek-search-everywhere-mcp"` without `args` works as well.
-
-### Zed
-
-In Zed `settings.json`, under `context_servers`:
+Add this block to your client's MCP configuration file (e.g. `claude_desktop_config.json`, `.cursor/mcp.json`, `cline_mcp_settings.json`):
 
 ```json
 {
-  "context_servers": {
+  "mcpServers": {
     "deepseek-search-everywhere": {
-      "source": "custom",
       "command": "uvx",
       "args": ["deepseek-search-everywhere-mcp"],
       "env": { "DEEPSEEK_API_KEY": "sk-..." }
@@ -179,91 +157,14 @@ In Zed `settings.json`, under `context_servers`:
 }
 ```
 
-### OpenCode
-
-In `opencode.json`:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "deepseek-search-everywhere": {
-      "type": "local",
-      "command": ["uvx", "deepseek-search-everywhere-mcp"],
-      "environment": { "DEEPSEEK_API_KEY": "{env:DEEPSEEK_API_KEY}" },
-      "enabled": true
-    }
-  }
-}
-```
-
-### Streamable HTTP
-
-For clients and platforms that connect over HTTP. A bearer token is always required and the server refuses to start without `MCP_BEARER_TOKEN`.
+### Claude Code CLI
 
 ```bash
-pip install "deepseek-search-everywhere-mcp[http]"
-export DEEPSEEK_API_KEY=sk-...
-export MCP_BEARER_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
-deepseek-search-everywhere-mcp --transport streamable-http   # http://127.0.0.1:8000/mcp
+claude mcp add deepseek-search-everywhere -e DEEPSEEK_API_KEY=sk-... -- \
+  uvx deepseek-search-everywhere-mcp
 ```
 
-Options: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--path` (default `/mcp`). The token is read from the environment only, never from the command line. The server is stateless and answers with JSON (no SSE streams). Client entry:
-
-```json
-{
-  "mcpServers": {
-    "deepseek-search-everywhere": {
-      "url": "http://127.0.0.1:8000/mcp",
-      "headers": { "Authorization": "Bearer <MCP_BEARER_TOKEN>" }
-    }
-  }
-}
-```
-
-Claude Code over HTTP:
-
-```bash
-claude mcp add --transport http deepseek-search-everywhere http://127.0.0.1:8000/mcp \
-  --header "Authorization: Bearer $MCP_BEARER_TOKEN"
-```
-
-The server speaks plain HTTP; when binding beyond loopback, put TLS in front of it (see [SECURITY.md](SECURITY.md)). HTTP mode is single-process: research jobs, caches and the rate limiter live in that process.
-
-### Docker
-
-A container image is published on GitHub Container Registry. It runs as an unprivileged user (UID 10001).
-
-```bash
-docker pull ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest
-```
-
-Stdio mode for desktop clients:
-
-```json
-{
-  "mcpServers": {
-    "deepseek-search-everywhere": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "-e", "DEEPSEEK_API_KEY=sk-...",
-        "ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-Remote HTTP hosting:
-
-```bash
-docker run -d --name deepseek-mcp -p 8000:8000 \
-  -e DEEPSEEK_API_KEY="sk-..." \
-  -e MCP_BEARER_TOKEN="your-secret-token" \
-  ghcr.io/radoxtech/deepseek-search-everywhere-mcp:latest \
-  --transport streamable-http --host 0.0.0.0 --port 8000
-```
+👉 **For complete copy-paste configurations across Zed, OpenCode, Streamable HTTP hosting, Docker containers, and troubleshooting, see [MCP Client Configuration Guide](docs/clients.md).**
 
 ## Deep research
 
@@ -288,43 +189,10 @@ Two research tools turn complex questions into cited, evidence-grounded reports.
 | **Citation faithfulness** | **0 unsupported sentences** (100% grounded) | **0 unsupported sentences** (100% grounded) |
 | **Benchmark yield (Clear topics)** | **80% – 100%** (e.g. Basel III 100%, AI Act 94%) | **83% – 100%** (Basel III 100%, Postgres 17 95%) |
 | **Benchmark yield (Hidden disputes)** | 22% – 61% (misses unindexed retractions) | **42% – 81%** (+19.4 pp gain on retractions & disputes) |
-| **When to choose** | **90% of user queries**: docs, specs, guides, comparisons | **10% of thorny topics**: lawsuits, retractions, policy clashes |
-| **When NOT to use** | Obscure forensic investigations with buried retractions | Clear technical questions (wastes time & double the cost) |
+| **Best suited for** | **Rapid synthesis**: technical documentation, specs, guides, architecture comparisons | **Deep investigation**: contested disputes, multi-sided litigation, buried retractions, subtle policy clashes |
+| **Key superpower** | High-speed concurrent RRF retrieval (~30s) at minimal cost | Autonomous multi-round gap detection and evidence autostop |
 
----
-
-### Pipeline Visualizations
-
-#### 1. `deepseek_quick_research` (Fast Single-Pass Pipeline)
-
-```mermaid
-flowchart TD
-    UserTopic["User Topic / Question"] --> Decompose["1. Multi-Perspective Decomposition<br/>(Primary, Numbers, Limits, Current)"]
-    Decompose --> ParallelSearch["2. Parallel Search Execution<br/>(DeepSeek Search & Fetch API)"]
-    ParallelSearch --> RRF["3. Reciprocal Rank Fusion & MMR<br/>(Merges ranks, enforces domain diversity)"]
-    RRF --> LexicalPrune["4. BM25 Lexical Passage Pruning<br/>(Extracts dense evidence, removes noise)"]
-    LexicalPrune --> Knapsack["5. Greedy 0/1 Knapsack Packing<br/>(Fits richest facts into token window)"]
-    Knapsack --> Synthesis["6. Grounded Multi-Source Synthesis<br/>(Strict grounding, verbatim numbers, [n] citations)"]
-    Synthesis --> Audit["7. Verbatim Numeric Grounding Audit<br/>(Regex verification against source text)"]
-    Audit --> QuickReport["Verified Cited Report<br/>(25-45s | ~$0.005 | 0 hallucinations)"]
-```
-
-#### 2. `deepseek_deep_agent_research` (Autonomous Multi-Round Agent)
-
-```mermaid
-flowchart TD
-    AgentTopic["User Topic (Contested / Complex)"] --> AspectMatrix["1. 4-Dimensional Aspect Planning<br/>(Standards, Numbers, Disputes, Current)"]
-    AspectMatrix --> Round1["2. Round 1 Concurrent Retrieval<br/>(Parallel search across planned aspects)"]
-    Round1 --> EvidenceMatrix["3. Evidence Matrix Evaluation<br/>(Audits facts, numbers, and sources per aspect)"]
-    EvidenceMatrix --> DiminishingYield{"4. Diminishing Marginal Yield Check<br/>(Wald Sequential Analysis)"}
-    DiminishingYield -->|"Evidence saturated (Δfacts=0, Δsources=0)"| BalancedSynthesis["6. Section-Balanced Multi-Perspective Synthesis<br/>(Anti-tunneling, verbatim metrics, [n] citations)"]
-    DiminishingYield -->|"Gaps detected (rounds < max)"| GapDetector["5. Active Learning Gap Detector<br/>(LLM spots missing trials, disputes, metrics)"]
-    GapDetector --> TargetedQueries["Targeted Gap Queries<br/>(Specific entities, trial names, failure modes)"]
-    TargetedQueries --> RoundNext["Round 2-5 Targeted Search & Fetch"]
-    RoundNext --> EvidenceMatrix
-    BalancedSynthesis --> NumericAudit["7. Verbatim Numeric Grounding Audit<br/>(Regex verification of all cited figures)"]
-    NumericAudit --> DeepReport["Deep Forensic Research Report<br/>(Multi-round evidence, verified citations)"]
-```
+> 💡 **Visual Architecture & Pipeline Deep Dive:** For complete end-to-end flowcharts, data structures, and algorithmic step-by-step breakdowns of both research engines, see **[Architecture & Pipeline Walkthrough](docs/architecture.md)**.
 
 ### Depth tiers
 
@@ -498,7 +366,7 @@ A tier above `medium` buys a few points of coverage for two to four times the pr
 
 *Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-Every response reports its own `cost_usd`, and tools that call an LLM add `cost_breakdown` with `search`, `fetch` and `llm` parts. Set `DEEPSEEK_DAILY_BUDGET_USD` to cap daily spend (see [Configuration](#configuration)).
+Every response reports its own `cost_usd`, and tools that call an LLM add `cost_breakdown` with `search`, `fetch` and `llm` parts. Set `DEEPSEEK_DAILY_BUDGET_USD` to cap daily spend (see [Configuration](docs/configuration.md#1-environment-variables)).
 
 ## Comparison with Tavily & Firecrawl
 
@@ -522,7 +390,7 @@ Web pages, search snippets and titles are attacker-controlled. The server treats
 
 - **Untrusted-content handling.** Hidden Unicode (tag characters, bidi controls, zero-width characters) is stripped from content, snippets, titles, reports and extracted values. Markdown images are rewritten to plain `[image: alt](url)` text and links with non-http(s) targets are dropped. Every response that carries web data sets `untrusted_content: true`; research and extraction output, which is model-written from untrusted pages, also sets `derived_from_untrusted: true`.
 - **Injection-resistant synthesis.** The server's own LLM calls have no tool calling and no secrets in their prompts. Sources are wrapped in per-call random delimiters and declared to be data, and the report is filtered afterwards: links that are not in the source list, images, raw HTML and sentences addressed to an AI agent are removed (counted in `injection_suspected`).
-- **Egress guard.** Outgoing search queries and fetch URLs that contain secret-like data (`sk-` keys, bearer tokens, JWTs, AWS access keys, `api_key=`/`token=`/`password=` pairs, URL credentials) are rejected with `egress_blocked`. Optional domain allow and deny lists and a high-entropy check are available through [environment variables](#configuration).
+- **Egress guard.** Outgoing search queries and fetch URLs that contain secret-like data (`sk-` keys, bearer tokens, JWTs, AWS access keys, `api_key=`/`token=`/`password=` pairs, URL credentials) are rejected with `egress_blocked`. Optional domain allow and deny lists and a high-entropy check are available through [environment variables](docs/configuration.md#1-environment-variables).
 - **Static SSRF filter.** Non-http(s) URLs return `bad_url`; internal hostnames, private and loopback addresses and URLs with embedded credentials return `ssrf_blocked`. The server never resolves DNS locally; DeepSeek performs the fetch, so this is a filter and not network isolation.
 - **No telemetry.** The server does not phone home or collect usage data.
 - **Data flow.** Search queries, URLs you ask it to fetch, and page content selected for extraction or research are sent to the DeepSeek API; nothing else leaves the machine, and the API key is only sent in the `Authorization` header to the configured base URL. Do not put secrets in queries or URLs.
@@ -530,101 +398,29 @@ Web pages, search snippets and titles are attacker-controlled. The server treats
 
 The consuming agent must still treat returned content as untrusted: no filter can guarantee that a page contains no instructions. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-## Configuration
+## Configuration & System Reference
 
-The server reads configuration from environment variables. It does not read `.env` files itself; export the variables or set them in your MCP client's `env` block.
+The server reads configuration from standard environment variables (set in your shell or inside your client's `env` block):
 
-**Required**
-
-| Variable | Purpose |
-|---|---|
-| `DEEPSEEK_API_KEY` | Your DeepSeek platform key |
-| `MCP_BEARER_TOKEN` | HTTP transport only: token clients send as `Authorization: Bearer ...`; the server refuses to start HTTP without it |
-
-**Optional**
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | API base URL |
-| `DEEPSEEK_MCP_CACHE` | `1` | `0` disables the in-memory response caches |
-| `DEEPSEEK_MCP_LOG_LEVEL` | `WARNING` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `DEEPSEEK_DAILY_BUDGET_USD` | unlimited | Daily spend cap in USD, e.g. `5.00` |
-| `DEEPSEEK_STATE_DIR` | see below | Directory of the budget state file |
-| `DEEPSEEK_SOURCE_DENYLIST` | unset | Hosts research never uses as sources (library-proxy hosts are rewritten to the publisher); `none` disables |
-| `DEEPSEEK_FETCH_ALLOW_DOMAINS` | unset | Fetch only these domains |
-| `DEEPSEEK_FETCH_DENY_DOMAINS` | unset | Never fetch these domains |
-| `DEEPSEEK_EGRESS_ENTROPY_CHECK` | off | `1` also blocks long high-entropy tokens |
-
-Details:
-
-- **Daily budget** covers Search, Fetch and LLM costs and resets per UTC day; once reached, calls fail with `budget_exceeded`. The state lives in `budget.json` under `DEEPSEEK_STATE_DIR` (default `~/.cache/deepseek-search-everywhere-mcp`).
-- **Domain lists** (`DEEPSEEK_SOURCE_DENYLIST`, `DEEPSEEK_FETCH_ALLOW_DOMAINS`, `DEEPSEEK_FETCH_DENY_DOMAINS`) are comma-separated; an entry matches the host and its subdomains, and an entry containing `*` is a glob matched against the whole host. `DEEPSEEK_SOURCE_DENYLIST` defaults to empty because library-proxy hosts (EZproxy, libproxy) are automatically rewritten to canonical publisher URLs instead of rejected.
-- **Entropy check** (`1`, `true` or `yes`) rejects queries and URL paths that contain a token longer than 32 characters with high entropy.
-
-Command-line options of `deepseek-search-everywhere-mcp`: `--transport {stdio,streamable-http}` (default `stdio`), `--host` (default `127.0.0.1`), `--port` (default `8000`), `--path` (default `/mcp`), `--check` (verify credentials and print the balance; stdio only) and `--version`.
-
-Local limits that are not configurable through the environment:
-
-| | Search | Fetch | Query rewrite |
+| Variable | Required | Default | Purpose |
 |---|---|---|---|
-| Cache TTL | 5 min | 30 min | 24 h |
-| Entry limit | 128 | 128 | 1024 |
-| Rate limit (sustained / burst) | 10 / s, 20 | 5 / s, 10 | LLM calls: 10 / s, 20 |
+| `DEEPSEEK_API_KEY` | **Yes** | — | DeepSeek API key from [platform.deepseek.com](https://platform.deepseek.com) |
+| `DEEPSEEK_DAILY_BUDGET_USD` | No | Unlimited | Daily spend cap in USD (e.g. `5.00`); blocks calls upon reaching limit |
+| `MCP_BEARER_TOKEN` | HTTP only | — | Mandatory bearer token for streamable HTTP transport |
+| `DEEPSEEK_BASE_URL` | No | `https://api.deepseek.com` | Upstream API endpoint |
+| `DEEPSEEK_MCP_LOG_LEVEL` | No | `WARNING` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 
-Only successful, non-empty responses are cached and errors are never cached. Identical concurrent calls share one upstream request. `refresh=true` bypasses the cache for one call. If a rate-limit token would take longer than 5 s, the call fails with `rate_limited_local`. HTTP 429 and gateway 5xx responses are retried once within the call's deadline.
-
-## Response format
-
-Every tool returns a JSON object with `ok`.
-
-| Field | Where | Meaning |
-|---|---|---|
-| `ok` | all | `true` on success, `false` on failure |
-| `error` | failures | `{ "code", "message", "status"?, "upstream_code"?, "upstream_message"? }`; `code` is always one of the [closed error codes](#error-codes) |
-| `elapsed_ms` | all | wall time of the call in milliseconds |
-| `cost_usd` | retrieval tools | cost of the call in USD; `0` for cache hits |
-| `cost_breakdown` | extract, research | `{ "search", "fetch", "llm" }` in USD |
-| `requests_used` | search, search_many, fetch_many, research | upstream requests actually made |
-| `cached`, `cached_count` | retrieval tools | whether the response (or how many items) came from the cache |
-| `notes` | success envelopes | human-readable remarks: dedupe counts, trimmed queries, truncation, applied filters |
-| `partial`, `failed_count` | batch tools, research | `true` when some items or sources failed; each failed one carries its own `error`. The top-level `ok` stays `true`, so check `partial` |
-| `untrusted_content` | tools returning web content | always `true`; the content is data, not instructions |
-| `derived_from_untrusted`, `injection_suspected` | research | model-written output built from untrusted pages; number of sentences removed by the output filter |
-| `unverified_numbers`, `unverified_number_count` | research | list of numbers not found in cited sources and total unverified count |
-| `status`, `delivery`, `job_id`, `progress`, `next_action` | research, check_research | job state: `done` (with `delivery` `inline`, `polled` or `client`), `running`, or `awaiting_report` for client synthesis |
-| `synthesis_instructions`, `context`, `context_page`, `context_pages` | research, check_research | client synthesis only: the rules for the report and one page of sources with their text |
-| `skipped_queries` | search_many | unique queries past the fifth that were not run |
-| `_meta` | retrieval tools | `{ "cost_usd", "untrusted_content" }` for clients that read MCP metadata |
-
-Tool-specific results:
-
-- **Search**: `results[]` with `title`, `url`, `date` (`YYYY-MM-DD`), `date_source` (`url` for a full date in the URL path, which wins; `upstream`; `content`; or `null`), `site`, `snippet` (and `content` with `content="full"`), `authority` and `rerank_score` (upstream fields, not credibility scores).
-- **Fetch**: `url`, `title`, `content`, `chars`, `total_chars`, `truncated`, `source` (`fetch` or `search_index`); selectors add `has_more` or section metadata.
-- **Extract**: `data` (requested fields or schema), `evidence` (verbatim quotes), `extraction_truncated`.
-- **Research**: `topic`, `depth`, `subqueries`, `report` (with `[n]` citations and `[unverified]` sentence markers where numbers lack source grounding), `synthesized`, `sources[]` of `{ id, title, url, date, doi, pmid, pmcid, access, source_type, authors }` where `id` equals `n`, `unverified_numbers`, and `unverified_number_count`. There is no references list inside the report and no page content in the envelope.
-- **Balance**: `is_available`, `balances`, and a `session` block with uptime, request and cache counts.
-
-### Error codes
-
-`error.code` comes from a closed set. Upstream DeepSeek errors are mapped to it and the original code and message (redacted) are kept in `error.upstream_code` and `error.upstream_message`.
-
-| Agent action | Codes |
-|---|---|
-| Retry after a short wait | `rate_limited_local`, `upstream_rate_limited`, `timeout`, `upstream_timeout`, `deadline_exceeded`, `network_error`, `upstream_error`, `request_failed`, `invalid_json`, `internal_error` |
-| Fix the call and try again | `bad_request`, `empty_query`, `query_too_long`, `topic_too_long`, `bad_count`, `bad_lang`, `bad_url`, `empty_url`, `url_too_long`, `bad_domain`, `bad_date`, `bad_term`, `bad_phrase`, `filters_too_long` |
-| Change the approach: another URL or source, a selector or smaller page (`response_too_large`), fewer fields or more text (`extraction_*`), a new research call (`job_not_found`) | `not_found`, `blocked_by_site`, `empty_page`, `response_too_large`, `extraction_failed`, `extraction_truncated`, `job_not_found` |
-| Do not retry the same input (security policy) | `ssrf_blocked`, `egress_blocked`, `disallowed_url`, `private_url`, `disallowed_protocol` |
-| Stop and tell the user (account or configuration) | `missing_api_key`, `auth_failed`, `insufficient_balance`, `budget_exceeded` (HTTP status 402) |
+👉 **For the complete list of environment variables (domain whitelists/blacklists, entropy filters, cache tuning), full JSON envelope specifications, and closed error code mappings, see [Configuration, Envelopes & Error Codes](docs/configuration.md).**
 
 ## FAQ
 
 ### How do I add web search to Claude Code?
 
-Run the `claude mcp add` command in [Claude Code](#claude-code). You need a DeepSeek API key and `uv`.
+Run the `claude mcp add` command in [Claude Code CLI](docs/clients.md#1-claude-code-cli). You need a DeepSeek API key and `uv`.
 
 ### Is there a cheaper alternative to Tavily for MCP?
 
-For retrieval, yes: see [Comparison with Tavily](#comparison-with-tavily) for the prices, sources and caveats.
+For retrieval, yes: see [Comparison with Tavily & Firecrawl](#comparison-with-tavily--firecrawl) for the prices, sources and caveats.
 
 ### How do research tools handle long-running research?
 
@@ -636,7 +432,7 @@ Yes: `deepseek_quick_research(..., synthesis="client")` returns the ranked sourc
 
 ### Does it work with Cursor, Cline and Windsurf?
 
-Yes, with any stdio or streamable-HTTP MCP client; see [Install in your MCP client](#install-in-your-mcp-client).
+Yes, with any stdio or streamable-HTTP MCP client; see [MCP Client Configuration Guide](docs/clients.md).
 
 ### How much does a search cost?
 
@@ -656,11 +452,11 @@ Only to the DeepSeek API, which does the work; see [Security](#security).
 
 ### How do I limit spending?
 
-Set `DEEPSEEK_DAILY_BUDGET_USD`; see [Configuration](#configuration).
+Set `DEEPSEEK_DAILY_BUDGET_USD`; see [Configuration](docs/configuration.md#1-environment-variables).
 
 ### Can the server run remotely, for example in Docker or n8n?
 
-Yes, over [streamable HTTP](#streamable-http) with a bearer token, also from the [Docker](#docker) image.
+Yes, over [streamable HTTP](docs/clients.md#8-streamable-http-remote-hosting) with a bearer token, also from the [Docker](docs/clients.md#9-docker-deployment) image.
 
 ### Is this an official DeepSeek project?
 

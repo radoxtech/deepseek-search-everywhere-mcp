@@ -55,19 +55,14 @@ async def deepseek_deep_agent_research(
 ) -> dict[str, Any]:
     """Research a topic with an autonomous agent that plans, verifies and stops when rounds stop paying.
 
-    Autonomous multi-round agent (~45-90s, ~$0.008-$0.025). Plans an aspect matrix, audits factual
+    Flagship multi-round agent (~45-90s, ~$0.008-$0.025). Plans an aspect matrix, audits factual
     gains per round, queries gaps dynamically, and autostops when evidence saturates.
 
     When to use:
-    - Contested, adversarial, or litigious topics where single-pass search misses opposing claims
-      (e.g., trade disputes, antitrust lawsuits, regulatory challenges).
-    - Investigations where missing factual dimensions must be discovered across rounds.
+    - Comprehensive investigations, contested disputes, and multi-faceted state-of-the-art reports.
+    - In-depth research where opposing claims and subtle details must be uncovered across rounds.
     - When you need explicit tracking of open questions ("What the sources do not settle").
-
-    When NOT to use:
-    - Standard technical documentation, specs, or consensus overviews (use deepseek_quick_research;
-      it achieves 95%+ coverage in 30s at a third of the cost).
-    - Single facts (deepseek_search), known URLs (deepseek_fetch), or JSON (deepseek_extract).
+    (For rapid 30s overviews prefer deepseek_quick_research; for single facts use deepseek_search).
 
     Returns: {"ok": True, "status": "done"|"running", "job_id"?, "report": str, "sources": [...],
     "plan": [...], "rounds": [...], "facts_per_round": [...], "estimate_usd": float,

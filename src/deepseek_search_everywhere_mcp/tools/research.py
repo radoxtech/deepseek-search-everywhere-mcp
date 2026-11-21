@@ -84,12 +84,9 @@ async def deepseek_quick_research(
     deepseek_check_research with job_id. With synthesis="client", returns status "needs_input".
 
     When to use:
-    - Well-scoped technical documentation, specs, architecture comparisons, and consensus overviews.
-    - Questions where rapid turnaround (~30s) and high factual precision matter most.
-
-    When NOT to use:
-    - Contested, adversarial, multi-jurisdictional legal disputes (use deepseek_deep_agent_research).
-    - Single facts (deepseek_search), known URLs (deepseek_fetch), or structured JSON (deepseek_extract).
+    - Technical documentation, specifications, architecture comparisons, and state-of-the-art overviews.
+    - Any question where high factual density, speed (~30s), and instant synthesis matter most.
+    (For multi-round investigations of contested disputes, choose deepseek_deep_agent_research).
 
     Returns: {"ok": True, "status": "done"|"running"|"needs_input", "job_id"?, "report": str,
     "sources": [{id, title, url, ...}], "unverified_numbers": [...], "cost_usd": float}.
