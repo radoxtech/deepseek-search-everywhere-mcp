@@ -186,7 +186,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 SERVER_NAME = "deepseek-search-everywhere-mcp"
 
 
-TOOLS: tuple[Callable[..., Awaitable[Any]], ...] = (
+TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
     deepseek_search,
     deepseek_deep_agent_research,
     deepseek_fetch,

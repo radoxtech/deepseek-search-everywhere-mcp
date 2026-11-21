@@ -24,7 +24,6 @@ from ..errors import (
 from ..gap_fill import (
     _fill_gaps,
 )
-from ..output_models.search import SearchOutput
 from ..redact import redact
 from ..runtime import (
     _timed,
@@ -151,7 +150,7 @@ async def deepseek_search(
         bool,
         Field(description="Bypass local cache and fetch fresh results (default False)"),
     ] = False,
-) -> SearchOutput:
+) -> dict[str, Any]:
     """Search the live web: ranked results with snippets or full page text, for one query or a list.
 
     Primary search and retrieval tool for current facts, news, docs and sources. query is one string

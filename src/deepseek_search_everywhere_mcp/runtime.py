@@ -385,10 +385,9 @@ async def _cached_call(
     return result.value, False
 
 
-# Inject elapsed_ms and return a dict; wraps copies the wrapped annotation as the published return type.
 def _timed[**P](
-    tool: Callable[P, Awaitable[Any]],
-) -> Callable[P, Awaitable[Any]]:
+    tool: Callable[P, Awaitable[dict[str, Any]]],
+) -> Callable[P, Awaitable[dict[str, Any]]]:
     """Add ``elapsed_ms``, the call's wall time on the monotonic clock, to every envelope ``tool`` returns.
 
     Success and error envelopes alike get it, on a copy; a cache hit reports its own (small) time.

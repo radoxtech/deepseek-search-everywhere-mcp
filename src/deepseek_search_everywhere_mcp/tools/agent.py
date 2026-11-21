@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver.context import Context
 from pydantic import Field
@@ -12,7 +12,6 @@ from pydantic import Field
 from .. import agent_research, runtime
 from ..deep_research import ResearchJob, get_job_store
 from ..errors import _fail
-from ..output_models.agent import AgentResearchOutput
 from ..research_jobs import _finished_job_envelope, _reuse_finished_result, _running_job_envelope
 from ..runtime import _timed
 
@@ -58,7 +57,7 @@ async def deepseek_deep_agent_research(
         Field(description="Bypass local cache and perform fresh research (default False)"),
     ] = False,
     ctx: Context | None = None,
-) -> AgentResearchOutput:
+) -> dict[str, Any]:
     """Research a topic with an autonomous agent that plans, verifies and stops when rounds stop paying.
 
     Flagship multi-round agent (~55-140s, ~$0.011-$0.035). Plans an aspect matrix, audits factual

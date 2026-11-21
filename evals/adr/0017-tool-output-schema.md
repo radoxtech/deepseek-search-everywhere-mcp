@@ -1,9 +1,33 @@
 # ADR 0017 — Per-tool output schemas for `structuredContent`
 
-- **Status:** Proposed
+- **Status:** rejected
 - **Date:** 2026-11-21
 - **Evidence:** TDQS baseline evaluation (`npx mcp-tdqs`, spec 1.3, judge `deepseek-ai/DeepSeek-V4-Flash-0731`, two runs) recorded in `.sisyphus/plans/tdqs-improvements.md`; post-change measurements in `.sisyphus/evidence/task-15-*.json` and the post-remediation re-measurement at HEAD `5f380ee` in `.sisyphus/evidence/task-15b-{run1,run2,run3,lint,aggregate}.json`; SDK behavior in `mcp/server/mcpserver/utilities/func_metadata.py`; experiment `E07` in `evals/EXPERIMENTS.md` for the noise floor.
 - **Related:** `0010-tool-surface-pruning-and-taxonomy.md`, `.sisyphus/plans/tdqs-improvements.md`
+
+## Reversal
+
+This decision was **rejected** and the typed-schema layer was reverted. The three-run median overall TDQS
+was **4.6**, below the **4.7** baseline and the **4.8** target, while the published tool definitions grew
+from **14,302 to 57,612 bytes (+43,310, +302.8%)**. The layer cost context on every call and bought no
+measurable score. The repository rule applies: a change that loses is reverted in its own commit, and its
+numbers stay in the record. The measurement tables below are unchanged.
+
+Kept, because they are independent of the schema layer and cost nothing:
+
+- The top-level tool `title=` wiring, including the lengthened `deepseek_search` title, alongside the
+  existing `annotations.title`.
+- The rewritten tool descriptions with their explicit error codes, limits, cost, size and rate facts
+  (the caps in `tests/test_compat.py` are 1400 characters per tool and 8500 in total).
+- The pinned, single-leg TDQS lint gate in `.github/workflows/ci.yml`.
+- This ADR as the record, together with the `derived_from_untrusted` (research-only) and envelope-scope
+  corrections in `README.md`, `SECURITY.md` and `docs/configuration.md`.
+
+Removed: the `output_models` package, the return-annotation change on all seven tools, the
+`structuredContent` contract tests and the `jsonschema` test dependency. Tools return `dict[str, Any]`
+again, so `tools/list` advertises `outputSchema: {"type": "object", "additionalProperties": true}`. The
+full implementation remains in git history (`027fd72..74c17ec`) and can be restored by reverting this
+revert.
 
 ## Context
 

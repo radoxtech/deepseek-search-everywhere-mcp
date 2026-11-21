@@ -82,10 +82,6 @@ All tool responses return a JSON envelope containing the `ok` boolean:
 | `progress` | Research (running) | Progress object: `{ "phase", "step", "of", "phase_elapsed_ms", "deadline_ms" }`. |
 | `next_action` | Research (running) | Actionable instruction advising the agent how to poll or provide input. |
 
-### Structured content and output schemas
-
-Every tool publishes an `outputSchema` in `tools/list` and returns `structuredContent` next to the text block. `structuredContent` is the validated model dump, so it is a superset of the text JSON with `null` padding for absent optional fields; the text block remains the primary payload. Keys present in the text block but absent from a tool's output model are omitted from `structuredContent`; the text block keeps them.
-
 ---
 
 ## 4. Closed Error Codes

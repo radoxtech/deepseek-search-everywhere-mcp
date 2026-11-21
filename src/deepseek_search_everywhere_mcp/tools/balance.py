@@ -8,7 +8,6 @@ from .. import runtime
 from ..envelope import (
     COST_PER_REQUEST,
 )
-from ..output_models.balance import BalanceOutput
 from ..runtime import (
     _get_cache_stats,
     _get_session_metrics,
@@ -19,7 +18,7 @@ BALANCE_TIMEOUT = 20.0
 
 
 @_timed
-async def deepseek_check_balance() -> BalanceOutput:
+async def deepseek_check_balance() -> dict[str, Any]:
     """Check the DeepSeek account balance and this session's usage before spending more.
 
     Free ($0.00) and read-only: no upstream search or fetch charge. Returns the balance per currency

@@ -37,7 +37,6 @@ from ..extract import (
 from ..fetch_core import (
     _check_fetch_url,
 )
-from ..output_models.extract import ExtractOutput
 from ..runtime import (
     REWRITE_MODEL,
     _timed,
@@ -455,7 +454,7 @@ async def deepseek_extract(
         bool,
         Field(description="Bypass local cache and fetch fresh pages (default False)"),
     ] = False,
-) -> ExtractOutput:
+) -> dict[str, Any]:
     """Pull specific fields or a JSON schema out of one URL or a list of 1-10 URLs in parallel.
 
     Use it for structured data (prices, names, dates, specs) instead of prose. Costs $0.00075 per URL for

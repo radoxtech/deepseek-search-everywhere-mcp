@@ -59,7 +59,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=9", "pytest-asyncio>=1.4", "starlette>=1.10", "jsonschema>=4"]
+test = ["pytest>=9", "pytest-asyncio>=1.4", "starlette>=1.10"]
 lint = ["ruff>=0.17"]
 http = ["starlette>=1.10", "uvicorn>=0.54"]
 

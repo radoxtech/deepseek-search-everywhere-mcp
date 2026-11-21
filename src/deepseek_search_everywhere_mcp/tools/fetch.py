@@ -16,7 +16,6 @@ from ..errors import _fail
 from ..fetch_core import (
     _check_fetch_url,
 )
-from ..output_models.fetch import FetchOutput
 from ..runtime import (
     _timed,
 )
@@ -46,7 +45,7 @@ async def deepseek_fetch(
         bool,
         Field(description="Bypass local cache and fetch fresh pages (default False)"),
     ] = False,
-) -> FetchOutput:
+) -> dict[str, Any]:
     """Read known web pages as clean Markdown: one URL, or a list of 1-10 URLs read in parallel.
 
     Use it when you already know the URL. $0.00075 per URL; cached pages are free. A single URL returns
