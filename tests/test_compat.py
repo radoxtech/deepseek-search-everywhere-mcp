@@ -220,8 +220,22 @@ def test_tool_descriptions_contain_cost_or_size_facts() -> None:
 
 def test_every_tool_has_a_title() -> None:
     tools = asyncio.run(server.mcp.list_tools())
-    titles = [tool.annotations.title for tool in tools]
-    assert all(titles) and len(set(titles)) == len(titles)
+    titles = [tool.title for tool in tools]
+    annotation_titles = [tool.annotations.title for tool in tools]
+    assert all(titles), "Every tool must expose a non-empty top-level title."
+    assert all(annotation_titles), "Every tool must expose a non-empty annotations.title."
+    assert len(set(titles)) == len(titles), "Top-level titles must be distinct across tools."
+    assert len(set(annotation_titles)) == len(annotation_titles), (
+        "Annotation titles must be distinct across tools."
+    )
+    for tool in tools:
+        assert tool.title != tool.name, f"Tool '{tool.name}' title must differ from its name."
+        assert tool.annotations.title != tool.name, (
+            f"Tool '{tool.name}' annotation title must differ from its name."
+        )
+        assert tool.title == tool.annotations.title, (
+            f"Tool '{tool.name}' top-level title must match its annotation title."
+        )
 
 
 def test_research_description_explains_polling() -> None:

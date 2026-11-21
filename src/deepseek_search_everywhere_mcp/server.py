@@ -198,7 +198,11 @@ TOOLS: tuple[Callable[..., Awaitable[dict[str, Any]]], ...] = (
 
 TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     "deepseek_search": ToolAnnotations(
-        title="Web search", readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+        title="Web search with ranked results and snippets",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
     ),
     "deepseek_fetch": ToolAnnotations(
         title="Read a web page",
@@ -278,10 +282,12 @@ def create_server(**options: Any) -> MCPServer:
     server = MCPServer(SERVER_NAME, version=__version__, **options)
     for tool in TOOLS:
         description = inspect.cleandoc(tool.__doc__) if tool.__doc__ else None
+        annotations = TOOL_ANNOTATIONS.get(tool.__name__)
         server.add_tool(
             tool,
+            title=annotations.title if annotations else None,
             description=description,
-            annotations=TOOL_ANNOTATIONS.get(tool.__name__),
+            annotations=annotations,
         )
     return server
 
