@@ -169,7 +169,7 @@ numbers exactly (`deepseek_search(content="full")` text 1,911 / structured 1,945
 `deepseek_fetch` text 1,707 / structured 1,859, 1.09x), because the search and fetch models changed descriptions
 only, not their field sets. Judge `deepseek-ai/DeepSeek-V4-Flash-0731`, spec 1.3.
 
-The median overall is **4.6, below the 4.8 threshold** (`Proposed` retained, shortfall: `median overall 4.6 < 4.8`).
+The median overall is **4.6, below the 4.8 threshold** (the decision is recorded as `rejected`, shortfall: `median overall 4.6 < 4.8`).
 The tool floor (every tool median ≥ 4.6, lowest `deepseek_deep_agent_research` at 4.6) and the zero-flag/zero-smell
 conditions do hold. The remediation left the verdict unchanged: the overall median stayed at 4.6, definition
 quality stayed at 4.7, coherence stayed at 4.5, and two tool medians moved by 0.1 in opposite directions

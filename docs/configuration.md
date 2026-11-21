@@ -65,7 +65,7 @@ All tool responses return a JSON envelope containing the `ok` boolean:
 | `error.action` | Failures | Recommended next step: `retry`, `fix_input`, `change_approach`, `do_not_retry`, `start_again` or `ask_user`. |
 | `error.reason` | Failures | Fine-grained cause from the closed reason set in `errors.py`. |
 | `error.param` | Input failures | Name of the offending input parameter, omitted when no single parameter is at fault. |
-| `elapsed_ms` | All except some `deepseek_check_research` responses (early errors, `needs_input`, verified client reports) | Wall-clock execution time in milliseconds. |
+| `elapsed_ms` | All except `deepseek_check_research` (not timed) | Wall-clock execution time in milliseconds. |
 | `cost_usd` | Retrieval tools | Billed cost of the call in USD (`0.0` for cache hits). |
 | `cost_breakdown` | Extract & Research | Subtotal breakdown: `{ "search", "fetch", "llm" }` in USD. |
 | `requests_used` | All except `deepseek_check_balance`, single-URL `deepseek_fetch`/`deepseek_extract`, and running/early-error `deepseek_check_research` | Number of upstream DeepSeek API requests consumed. |
