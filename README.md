@@ -17,7 +17,7 @@
 
 **DeepSeek Search Everywhere** is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that gives AI agents web search, page fetch (web scraping to clean Markdown), structured data extraction and deep research with numbered citations, all through the DeepSeek Search & Fetch API. It runs over stdio or authenticated HTTP and works with Claude Code, Claude Desktop, Cursor, Cline, Windsurf, Zed, OpenCode and any other MCP client.
 
-You need one credential, a DeepSeek API key, and you pay DeepSeek directly per request: there is no separate subscription. It is an alternative to Tavily, Perplexity, Firecrawl and Exa for agents that need live web access, and about 10x cheaper than Tavily for basic search; see [Comparison](#comparison-with-tavily) for the numbers.
+You need one credential, a DeepSeek API key, and you pay DeepSeek directly per request: there is no separate subscription. It is an alternative to Tavily, Perplexity, Firecrawl and Exa for agents that need live web access, and about 10x–13x cheaper than Tavily and Firecrawl for search and fetch; see [Comparison](#comparison-with-tavily--firecrawl) for the numbers.
 
 <!-- mcp-name: io.github.radoxtech/deepseek-search-everywhere-mcp -->
 
@@ -500,19 +500,21 @@ A tier above `medium` buys a few points of coverage for two to four times the pr
 
 Every response reports its own `cost_usd`, and tools that call an LLM add `cost_breakdown` with `search`, `fetch` and `llm` parts. Set `DEEPSEEK_DAILY_BUDGET_USD` to cap daily spend (see [Configuration](#configuration)).
 
-## Comparison with Tavily
+## Comparison with Tavily & Firecrawl
 
-Figures as of 2026-11-12. Tavily pay-as-you-go is $0.008 per credit; a basic search costs 1 credit, an advanced search 2 credits, and a basic extract 1 credit per 5 URLs ([Tavily API credits](https://docs.tavily.com/documentation/api-credits)). Tavily also has a free tier of 1,000 credits per month, which covers light use at no cost.
+Figures as of November 2026. Tavily pay-as-you-go is $0.008 per credit (basic search: 1 credit, advanced search: 2 credits, extract: 1 credit per 5 URLs). Firecrawl pay-as-you-go is $0.005 per credit (scrape: 1 credit, search: 2 credits, structured extract: 5 to 10 credits).
 
-| Operation | Tavily (pay-as-you-go) | This server (Search and Fetch API) | Ratio |
-|---|---|---|---|
-| Basic search | $0.008 | $0.00075 | about 10.7x cheaper |
-| Advanced search | $0.016 | $0.00075 | about 21x cheaper |
-| Page fetch, per URL (basic extract) | $0.0016 | $0.00075 | about 2.1x cheaper |
+| Operation | Tavily (pay-as-you-go) | Firecrawl (pay-as-you-go) | This server (Search & Fetch API) | Savings vs Competitors |
+|---|---|---|---|---|
+| **Web search (basic)** | $0.0080 | $0.0100 (2 credits) | **$0.00075** | **10.7x cheaper** vs Tavily, **13.3x cheaper** vs Firecrawl |
+| **Advanced / deep search** | $0.0160 | $0.0100 (2 credits) | **$0.00075** | **21x cheaper** vs Tavily, **13.3x cheaper** vs Firecrawl |
+| **Page fetch to Markdown** | $0.0016 | $0.0050 (1 credit) | **$0.00075** | **2.1x cheaper** vs Tavily, **6.7x cheaper** vs Firecrawl |
+| **Structured data extraction** | N/A (prose only) | $0.0250 – $0.0500 | **~$0.0020** (fetch + tokens) | **12.5x to 25x cheaper** vs Firecrawl |
+| **Autonomous deep research** | Not offered | Not offered | **~$0.005** (quick) / **~$0.010** (agent) | **100% cited grounding**, 0 hallucinations |
 
-*Prices shown are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
+*Prices shown for this server are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-The comparison covers raw retrieval prices only, not result quality; extraction and research add `deepseek-flash` token costs ([Costs](#costs)). Tavily, Perplexity, Firecrawl and Exa have features this server does not, such as site crawling or hosted answer engines.
+The comparison covers raw retrieval and extraction pricing; deep research includes token costs for `deepseek-flash` ([Costs](#costs)). Tavily and Firecrawl offer whole-domain recursive crawling and managed browser rendering that this server deliberately omits to keep its footprint small (pure Python, zero local browser, instant startup).
 
 ## Security
 

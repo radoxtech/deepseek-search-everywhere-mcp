@@ -106,6 +106,10 @@ measured by the harness in `evals/`; "feels better" is not a result.
 - **Enforced by CI:** the `Eval gate` workflow fails a pull request that touches
   `research_jobs.py`, `deep_research.py`, `search_core.py`, `gap_fill.py` or `settings.py` without changing
   `evals/EXPERIMENTS.md`, unless the PR carries the `no-eval` label. release-please PRs are skipped.
+- **Documentation & measurement sync:** after every algorithmic update or accepted experiment (`keep`)
+  that alters empirical latency, cost, coverage percentages or default behaviors, all affected empirical
+  numbers and benchmarks in `README.md` must be re-verified against live evals and updated to maintain strict
+  accuracy.
 - Record in English, like the rest of the repository. The harness, its register and its ADRs are kept
   local for now (`evals/` is gitignored); when they are promoted into the repository, move the ADRs to
   `docs/adr/` and keep the ids so existing links survive.
