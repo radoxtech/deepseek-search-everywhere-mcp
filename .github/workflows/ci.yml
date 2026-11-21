@@ -41,6 +41,22 @@ jobs:
           ruff check .
           ruff format --check .
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      # No package-lock.json, so setup-node's `cache: npm` cannot be used; cache the npm
+      # download cache directly, keyed on the pinned mcp-tdqs version.
+      - name: Cache npm for mcp-tdqs
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-mcp-tdqs-0.2.0
+
+      # The job installs into the runner interpreter, so there is no `.venv` here.
+      - name: TDQS lint
+        run: npx -y mcp-tdqs@0.2.0 lint --command "python -m deepseek_search_everywhere_mcp" --fail-on warning
+
       - name: Test
         run: pytest -q
 

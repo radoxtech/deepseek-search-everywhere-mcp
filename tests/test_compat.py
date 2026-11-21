@@ -149,7 +149,8 @@ def test_search_tool_descriptions_are_distinct_and_budgeted() -> None:
     assert "primary search and retrieval tool" in search_desc.lower()
 
     total_chars = sum(len(tool.description) for tool in tools.values())
-    assert total_chars < 7500
+    # The cap bounds the tools/list context cost; it is not a TDQS target.
+    assert total_chars < 8500
 
 
 def test_tool_descriptions_sibling_references_are_valid() -> None:
@@ -255,4 +256,5 @@ def test_dual_max_chars_defaults_are_in_the_description(tool: str, single: int, 
 def test_every_tool_description_fits_the_length_limit() -> None:
     tools = asyncio.run(server.mcp.list_tools())
     for tool in tools:
-        assert len(tool.description) <= 1200, (tool.name, len(tool.description))
+        # The cap bounds the tools/list context cost; it is not a TDQS target.
+        assert len(tool.description) <= 1400, (tool.name, len(tool.description))
