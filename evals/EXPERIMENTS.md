@@ -968,6 +968,29 @@ In the legacy implementation, `quick_research(depth="max")` ran an un-tracked 2n
 
 **Verdict: keep.** (See ADR 0016).
 
+### E35 — Typed per-tool `outputSchema` models (2026-11-21)
+
+**Change.** Seven pydantic models, one per tool, published through the return annotation so `tools/list`
+advertises a field-typed `outputSchema` instead of `{"type": "object", "additionalProperties": true}`. Each
+model builds on the shared `Envelope`, uses `extra="ignore"` and requires only `ok`. Built, measured three
+times, then **reverted**: the layer is not in `src/`, and the tools return `dict[str, Any]` again.
+
+**Claim.** Named, described output fields would raise TDQS Contextual Completeness and therefore the overall
+grade, because the open schema names no field, carries no type and tells a client nothing about the response.
+
+**Arms.** Baseline: open `additionalProperties: true` schema, 14,302 definition bytes. Schema arm: typed
+per-tool models, 57,612 definition bytes after remediation (60,435 before). Same spec (1.3) and judge
+(`deepseek-ai/DeepSeek-V4-Flash-0731`), three runs per arm.
+
+**Criterion.** 3-run median overall ≥ 4.8, every tool ≥ 4.6, zero smells and zero flags.
+
+**Result.** Schema arm 4.6 / 4.6 / 4.6, median **4.6** at 57,612 definition bytes. Shipped post-revert arm
+4.6 / 4.6 / 4.7, median **4.6** at 15,675 bytes. Baseline **4.7** at 14,302 bytes. Zero flags and zero smells
+in all arms, 7/7 tools at tier A. The 4.8 target was not met, and every difference between arms is inside the
+`E07` noise floor (7.2 pp between identical runs).
+
+**Verdict: revert.** (See `evals/adr/0017-tool-output-schema.md`.)
+
 ## Ledger
 
 | date | what | deepseek $ |

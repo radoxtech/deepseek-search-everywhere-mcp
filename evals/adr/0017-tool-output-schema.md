@@ -2,7 +2,7 @@
 
 - **Status:** rejected
 - **Date:** 2026-11-21
-- **Evidence:** TDQS baseline evaluation (`npx mcp-tdqs`, spec 1.3, judge `deepseek-ai/DeepSeek-V4-Flash-0731`, two runs) recorded in `.sisyphus/plans/tdqs-improvements.md`; post-change measurements in `.sisyphus/evidence/task-15-*.json` and the post-remediation re-measurement at HEAD `5f380ee` in `.sisyphus/evidence/task-15b-{run1,run2,run3,lint,aggregate}.json`; SDK behavior in `mcp/server/mcpserver/utilities/func_metadata.py`; experiment `E07` in `evals/EXPERIMENTS.md` for the noise floor.
+- **Evidence:** TDQS baseline evaluation (`npx mcp-tdqs`, spec 1.3, judge `deepseek-ai/DeepSeek-V4-Flash-0731`, two runs) recorded in `.sisyphus/plans/tdqs-improvements.md`; post-change measurements in `.sisyphus/evidence/task-15-*.json` and the post-remediation re-measurement at HEAD `5f380ee` in `.sisyphus/evidence/task-15b-{run1,run2,run3,lint,aggregate}.json`; the shipped post-revert configuration at HEAD `8bf5870` in `.sisyphus/evidence/task-15c-run{1,2,3}.json` and `.sisyphus/evidence/task-15c-lint.json`; SDK behavior in `mcp/server/mcpserver/utilities/func_metadata.py`; experiment `E07` in `evals/EXPERIMENTS.md` for the noise floor.
 - **Related:** `0010-tool-surface-pruning-and-taxonomy.md`, `.sisyphus/plans/tdqs-improvements.md`
 
 ## Reversal
@@ -215,7 +215,8 @@ Against the rejected schema configuration (median 4.6 at 57,612 definition bytes
 scores the same median while publishing 41,937 fewer definition bytes, and it sits 1,373 bytes above the
 14,302-byte baseline it started from.
 
-**Verdict.** The shipped configuration nominally trails the 4.7 baseline by 0.1 grade points (4.6 vs 4.7, about
-2 pp on the five-point scale), which is inside the `E07` noise floor of 7.2 pp between identical runs: it ties
-the baseline within measurement noise rather than losing to it, and it is not a demonstrated gain. One tool,
-`deepseek_deep_agent_research`, has a median of 4.5, below the 4.6 floor that the schema decision had to meet.
+**Verdict.** The **4.8 target was not met**: the shipped configuration scores a median of 4.6 against the 4.8
+threshold. It **ties the 4.7 baseline within measurement noise** (4.6 vs 4.7, about 2 pp on the five-point
+scale, inside the `E07` noise floor of 7.2 pp between identical runs), so it is neither a demonstrated gain nor
+a demonstrated regression. One tool, `deepseek_deep_agent_research`, has a median of 4.5, below the 4.6 floor
+that the schema decision had to meet.
