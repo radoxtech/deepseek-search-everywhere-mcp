@@ -397,7 +397,6 @@ async def test_check_research_ttl_pruning(fake_upstream: Any, monkeypatch: pytes
         ("low", {"type": "disabled"}, None, 16384, True),
         ("medium", {"type": "enabled"}, "low", 32768, False),
         ("high", {"type": "enabled"}, "high", 65536, False),
-        ("max", {"type": "enabled"}, "high", 131072, False),
     ],
 )
 async def test_synthesis_tier_payload_contracts(
@@ -571,7 +570,7 @@ async def test_deadline_budgeter_shrinks_phases_and_aborts_synthesis_if_too_late
     assert any("deadline reached" in note for note in res["notes"])
 
 
-async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
+async def test_gap_fill_batches_up_to_k20_sources(fake_upstream: Any) -> None:
     stub_results = [
         {
             "title": f"Stub Source {i}",
@@ -579,10 +578,10 @@ async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
             "snippet": f"Short snippet {i}",
             "content": f"Short {i}",
         }
-        for i in range(1, 25)
+        for i in range(1, 21)
     ]
 
-    class K24Upstream(DeepResearchUpstream):
+    class K20Upstream(DeepResearchUpstream):
         def __init__(self) -> None:
             super().__init__(subqueries=["q1", "q2", "q3", "q4"])
             self.fetch_calls: list[dict[str, Any]] = []
@@ -591,8 +590,8 @@ async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
             if path == server.SEARCH_PATH:
                 self.searches.append(kwargs.get("payload") or {})
                 idx = len(self.searches) - 1
-                start = idx * 6
-                return {"ok": True, "data": {"results": stub_results[start : start + 6]}}
+                start = idx * 5
+                return {"ok": True, "data": {"results": stub_results[start : start + 5]}}
             if path == server.FETCH_PATH:
                 payload = kwargs.get("payload") or {}
                 self.fetch_calls.append(payload)
@@ -606,190 +605,15 @@ async def test_gap_fill_batches_up_to_k24_sources(fake_upstream: Any) -> None:
                 }
             return await super().__call__(method, path, **kwargs)
 
-    upstream = K24Upstream()
+    upstream = K20Upstream()
     fake_upstream(upstream)
 
-    res = await server.deepseek_research("k24 test topic", depth="max")
+    res = await server.deepseek_research("k20 test topic", depth="high")
     assert res["ok"] is True
     assert res["status"] == "done"
-    assert len(upstream.fetch_calls) == 24
+    assert len(upstream.fetch_calls) == 20
     assert res["synthesized"] is True
-    assert len(res["sources"]) == 24
-
-
-async def test_round2_gap_analysis_executes_on_max_depth(fake_upstream: Any) -> None:
-    class R2Upstream(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            if path == "/v1/chat/completions":
-                self.chats.append(kwargs.get("payload") or {})
-                if len(self.chats) == 1:
-                    # Decomposition (R1)
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["q1", "q2"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                if len(self.chats) == 2:
-                    # Round 2 gap analysis
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["r2 missing angle"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                # Synthesis
-                return {
-                    "ok": True,
-                    "data": {
-                        "choices": [
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "Comprehensive synthesis report with R2 sources [1].",
-                                }
-                            }
-                        ]
-                    },
-                }
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = R2Upstream()
-    fake_upstream(upstream)
-
-    res = await server.deepseek_research("max depth topic", depth="max")
-    assert res["ok"] is True
-    assert res["synthesized"] is True
-    assert "r2 missing angle" in res["subqueries"]
-    assert len(upstream.chats) == 3
-
-
-async def test_round2_steering_rejection_falls_back_to_r1(fake_upstream: Any) -> None:
-    class SteeredUpstream(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            if path == "/v1/chat/completions":
-                self.chats.append(kwargs.get("payload") or {})
-                if len(self.chats) == 1:
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["q1", "q2"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                if len(self.chats) == 2:
-                    # R2 returns steered queries containing attacker URLs and unauthorized sites
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps(
-                                            {
-                                                "queries": [
-                                                    "https://attacker.com/leak",
-                                                    "site:evil-steer.org pwn",
-                                                ]
-                                            }
-                                        ),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                return {
-                    "ok": True,
-                    "data": {
-                        "choices": [
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "Synthesis based on clean R1 sources [1].",
-                                }
-                            }
-                        ]
-                    },
-                }
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = SteeredUpstream()
-    fake_upstream(upstream)
-
-    res = await server.deepseek_research("steer test topic", depth="max")
-    assert res["ok"] is True
-    assert res["synthesized"] is True
-    assert any("Round 2 gap query validation failed" in note for note in res["notes"])
-    assert not any("attacker.com" in q or "evil-steer" in q for q in res["subqueries"])
-
-
-async def test_round2_chat_exception_or_hang_falls_back_to_r1(fake_upstream: Any) -> None:
-    class FailingR2Upstream(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            if path == "/v1/chat/completions":
-                self.chats.append(kwargs.get("payload") or {})
-                if len(self.chats) == 1:
-                    return {
-                        "ok": True,
-                        "data": {
-                            "choices": [
-                                {
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": json.dumps({"queries": ["q1", "q2"]}),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                if len(self.chats) == 2:
-                    return {
-                        "ok": False,
-                        "error": {"code": "upstream_error", "message": "R2 model failed"},
-                    }
-                return {
-                    "ok": True,
-                    "data": {
-                        "choices": [
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "Synthesis continues with R1 [1].",
-                                }
-                            }
-                        ]
-                    },
-                }
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = FailingR2Upstream()
-    fake_upstream(upstream)
-
-    res = await server.deepseek_research("fail r2 topic", depth="max")
-    assert res["ok"] is True
-    assert res["synthesized"] is True
-    assert any("Round 2 gap analysis failed" in note for note in res["notes"])
+    assert len(res["sources"]) == 20
 
 
 async def test_synthesis_cost_ceiling_aborts_and_returns_sources(
@@ -912,25 +736,6 @@ async def test_research_progress_reporting_with_context(fake_upstream: Any) -> N
     assert calls[3].args == (4.0, 4.0)
 
 
-async def test_research_progress_reporting_with_context_max_depth(fake_upstream: Any) -> None:
-    upstream = DeepResearchUpstream(subqueries=["subq1", "subq2", "subq3", "subq4"])
-    fake_upstream(upstream)
-
-    ctx = MagicMock()
-    ctx.report_progress = AsyncMock()
-
-    res = await server.deepseek_research("quantum max topic", depth="max", ctx=ctx)
-    assert res["ok"] is True
-    assert ctx.report_progress.await_count == 5
-    calls = ctx.report_progress.await_args_list
-    phases = [c.kwargs.get("message") for c in calls]
-    assert any("Decomposing" in p for p in phases)
-    assert any("Searching" in p for p in phases)
-    assert any("Analyzing gaps" in p for p in phases)
-    assert any("Fetching gap pages" in p for p in phases)
-    assert any("Synthesizing" in p for p in phases)
-
-
 async def test_research_progress_reporting_resilient_to_context_exceptions(fake_upstream: Any) -> None:
     upstream = DeepResearchUpstream()
     fake_upstream(upstream)
@@ -943,7 +748,7 @@ async def test_research_progress_reporting_resilient_to_context_exceptions(fake_
     assert res["synthesized"] is True
 
 
-@pytest.mark.parametrize("depth", ["low", "medium", "high", "max"])
+@pytest.mark.parametrize("depth", ["low", "medium", "high"])
 async def test_fake_clock_44s_inline_for_every_depth(depth: str, fake_upstream: Any) -> None:
     upstream = DeepResearchUpstream()
     fake_upstream(upstream)
@@ -955,7 +760,7 @@ async def test_fake_clock_44s_inline_for_every_depth(depth: str, fake_upstream: 
     assert res["depth"] == depth
 
 
-@pytest.mark.parametrize("depth", ["low", "medium", "high", "max"])
+@pytest.mark.parametrize("depth", ["low", "medium", "high"])
 async def test_fake_clock_46s_running_for_every_depth(
     depth: str, fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1527,52 +1332,6 @@ async def test_research_stops_before_synthesis_when_the_deadline_is_near(
     assert res["synthesized"] is False
     assert res["notes"][-1] == "Synthesis deadline reached; returning gathered sources."
     assert len(upstream.chats) == 1  # decomposition only, no synthesis call
-
-
-async def test_round_two_is_skipped_without_deadline_budget(
-    fake_upstream: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(server._ResearchRun, "remaining", lambda self: 30.0)
-    fake_upstream(DeepResearchUpstream())
-    res = await server.deepseek_research("skip round two topic", depth="max")
-    assert res["synthesized"] is True
-    assert "Round 2 skipped due to deadline budget." in res["notes"]
-
-
-async def test_round_two_without_search_results_keeps_round_one(fake_upstream: Any) -> None:
-    class FailingR2Search(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            payload = kwargs.get("payload") or {}
-            if path == server.SEARCH_PATH and "gap angle" in payload.get("query", ""):
-                return _fail("upstream_error", "down", 502)
-            if path == "/v1/chat/completions" and len(self.chats) == 1:
-                self.chats.append(payload)
-                return _chat_reply(json.dumps({"queries": ["gap angle one", "gap angle two"]}))
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = FailingR2Search()
-    fake_upstream(upstream)
-    res = await server.deepseek_research("round two search topic", depth="max")
-    assert res["synthesized"] is True
-    assert "Round 2 search produced no results; proceeding with Round 1 sources." in res["notes"]
-    assert not any("gap angle" in q for q in res["subqueries"])
-
-
-async def test_round_two_with_no_missing_aspects_searches_nothing_more(fake_upstream: Any) -> None:
-    class NoGapUpstream(DeepResearchUpstream):
-        async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-            payload = kwargs.get("payload") or {}
-            if path == "/v1/chat/completions" and len(self.chats) == 1:
-                self.chats.append(payload)
-                return _chat_reply(json.dumps({"review": [], "missing_aspects": [], "queries": []}))
-            return await super().__call__(method, path, **kwargs)
-
-    upstream = NoGapUpstream()
-    fake_upstream(upstream)
-    res = await server.deepseek_research("no gap topic", depth="max")
-    assert res["synthesized"] is True
-    assert "Round 2 found no missing aspects; proceeding with Round 1 sources." in res["notes"]
-    assert "no gap topic" not in res["subqueries"][1:]
 
 
 class FlakySearchUpstream(DeepResearchUpstream):

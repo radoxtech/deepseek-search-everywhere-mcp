@@ -21,7 +21,6 @@ PACKAGE = "deepseek_search_everywhere_mcp"
 # buckets, the rewrite cache). Each one opts in by defining a ``reset_state()`` function;
 # modules that do not exist yet are skipped.
 STATEFUL_MODULES = (
-    "ai_client",
     "cache",
     "deep_research",
     "ratelimit",

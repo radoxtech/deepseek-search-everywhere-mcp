@@ -208,8 +208,10 @@ class ReportPlanUpstream(PlannedUpstream):
 
     async def __call__(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         from deepseek_search_everywhere_mcp import server
-        from deepseek_search_everywhere_mcp.agent_research import UNIVERSAL_GAP_PROMPT
-        from deepseek_search_everywhere_mcp.agent_roles import REPORT_PLAN_PROMPT
+        from deepseek_search_everywhere_mcp.agent_research import (
+            REPORT_PLAN_PROMPT,
+            UNIVERSAL_GAP_PROMPT,
+        )
         from deepseek_search_everywhere_mcp.deep_research import DECOMPOSE_SYSTEM_PROMPT
 
         payload = kwargs.get("payload") or {}

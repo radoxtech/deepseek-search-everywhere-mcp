@@ -32,9 +32,10 @@ scripts/smoke_docker.sh                     # build, verify non-root UID and tes
 
 ## Code layout (`src/deepseek_search_everywhere_mcp/`)
 
-- `server.py`: FastMCP server; the 9 tool definitions, result shaping, research job orchestration
-  (`_ResearchRun` and one function per pipeline phase, `_finalize_report` shared by server and client
-  synthesis), chat gateway.
+- `server.py`: FastMCP server; tool registration, instructions, runtime assembly.
+- `tools/`: modular tool definitions (`research.py`, `agent.py`, `search.py`, `fetch.py`, `extract.py`, `balance.py`).
+- `agent_research.py`: autonomous multi-round research agent with entity-anchored gap detection, evidence matrix accounting and Wald sequential autostop.
+- `research_jobs.py`: research job orchestration (`_ResearchRun`, pipeline execution, report finalization).
 - `deep_research.py`: `DEPTH_CONFIG` tiers, research job store, decomposition and synthesis prompts, citation
   normalization, source ranking, client-synthesis context paging and the synthesis output filter.
 - `extract.py`: extraction prompts, JSON handling and evidence verification.

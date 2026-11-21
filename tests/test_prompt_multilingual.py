@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from deepseek_search_everywhere_mcp.agent_research import _gap_queries
-from deepseek_search_everywhere_mcp.agent_roles import REPORT_PLAN_PROMPT
+from deepseek_search_everywhere_mcp.agent_research import REPORT_PLAN_PROMPT, _gap_queries
 from deepseek_search_everywhere_mcp.deep_research import (
     DECOMPOSE_SYSTEM_PROMPT,
     ResearchAspect,

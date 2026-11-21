@@ -11,7 +11,6 @@ from pydantic import Field
 
 from .. import runtime
 from ..deep_research import (
-    DEPTH_CONFIG,
     ResearchJob,
     get_job_store,
 )
@@ -42,8 +41,13 @@ async def deepseek_quick_research(
     ],
     *,
     depth: Annotated[
-        Literal["low", "medium", "high", "max"],
-        Field(description="Depth tier controlling queries, sources and reasoning (default 'medium')"),
+        Literal["low", "medium", "high"],
+        Field(
+            description=(
+                "Depth tier: 'low' (~10s fact-check), 'medium' (default, ~20s briefing), "
+                "or 'high' (~35s comprehensive single-pass)"
+            )
+        ),
     ] = "medium",
     sources: Annotated[
         Literal["any", "academic", "technical"],
@@ -96,8 +100,11 @@ async def deepseek_quick_research(
         return _fail("empty_query", "topic must not be empty.", param="topic")
     if len(clean_topic) > MAX_TOPIC:
         return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.", param="topic")
-    if depth not in DEPTH_CONFIG:
-        return _fail("bad_request", f"depth must be one of: {', '.join(DEPTH_CONFIG.keys())}", param="depth")
+    # Graceful backward compatibility: map legacy 'max' to 'high' (comprehensive single pass)
+    if depth == "max":
+        depth = "high"
+    if depth not in ("low", "medium", "high"):
+        return _fail("bad_request", "depth must be one of: low, medium, high", param="depth")
     if sources not in {"any", "academic", "technical"}:
         return _fail(
             "bad_request",

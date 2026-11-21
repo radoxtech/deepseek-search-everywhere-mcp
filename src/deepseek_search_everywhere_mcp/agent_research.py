@@ -122,6 +122,46 @@ UNIVERSAL_GAP_PROMPT = (
     "Output strictly valid JSON with 'queries': [str]."
 )
 
+_STOP_ENTITIES = frozenset(
+    {
+        "THE",
+        "AND",
+        "FOR",
+        "WITH",
+        "NOT",
+        "THAT",
+        "THIS",
+        "FROM",
+        "HTTP",
+        "HTTPS",
+        "JSON",
+        "HTML",
+        "URL",
+        "DEEPSEEK",
+        "GOOGLE",
+        "RESULT",
+        "RESULTS",
+        "PAGE",
+        "TITLE",
+        "CONTENT",
+        "REPORT",
+        "SEARCH",
+        "WEB",
+    }
+)
+
+
+def _extract_discovered_entities(results: list[dict[str, Any]]) -> list[str]:
+    """Extract key named entities (trials, statutes, standards, models, identifiers) from Round 1 results."""
+    combined = " ".join(
+        f"{item.get('title', '')} {(item.get('content') or '')[:300]}" for item in results[:12]
+    )
+    acronyms = set(re.findall(r"\b[A-Z0-9]{2,10}(?:-[A-Za-z0-9]+)+\b", combined))
+    caps = set(re.findall(r"\b[A-Z]{3,8}\b", combined))
+    code_ids = set(re.findall(r"\b[a-z]{2,10}_[a-z0-9_]+\b", combined))
+    entities = sorted((acronyms | caps | code_ids) - _STOP_ENTITIES)
+    return entities[:12]
+
 
 async def _gap_queries_model(
     run: _ResearchRun,
@@ -150,11 +190,20 @@ async def _gap_queries_model(
         if empty_aspects
         else "Aspects partially covered; seek missing critical perspectives, metrics, or disputes.\n"
     )
+    entities = _extract_discovered_entities(results)
+    entity_context = (
+        f"Key discovered entities, trials, standards, or identifiers: {', '.join(entities)}\n"
+        if entities
+        else ""
+    )
     user_prompt = (
         f"Research topic: {run.topic}\n"
         f"{aspect_context}"
+        f"{entity_context}"
         f"Executed queries: {', '.join(used)}\n"
         f"Preliminary findings summary:\n{summary_text}\n\n"
+        f"CRITICAL: When aspects lack concrete metrics or findings, anchor new queries on specific "
+        f"named entities, clinical trial codes, or statutes above.\n"
         f"Output up to {max_queries} new search queries as JSON targeting the missing evidence."
     )
     timeout = min(15.0, max(5.0, run.remaining() - 20.0))
@@ -194,11 +243,23 @@ async def _gap_queries_model(
 REPORT_ASK = (
     "Write only this section, about {words} words. Start with the section's first sentence of prose; do "
     "not write a heading, the system adds it. Use only the sources given. Every number carries the [n] "
-    "citation of the source that states it. Preserve verbatim numerical rates, percentages and dates rather "
+    "citation of the source that states it. STRICT GROUNDING: State only facts and figures directly "
+    "substantiated by the cited passages; never extrapolate, generalize or add claims the sources do not "
+    "explicitly state. Preserve verbatim numerical rates, percentages, sample sizes and dates rather "
     "than generalizing into descriptive words. Do not spend more than two sentences or one table on a "
     "single product code, formula, or worked numerical example; balance the section across all diverse "
     "substantive perspectives, limits, and disputes supported by the sources. If the sources say nothing "
     "usable for this section, write one sentence saying so."
+)
+
+REPORT_PLAN_PROMPT = (
+    "You design the section structure of a research report. Given the question, facts to establish, "
+    "and what the gathered sources actually support:\n"
+    "Split the question into sub-questions. Provide one section per supported sub-question in logical order. "
+    "Do not add a section for generic background or definitions unless requested. "
+    "Write section titles in the language of the original question, integrating facts across multilingual "
+    "sources. List any sub-questions that sources do not settle in unsupported. "
+    "Return only JSON matching the schema."
 )
 
 
@@ -271,7 +332,6 @@ async def _agent_synthesize_report_plan(
     synth_step: int,
 ) -> tuple[dict[str, Any], float]:
     """Synthesize the report from dynamic sub-questions (E20-E24) rather than fixed templates."""
-    from .agent_roles import REPORT_PLAN_PROMPT
     from .deep_research import sanitize_json
     from .research_jobs import REWRITE_MODEL, build_synthesis_messages
 

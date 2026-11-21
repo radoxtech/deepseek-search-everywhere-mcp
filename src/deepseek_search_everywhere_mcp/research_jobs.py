@@ -28,7 +28,6 @@ from .deep_research import (
     apply_token_guard,
     best_source_title,
     build_decomposition_messages,
-    build_r2_gap_messages,
     build_synthesis_messages,
     build_synthesis_system_prompt,
     citation_ids,
@@ -39,14 +38,12 @@ from .deep_research import (
     normalize_citations,
     paginate_context,
     parse_research_plan,
-    parse_subqueries,
     rank_and_diversify_sources,
     report_body_words,
     select_synthesis_context,
     source_access,
     source_authors,
     source_identifiers,
-    validate_r2_queries,
 )
 from .envelope import (
     COST_PER_REQUEST,
@@ -56,7 +53,6 @@ from .envelope import (
 from .errors import (
     _fail,  # re-exported for callers and tests
 )
-from .extract import sanitize_json
 from .filters import (
     MAX_QUERY,
     fit_query,
@@ -77,9 +73,6 @@ from .settings import (
 )
 from .snippets import (
     prune_source_content,
-)
-from .urls import (
-    _url_etld1,
 )
 
 
@@ -611,114 +604,6 @@ async def _research_retrieve(run: _ResearchRun) -> dict[str, Any] | None:
     return None
 
 
-def _no_gaps(content: str) -> bool:
-    """Whether a gap-analysis answer says nothing is missing (an empty ``queries`` list)."""
-    parsed, err = sanitize_json(content)
-    return not err and isinstance(parsed, dict) and parsed.get("queries") == []
-
-
-async def _research_round_two(run: _ResearchRun) -> None:
-    """Round 2 (depth max): ask for gap queries over the round-1 results and search them too."""
-    await _report_job_progress(
-        run.job, "round_2_retrieval", 3, run.total_steps, "Analyzing gaps and searching additional angles"
-    )
-    with _stage(run, "round_two") as counters:
-        counters["ran"] = False
-        budget = run.remaining() - run.synthesis_reserve
-        if budget < 10.0:
-            counters["skipped"] = "deadline"
-            run.notes.append("Round 2 skipped due to deadline budget.")
-            return
-        r1_items = [item for results in run.result_lists for item in results]
-        r1_domains = {d for item in r1_items if (d := _url_etld1(item.get("url") or ""))}
-        timeout = min(25.0, max(5.0, budget / 2))
-        try:
-            gap_messages = build_r2_gap_messages(
-                run.topic, r1_items, run.subqueries, run.aspects, lang=run.lang
-            )
-            res = await runtime._chat_request(
-                messages=gap_messages,
-                thinking={"type": "disabled"},
-                model=REWRITE_MODEL,
-                temperature=0.0,
-                max_tokens=1024,
-                response_format={"type": "json_object"},
-                timeout=timeout,
-                deadline=timeout,
-                attempts=2,
-            )
-            # If LLM returned invalid or unparseable JSON, retry once if budget allows
-            if res.get("ok") and res.get("content"):
-                gap_parsed = parse_subqueries(res["content"], run.topic, max_queries=3)
-                if not _no_gaps(res["content"]) and not gap_parsed:
-                    if run.remaining() > run.synthesis_reserve + 15.0:
-                        retry_gap = await runtime._chat_request(
-                            messages=[
-                                *gap_messages,
-                                {"role": "assistant", "content": res.get("content") or "{}"},
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        "Previous response was not valid JSON. Return strictly a JSON "
-                                        "object with a 'queries' array of specific gap search strings, "
-                                        "or 'queries': [] if all aspects are settled."
-                                    ),
-                                },
-                            ],
-                            thinking={"type": "disabled"},
-                            model=REWRITE_MODEL,
-                            temperature=0.0,
-                            max_tokens=2048,
-                            response_format={"type": "json_object"},
-                            timeout=min(15.0, timeout),
-                            deadline=timeout,
-                            attempts=2,
-                        )
-                        if retry_gap.get("ok") and retry_gap.get("content"):
-                            res = retry_gap
-
-            if not (res.get("ok") and res.get("content")):
-                counters["skipped"] = "gap_analysis_failed"
-                run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
-                return
-            run.llm_cost += res.get("cost_usd", 0.0)
-            counters["cost_usd"] = round(float(res.get("cost_usd", 0.0) or 0.0), 6)
-            if _no_gaps(res["content"]):
-                counters["skipped"] = "no_gaps"
-                run.notes.append("Round 2 found no missing aspects; proceeding with Round 1 sources.")
-                return
-            parsed = parse_subqueries(res["content"], run.topic, max_queries=3)
-            queries = validate_r2_queries(parsed, run.topic, run.subqueries, r1_domains, lang=run.lang)
-            counters["queries_generated"] = len(parsed)
-            counters["queries_valid"] = len(queries)
-            if not queries:
-                counters["skipped"] = "validation_failed"
-                run.notes.append("Round 2 gap query validation failed; proceeding with Round 1 sources.")
-                return
-            search_timeout = min(20.0, max(5.0, run.remaining() - run.synthesis_reserve))
-            results = await asyncio.gather(
-                *_research_search_calls(run, queries, search_timeout), return_exceptions=True
-            )
-            successful = [r for r in results if isinstance(r, dict) and r.get("ok")]
-            if not successful:
-                counters["skipped"] = "no_results"
-                run.notes.append("Round 2 search produced no results; proceeding with Round 1 sources.")
-                return
-            for query, res_dict in zip(queries, results, strict=True):
-                if isinstance(res_dict, dict) and res_dict.get("ok"):
-                    run.subqueries.append(query)
-                    run.result_lists.append(res_dict.get("results", []))
-            run.add_searches(successful)
-            counters["ran"] = True
-            counters["searches_ok"] = len(successful)
-            counters["searches_failed"] = len(results) - len(successful)
-            counters["results_added"] = sum(len(r.get("results") or []) for r in successful)
-        except Exception as exc:
-            counters["skipped"] = "exception"
-            logger.debug("Round 2 gap analysis exception: %s", exc)
-            run.notes.append("Round 2 gap analysis failed; proceeding with Round 1 sources.")
-
-
 async def _research_rank_and_fill(run: _ResearchRun) -> None:
     """Phases 3-4: rank and diversify the results into sources, then fetch pages with short content."""
     with _stage(run, "rank") as counters:
@@ -737,7 +622,7 @@ async def _research_rank_and_fill(run: _ResearchRun) -> None:
         ]
         counters["sources"] = len(run.sources)
 
-    gap_step = 4 if run.depth == "max" else 3
+    gap_step = 3
     await _report_job_progress(
         run.job, "gap_fill", gap_step, run.total_steps, "Fetching gap pages for top sources"
     )
@@ -1127,7 +1012,7 @@ async def _execute_research_pipeline(
         cfg=cfg,
         deadline_at=runtime._clock() + cfg.deadline_s,
         synthesis_reserve=0.0 if client else _SYNTHESIS_RESERVE_S.get(depth, 30.0),
-        total_steps=5 if depth == "max" else 4,
+        total_steps=4,
     )
     job.run = run
 
@@ -1135,11 +1020,9 @@ async def _execute_research_pipeline(
     failure = await _research_retrieve(run)
     if failure is not None:
         return failure
-    if depth == "max":
-        await _research_round_two(run)
     await _research_rank_and_fill(run)
 
-    synth_step = 5 if depth == "max" else 4
+    synth_step = 4
     if client:
         await _report_job_progress(
             job, "context", synth_step, run.total_steps, "Preparing sources for client synthesis"

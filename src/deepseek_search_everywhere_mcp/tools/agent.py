@@ -10,13 +10,13 @@ from mcp.server.mcpserver.context import Context
 from pydantic import Field
 
 from .. import agent_research, runtime
-from ..deep_research import DEPTH_CONFIG, ResearchJob, get_job_store
+from ..deep_research import ResearchJob, get_job_store
 from ..errors import _fail
 from ..research_jobs import _finished_job_envelope, _reuse_finished_result, _running_job_envelope
 from ..runtime import _timed
 
 MAX_TOPIC = 4000
-DEPTH_ROUNDS: dict[str, int] = {"low": 1, "medium": 2, "high": 3, "max": 5}
+DEPTH_ROUNDS: dict[str, int] = {"medium": 2, "high": 3, "max": 5}
 
 
 @_timed
@@ -27,8 +27,13 @@ async def deepseek_deep_agent_research(
     ],
     *,
     depth: Annotated[
-        Literal["low", "medium", "high", "max"],
-        Field(description="Depth tier controlling queries, sources and reasoning (default 'medium')"),
+        Literal["medium", "high", "max"],
+        Field(
+            description=(
+                "Depth tier: 'medium' (default, 2 rounds, ~60s), 'high' (up to 3 rounds, ~90s), "
+                "or 'max' (up to 5 rounds, ~135s)"
+            )
+        ),
     ] = "medium",
     sources: Annotated[
         Literal["any", "academic", "technical"],
@@ -55,14 +60,14 @@ async def deepseek_deep_agent_research(
 ) -> dict[str, Any]:
     """Research a topic with an autonomous agent that plans, verifies and stops when rounds stop paying.
 
-    Flagship multi-round agent (~45-90s, ~$0.008-$0.025). Plans an aspect matrix, audits factual
-    gains per round, queries gaps dynamically, and autostops when evidence saturates.
+    Flagship multi-round agent (~55-140s, ~$0.011-$0.035). Plans an aspect matrix, audits factual
+    gains per round, queries gaps with entity anchoring dynamically, and autostops when evidence saturates.
 
     When to use:
     - Comprehensive investigations, contested disputes, and multi-faceted state-of-the-art reports.
     - In-depth research where opposing claims and subtle details must be uncovered across rounds.
     - When you need explicit tracking of open questions ("What the sources do not settle").
-    (For rapid 30s overviews prefer deepseek_quick_research; for single facts use deepseek_search).
+    (For rapid single-pass briefings prefer deepseek_quick_research; for single facts use deepseek_search).
 
     Returns: {"ok": True, "status": "done"|"running", "job_id"?, "report": str, "sources": [...],
     "plan": [...], "rounds": [...], "facts_per_round": [...], "estimate_usd": float,
@@ -73,8 +78,11 @@ async def deepseek_deep_agent_research(
         return _fail("empty_query", "topic must not be empty.", param="topic")
     if len(clean_topic) > MAX_TOPIC:
         return _fail("topic_too_long", f"topic must be at most {MAX_TOPIC} characters.", param="topic")
-    if depth not in DEPTH_CONFIG:
-        return _fail("bad_request", f"depth must be one of: {', '.join(DEPTH_CONFIG)}", param="depth")
+    # Graceful backward compatibility: map legacy 'low' to 'medium' (minimum 2 rounds)
+    if depth == "low":
+        depth = "medium"
+    if depth not in DEPTH_ROUNDS:
+        return _fail("bad_request", "depth must be one of: medium, high, max", param="depth")
     if sources not in {"any", "academic", "technical"}:
         return _fail(
             "bad_request",

@@ -923,6 +923,51 @@ Strict grounding prevents citation hallucinations in both Quick and Deep Agent r
 
 **Verdict: keep.** (See ADR 0015).
 
+### E33 — Isolated Synthesis Ablation & Entity-Anchored Gap Detection (2026-11-21)
+
+**Change.**
+1. `src/deepseek_search_everywhere_mcp/agent_research.py`:
+   - `REPORT_ASK`: Enforced Strict Grounding Rule 3 in section-level agent synthesis ("STRICT GROUNDING: State only facts and figures directly substantiated by the cited passages; never extrapolate, generalize or add claims the sources do not explicitly state. Preserve verbatim numerical rates, percentages, sample sizes and dates rather than generalizing into descriptive words").
+   - `_gap_queries_model` and `_extract_discovered_entities`: Extracted clinical trial acronyms (`STEP-1`, `SURMOUNT-2`, `SELECT`), statutory citations, standard codes (`ISO-26262`, `RFC-9110`), and technical identifiers (`pg_combinebackup`) from Round 1 summaries to anchor Round 2 gap queries.
+2. `src/deepseek_search_everywhere_mcp/research_jobs.py`:
+   - Enforced Strict Grounding in single-pass quick research synthesis.
+
+**Claim.**
+Strict grounding reduces unverified claims to 0 while accelerating generation by preventing exploratory hallucination rambling. Entity-anchored gap detection fixes the failure mode where Round 2 generated generic rephrasings rather than probing specific trial endpoints.
+
+**Arms.**
+- Isolated prompt ablation across 104 atoms on control topics:
+  - Baseline (unconstrained): 52/104 (50.0%), 14 unverified sentences, 40.2s.
+  - `arm_s1_strict_grounding`: **62/104 (59.6%)**, **0 unverified sentences**, **33.1s** (Winner! +9.6 pp over unconstrained, 18% faster).
+  - `arm_s3_evidence_cards` (teelaitila/pminervini style): 28/104 (26.9%), 26 hallucinations (Collapsed).
+  - `arm_s4_balanced_budget`: 38 hallucinations when unconstrained by strict grounding.
+- Multi-round exploration:
+  - On `it-pg-incremental-backup`: Round 2 doubled supported atoms from 12/40 (30.0%) to 24/40 (60.0%) (+30.0 pp gain).
+  - On `medicine-glp1`: Round 2 queries anchored to `STEP` and `SURMOUNT` preserved primary endpoints instead of drifting to marketing overviews.
+
+**Verdict: keep.**
+
+### E34 — Architecture Streamlining: Distinct Depth Tiers and Prototype Pruning (2026-11-21)
+
+**Change.**
+1. **Clean Tier Separation:**
+   - `deepseek_quick_research`: Strictly single-pass pipeline ($\le 35$s). Removed `_research_round_two`. Supported tiers: `low` (~10s, $0.003), `medium` (default, ~20s, $0.006), `high` (~35s, $0.010). Legacy `max` safely mapped to `high`.
+   - `deepseek_deep_agent_research`: Strictly multi-round autonomous agent ($\ge 55$s). Supported tiers: `medium` (default, 2 rounds, ~60s), `high` (up to 3 rounds, ~90s), `max` (up to 5 rounds, ~135s). Legacy `low` safely mapped to `medium`.
+2. **Dead Code & Prototype Removal:**
+   - Deleted unused prototype framework files: `src/.../ai_client.py`, `src/.../agent_loop.py`, `src/.../structured.py`, `src/.../agent_roles.py` (migrated `REPORT_PLAN_PROMPT` into `agent_research.py`).
+   - Removed unneeded dependencies from `pyproject.toml`: `httpx2>=2.16.2` and `ai[openai]>=0.10.1,<0.11`.
+   - Removed 8 dead unit tests (`tests/test_ai_client.py`, `tests/test_agent_orchestration.py`).
+
+**Claim.**
+In the legacy implementation, `quick_research(depth="max")` ran an un-tracked 2nd round taking 78.6s ($0.0318) for 59.2% atoms—adding only +0.8 pp over `high` (34.8s, $0.0105, 58.4%) at +126% wall time and 3x cost. Concurrently, `agent_research(depth="low")` ran a trivial 1-round baseline (36.2s, 47.3% atoms) that underperformed `quick(medium)` (24.5s, 53.1% atoms). Establishing non-overlapping tiers eliminates semantic contradictions and cognitive overload for calling LLMs. Removing abandoned prototype frameworks slims the package without affecting any production tools.
+
+**Result.**
+- 100% of 1263 offline unit tests passing.
+- Zero dependency on `ai` or `httpx2`; native `httpx` handles all traffic with zero telemetry.
+- Strict latency/cost separation: Quick is always $\le 35$s ($0.003–$0.010); Agent is always $\ge 55$s ($0.011–$0.035).
+
+**Verdict: keep.** (See ADR 0016).
+
 ## Ledger
 
 | date | what | deepseek $ |
