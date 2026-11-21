@@ -247,7 +247,7 @@ Behavior to know:
 
 ### Client-side synthesis
 
-Pass `synthesis="client"` in `deepseek_quick_research` when your agent should write the report with its own model (recommended for hosts supporting autonomous subagents, e.g. Claude Code with Opus), for example to follow a bespoke internal format or perform specialized evidence extraction. The server still performs all retrieval, domain diversity, and source ranking.
+Pass `synthesis="client"` in `deepseek_quick_research` when your agent should write the report with its own model (recommended for hosts supporting autonomous subagents with frontier reasoning models), for example to follow a bespoke internal format or perform specialized evidence extraction. The server still performs all retrieval, domain diversity, and source ranking.
 
 1. `deepseek_quick_research(topic, depth, ..., synthesis="client")` runs the job as usual but stops before the server's synthesis. It returns `status: "needs_input"` with `synthesis_instructions` (citation rules and the word budget of the depth), the first page of `context` (sources with `id`, `title`, `url`, `date`, `doi`, `pmid`, `pmcid`, `access`, `source_type`, `authors` and their text), `context_page`, `context_pages` and a `next_action`.
 2. Read further pages with `deepseek_check_research(job_id, page=N)`. A page holds about 40,000 characters of source text, so each response stays under the tool-output limits of MCP clients; a longer source is split into parts (`part`, `parts`). The cost of gathering the sources is reported once, with the first delivery of page 1; later pages, repeats and report verification cost nothing.

@@ -70,8 +70,8 @@ async def deepseek_quick_research(
         Literal["server", "client"],
         Field(
             description=(
-                "Report author: 'server' (default) or 'client' (subagent orchestrators like "
-                "Claude Code+Opus: you write, server checks)."
+                "Report author: 'server' (default) or 'client' (subagent orchestrators with frontier "
+                "models: you write, server checks)."
             )
         ),
     ] = "server",
