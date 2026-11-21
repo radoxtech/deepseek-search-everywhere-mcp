@@ -17,10 +17,7 @@ from ..deep_research import (
 from ..errors import (
     _fail,  # re-exported for callers and tests
 )
-from ..output_models.research import (
-    CheckResearchOutput,
-    QuickResearchOutput,
-)
+from ..output_models.research import ResearchOutput
 from ..research_jobs import (
     _client_page,
     _finished_job_envelope,
@@ -84,7 +81,7 @@ async def deepseek_quick_research(
         Field(description="Bypass local cache and perform fresh research pipeline (default False)"),
     ] = False,
     ctx: Context | None = None,
-) -> QuickResearchOutput:
+) -> ResearchOutput:
     """Research a topic across the web and get a cited report in one quick single pass.
 
     Fast single-pass pipeline (~25-35s, $0.003-$0.01). Searches several angles, reads 6-24 sources,
@@ -212,7 +209,7 @@ async def deepseek_check_research(
         Field(description="Input report text for a job with status needs_input (default None)"),
     ] = None,
     ctx: Context | None = None,
-) -> CheckResearchOutput:
+) -> ResearchOutput:
     """Continue a research job: poll it, read its sources, or answer when it needs input.
 
     Free ($0.00); waits up to 45 s per call. Returns the finished report (status 'done'),

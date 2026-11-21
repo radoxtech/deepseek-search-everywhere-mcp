@@ -1,8 +1,8 @@
 """Pydantic models shared by every tool envelope: ``Envelope``, ``Meta`` and ``ErrorInfo``.
 
 The package is the single source of truth for the public JSON shape. Per-tool result models live in
-sibling modules (``output_models.search``, ``output_models.fetch`` and so on); this module holds only
-the fields every tool publishes.
+sibling modules (``output_models.search``, ``output_models.fetch`` and so on); this module holds the
+fields every tool model inherits. Every tool model inherits ``_meta``; tools that report cost set it.
 
 ``Envelope.meta`` is aliased to ``_meta`` because pydantic treats leading-underscore *field names* as
 private attributes: the Python attribute stays ``meta`` while the published JSON property is ``_meta``.
@@ -14,14 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Meta(BaseModel):
-    """The ``_meta`` block published by every tool: estimated cost and security classification."""
+    """The ``_meta`` block: every tool model inherits it; tools that report cost set it."""
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    cost_usd: float = Field(description="Estimated cost of the request in US dollars.")
-    untrusted_content: bool = Field(
-        description="True when the response carries untrusted content retrieved from the web."
-    )
+    cost_usd: float = Field(description="Cost of the call, USD.")
+    untrusted_content: bool = Field(description="True when the response carries untrusted web content.")
 
 
 class ErrorInfo(BaseModel):
@@ -33,7 +31,7 @@ class ErrorInfo(BaseModel):
     message: str = Field(description="Human-readable explanation of the failure.")
     action: str | None = Field(
         default=None,
-        description="Suggested next step for the caller: retry, fix the call or change the approach.",
+        description="Suggested next step: retry, fix the call, or change approach.",
     )
     reason: str | None = Field(
         default=None,

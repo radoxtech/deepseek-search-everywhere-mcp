@@ -20,105 +20,82 @@ class AgentResearchOutput(Envelope):
     and ``populate_by_name=True``).
     """
 
-    cost_usd: float | None = Field(default=None, description="Estimated cost of the call in US dollars.")
+    cost_usd: float | None = Field(default=None, description="Cost of the call, USD.")
     untrusted_content: bool | None = Field(
-        default=None, description="True when the response carries untrusted content from the web."
+        default=None, description="True when the response carries untrusted web content."
     )
     derived_from_untrusted: bool | None = Field(
         default=None, description="True when the report was written from untrusted web content."
     )
     injection_suspected: int | None = Field(
-        default=None, description="Number of prompt-injection attempts detected in the report."
+        default=None, description="Prompt-injection attempts detected in the report."
     )
     status: str | None = Field(
         default=None,
-        description=(
-            "Job state: 'done' for a finished run, 'running' while the job needs polling. Absent on errors."
-        ),
+        description="Job state: 'done' or 'running' (poll it); absent on errors.",
     )
     delivery: str | None = Field(
         default=None,
-        description="How a finished result was delivered: 'inline' in this call or 'polled' later.",
+        description="Delivery of a finished result: 'inline' or 'polled'.",
     )
-    job_id: str | None = Field(
-        default=None, description="Stable identifier of the research job (running results only)."
-    )
-    depth: str | None = Field(
-        default=None, description="Depth tier that was actually run: 'medium', 'high' or 'max'."
-    )
-    elapsed_ms: int | None = Field(default=None, description="Wall-clock time of the job in milliseconds.")
+    job_id: str | None = Field(default=None, description="Research job identifier (running results only).")
+    depth: str | None = Field(default=None, description="Depth tier run: 'medium', 'high' or 'max'.")
+    elapsed_ms: int | None = Field(default=None, description="Wall time of the job in milliseconds.")
     progress: dict[str, Any] | None = Field(
         default=None,
-        description=(
-            "Progress of a running job: phase, step, of, optional detail, phase_elapsed_ms and deadline_ms."
-        ),
+        description="Running-job progress: phase, step, of, detail, timings, deadline.",
     )
     next_action: str | None = Field(
-        default=None, description="What to do next with a running job, e.g. poll its job_id."
+        default=None, description="Next step for a running job, e.g. poll its job_id."
     )
-    topic: str | None = Field(default=None, description="The cleaned research topic that was run.")
+    topic: str | None = Field(default=None, description="Cleaned research topic that was run.")
     subqueries: list[str] | None = Field(
         default=None, description="Search queries the agent planned and ran."
     )
     report: str | None = Field(
         default=None,
-        description="Finished cited Markdown report; None when no report was written.",
+        description="Cited Markdown report; null when none was written.",
     )
     synthesized: bool | None = Field(
         default=None,
-        description="True when the model wrote a report; false when only the gathered sources were returned.",
+        description="True when a model wrote the report; false when only sources.",
     )
     sources: list[dict[str, Any]] | None = Field(
-        default=None, description="Public source entries backing the report or returned instead of it."
+        default=None, description="Source entries backing the report or returned instead."
     )
     unverified_numbers: list[dict[str, Any]] | None = Field(
-        default=None, description="Numbers in the report that were not found in their cited source."
+        default=None, description="Report numbers not found in their cited source."
     )
     unverified_number_count: int | None = Field(
-        default=None, description="How many numbers in the report could not be verified."
+        default=None, description="Report numbers that could not be verified."
     )
     partial: bool | None = Field(
         default=None,
-        description="True when some pages could not be fetched or no report was synthesized.",
+        description="True when some pages failed or no report was synthesized.",
     )
     plan: list[dict[str, Any]] | None = Field(
         default=None,
-        description="The aspect plan: one entry per aspect with its 'aspect' name and 'query'.",
+        description="Aspect plan: one entry per aspect with name and query.",
     )
     rounds: list[dict[str, Any]] | None = Field(
         default=None,
-        description=(
-            "Per-round evidence gains: new_facts, new_numeric_facts, gaps_filled, new_sources and saturated."
-        ),
+        description="Per-round gains: new facts, gaps filled, new sources, saturated.",
     )
-    facts_per_round: list[int] | None = Field(
-        default=None, description="New facts gained in each round, one integer per round."
-    )
-    estimate_usd: float | None = Field(
-        default=None, description="Upfront cost estimate for the run in US dollars."
-    )
+    facts_per_round: list[int] | None = Field(default=None, description="New facts per round.")
+    estimate_usd: float | None = Field(default=None, description="Upfront cost estimate for the run, USD.")
     stopped_reason: str | None = Field(
         default=None,
-        description=(
-            "Why rounds stopped: 'max_rounds', 'saturated', 'budget', 'no_gaps', 'retrieval_failed' "
-            "or 'empty_pages'."
-        ),
+        description="Stop: max_rounds, saturated, budget, no_gaps, retrieval_failed, empty_pages",
     )
-    requests_used: int | None = Field(
-        default=None, description="Number of billable upstream requests this run made."
-    )
+    requests_used: int | None = Field(default=None, description="Billable upstream requests this run made.")
     cached: bool | None = Field(
-        default=None, description="True when the whole result came from the cache and cost nothing."
+        default=None, description="True when the whole result came from cache at zero cost."
     )
-    cached_count: int | None = Field(
-        default=None, description="Number of upstream requests served from the cache."
-    )
+    cached_count: int | None = Field(default=None, description="Upstream requests served from cache.")
     cost_breakdown: dict[str, Any] | None = Field(
-        default=None, description="Cost split into 'search', 'fetch' and 'llm' in US dollars."
+        default=None, description="Cost split into search, fetch and LLM, USD."
     )
-    notes: list[str] | None = Field(
-        default=None, description="Human-readable notes about filtering, caching or truncation."
-    )
+    notes: list[str] | None = Field(default=None, description="Notes about filtering, caching or truncation.")
 
 
 __all__ = ["AgentResearchOutput"]

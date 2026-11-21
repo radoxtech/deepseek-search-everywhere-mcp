@@ -17,48 +17,43 @@ class SearchOutput(Envelope):
     error branch carries only ``ok`` and ``error``; every other field is optional.
     """
 
-    cost_usd: float | None = Field(default=None, description="Estimated cost of the call in US dollars.")
+    cost_usd: float | None = Field(default=None, description="Cost of the call, USD.")
     untrusted_content: bool | None = Field(
-        default=None, description="True when the response carries untrusted content from the web."
+        default=None, description="True when the response carries untrusted web content."
     )
     query_used: str | None = Field(
-        default=None, description="The query actually sent upstream after filtering (single-query branch)."
+        default=None, description="Query sent upstream after filtering (single-query branch)."
     )
     query_original: str | None = Field(
-        default=None, description="The caller's original query when it differed from the one used."
+        default=None, description="Original query when it differed from the one used."
     )
-    count: int | None = Field(
-        default=None, description="Number of results in this response, or number of queries in a list run."
-    )
+    count: int | None = Field(default=None, description="Results returned, or queries run in a list call.")
     total_results: int | None = Field(
-        default=None, description="Total number of results across every query in a list run."
+        default=None, description="Total results across every query in a list run."
     )
-    content: str | None = Field(
-        default=None, description="Result format that was requested: 'snippets' or 'full'."
-    )
+    content: str | None = Field(default=None, description="Requested format: 'snippets' or 'full'.")
     deduped: int | None = Field(
-        default=None, description="Number of duplicate results removed by the dedupe heuristic."
+        default=None, description="Duplicate results removed by the dedupe heuristic."
     )
     cached: bool | None = Field(
-        default=None, description="True when the response came from the local cache and cost nothing."
+        default=None, description="True when the response came from cache at zero cost."
     )
-    cached_count: int | None = Field(
-        default=None, description="Number of queries in a list run served from the cache."
-    )
-    requests_used: int | None = Field(
-        default=None, description="Number of billable upstream requests this call made."
-    )
-    failed_count: int | None = Field(default=None, description="Number of queries in a list run that failed.")
+    cached_count: int | None = Field(default=None, description="Queries in a list run served from cache.")
+    requests_used: int | None = Field(default=None, description="Billable upstream requests this call made.")
+    failed_count: int | None = Field(default=None, description="Queries in a list run that failed.")
     partial: bool | None = Field(
         default=None, description="True when at least one query in a list run failed."
     )
     skipped_queries: list[str] | None = Field(
-        default=None, description="Queries beyond the five-per-call limit that were not run."
+        default=None, description="Queries beyond the five-per-call limit, not run."
     )
     results: list[dict[str, Any]] | None = Field(
-        default=None, description="Result entries for a single query, or per-query blocks for a list run."
+        default=None, description="Result entries, or per-query blocks for a list run."
     )
     notes: list[str] | None = Field(
-        default=None, description="Human-readable notes about filtering, caching, dedupe or truncation."
+        default=None, description="Notes about filtering, caching, dedupe or truncation."
     )
-    elapsed_ms: int | None = Field(default=None, description="Wall-clock time of the call in milliseconds.")
+    elapsed_ms: int | None = Field(default=None, description="Wall time of the call in milliseconds.")
+
+
+__all__ = ["SearchOutput"]

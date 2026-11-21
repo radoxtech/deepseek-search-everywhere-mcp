@@ -20,71 +20,71 @@ class ExtractOutput(Envelope):
 
     cost_usd: float | None = Field(
         default=None,
-        description="Estimated cost of the request in US dollars.",
+        description="Cost of the call, USD.",
     )
     untrusted_content: bool | None = Field(
         default=None,
-        description="True when the response carries untrusted content retrieved from the web.",
+        description="True when the response carries untrusted web content.",
     )
     url: str | None = Field(
         default=None,
-        description="URL the single-page extraction read, echoed from the request.",
+        description="URL read by the single-page extraction.",
     )
     title: str | None = Field(
         default=None,
-        description="Title of the fetched page, when the upstream provided one.",
+        description="Fetched page title, when upstream provided one.",
     )
     data: dict[str, Any] | None = Field(
         default=None,
-        description="Extracted fields or schema-shaped object; values without a verified quote are null.",
+        description="Extracted fields; values lacking a verified quote are null.",
     )
     evidence: dict[str, Any] | None = Field(
         default=None,
-        description="Verbatim evidence quote that backs each extracted value, keyed by field name.",
+        description="Verbatim quote backing each value, keyed by field.",
     )
     extraction_truncated: bool | None = Field(
         default=None,
-        description="True when the model output hit the token limit and was cut off.",
+        description="True when the model output was cut at the token limit.",
     )
     cached: bool | None = Field(
         default=None,
-        description="True when the page came from the local cache (for a list: every page did).",
+        description="True when from cache (list: every page was).",
     )
     cached_count: int | None = Field(
         default=None,
-        description="Number of list entries served from the local cache.",
+        description="List entries served from cache.",
     )
     count: int | None = Field(
         default=None,
-        description="Number of entries in ``results`` for a URL-list extraction.",
+        description="Entries in ``results`` for a URL-list extraction.",
     )
     requests_used: int | None = Field(
         default=None,
-        description="Number of billable upstream requests the list extraction used.",
+        description="Billable upstream requests the list extraction used.",
     )
     failed_count: int | None = Field(
         default=None,
-        description="Number of list entries that failed extraction.",
+        description="List entries that failed extraction.",
     )
     partial: bool | None = Field(
         default=None,
-        description="True when at least one entry of a list extraction failed.",
+        description="True when at least one list entry failed.",
     )
     cost_breakdown: dict[str, Any] | None = Field(
         default=None,
-        description="Cost split into search, fetch and LLM parts, in US dollars.",
+        description="Cost split into search, fetch and LLM, USD.",
     )
     results: list[dict[str, Any]] | None = Field(
         default=None,
-        description="Per-URL extraction envelopes for a list request, in input order.",
+        description="Per-URL extraction results in input order.",
     )
     notes: list[str] | None = Field(
         default=None,
-        description="Human-readable notes about nullified values, truncation, cache or deduplication.",
+        description="Notes on nullified values, truncation, cache or dedupe.",
     )
     elapsed_ms: int | None = Field(
         default=None,
-        description="Wall-clock time of the tool call in milliseconds.",
+        description="Wall time of the call in milliseconds.",
     )
 
 

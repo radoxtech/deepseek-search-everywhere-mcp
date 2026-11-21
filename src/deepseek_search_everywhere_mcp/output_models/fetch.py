@@ -19,60 +19,59 @@ class FetchOutput(Envelope):
 
     cost_usd: float | None = Field(
         default=None,
-        description="Estimated cost of the call in US dollars; cached content is free.",
+        description="Cost of the call, USD; cached content is free.",
     )
     untrusted_content: bool | None = Field(
         default=None,
-        description="True when the response carries untrusted content retrieved from the web.",
+        description="True when the response carries untrusted web content.",
     )
     url: str | None = Field(
         default=None,
-        description="The fetched URL, in a single-URL response.",
+        description="Fetched URL, in a single-URL response.",
     )
     source: str | None = Field(
         default=None,
-        description='Where the page text came from: "fetch" for a direct fetch or "search_index" '
-        "for the search-index fallback.",
+        description='Page text origin: "fetch" or "search_index" (index fallback).',
     )
     title: str | None = Field(
         default=None,
-        description="Page title, cleaned of hidden Unicode and repeated text.",
+        description="Page title, cleaned of hidden Unicode.",
     )
     content: str | None = Field(
         default=None,
-        description="Page text as clean Markdown, trimmed to the character budget.",
+        description="Page text as Markdown, trimmed to the character budget.",
     )
     chars: int | None = Field(
         default=None,
-        description="Number of characters in ``content``.",
+        description="Characters in ``content``.",
     )
     total_chars: int | None = Field(
         default=None,
-        description="Number of characters in the page before truncation.",
+        description="Characters in the page before truncation.",
     )
     truncated: bool | None = Field(
         default=None,
-        description="True when the page text was cut to respect the character budget.",
+        description="True when the page text was cut to the char budget.",
     )
     cached: bool | None = Field(
         default=None,
-        description="True when the page came from the local cache (single) or every result did (list).",
+        description="True when from cache (single) or every list result was.",
     )
     cached_count: int | None = Field(
         default=None,
-        description="Number of list results served from the local cache.",
+        description="List results served from cache.",
     )
     count: int | None = Field(
         default=None,
-        description="Number of results returned for a URL list.",
+        description="Results returned for a URL list.",
     )
     requests_used: int | None = Field(
         default=None,
-        description="Upstream requests billed for a URL list; cached results are excluded.",
+        description="Upstream requests billed for a list; cache excluded.",
     )
     failed_count: int | None = Field(
         default=None,
-        description="Number of list results that failed.",
+        description="List results that failed.",
     )
     partial: bool | None = Field(
         default=None,
@@ -80,12 +79,11 @@ class FetchOutput(Envelope):
     )
     results: list[dict[str, Any]] | None = Field(
         default=None,
-        description="Per-URL results in input order; each entry keeps its own ok, error, title, "
-        "content and cache fields.",
+        description="Per-URL results in input order, each with its own fields.",
     )
     notes: list[str] | None = Field(
         default=None,
-        description="Human-readable notes such as dedupe and truncation warnings.",
+        description="Notes such as dedupe and truncation warnings.",
     )
     content_capped: bool | None = Field(
         default=None,
@@ -93,15 +91,15 @@ class FetchOutput(Envelope):
     )
     query: str | None = Field(
         default=None,
-        description="The query used to select excerpts, when one was given.",
+        description="Query used to select excerpts, when given.",
     )
     snippets_count: int | None = Field(
         default=None,
-        description="Number of excerpt snippets returned for ``query``.",
+        description="Excerpt snippets returned for ``query``.",
     )
     elapsed_ms: int | None = Field(
         default=None,
-        description="Wall-clock duration of the call in milliseconds.",
+        description="Wall time of the call in milliseconds.",
     )
 
 

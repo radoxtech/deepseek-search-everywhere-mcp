@@ -19,19 +19,19 @@ class BalanceOutput(Envelope):
 
     is_available: bool | None = Field(
         default=None,
-        description="True when the account can spend, from the upstream balance flag.",
+        description="True when the account can spend, per the upstream flag.",
     )
     balances: list[dict[str, Any]] | dict[str, Any] | None = Field(
         default=None,
-        description="Balance per currency: a list of balance objects or the raw upstream mapping.",
+        description="Per-currency balances: a list or the raw upstream mapping.",
     )
     session: dict[str, Any] | None = Field(
         default=None,
-        description="Session metrics: upstream requests, cache hits, hit rate and estimated spend.",
+        description="Session metrics: requests, cache hits, hit rate, spend.",
     )
     elapsed_ms: int | None = Field(
         default=None,
-        description="Wall-clock time of this tool call in milliseconds.",
+        description="Wall time of the call in milliseconds.",
     )
 
 
