@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-21
-- **Evidence:** TDQS baseline evaluation (`npx mcp-tdqs`, spec 1.3, judge `deepseek-ai/DeepSeek-V4-Flash-0731`, two runs) recorded in `.sisyphus/plans/tdqs-improvements.md`; SDK behavior in `mcp/server/mcpserver/utilities/func_metadata.py`; experiment `E07` in `evals/EXPERIMENTS.md` for the noise floor.
+- **Evidence:** TDQS baseline evaluation (`npx mcp-tdqs`, spec 1.3, judge `deepseek-ai/DeepSeek-V4-Flash-0731`, two runs) recorded in `.sisyphus/plans/tdqs-improvements.md`; post-change three-run measurement in `.sisyphus/evidence/task-15-run{1,2,3}.json` and `task-15-aggregate.json`; SDK behavior in `mcp/server/mcpserver/utilities/func_metadata.py`; experiment `E07` in `evals/EXPERIMENTS.md` for the noise floor.
 - **Related:** `0010-tool-surface-pruning-and-taxonomy.md`, `.sisyphus/plans/tdqs-improvements.md`
 
 ## Context
@@ -61,7 +61,10 @@ is a new response surface layered on top of that stable dict, so it needs its ow
   of an opaque object. This is the measured gain the change exists for.
 - The payload grows. Every optional field absent from a sparse envelope is materialized as `null`, and
   content-bearing fields such as `content` in `deepseek_fetch` or a full-text search result are duplicated
-  between the text block and `structuredContent`. The duplication cost is to be measured in T15.
+  between the text block and `structuredContent`. Measured in T15: for a 1,352-character page, a full-content
+  `deepseek_search` call sent 1,911 characters in the text block and 1,945 in `structuredContent` (1.02x), and
+  `deepseek_fetch` sent 1,707 and 1,859 (1.09x), so a content-bearing response now carries the page text twice
+  (about 2.0x the text block in total).
 - The models must track the runtime envelope. Adding, renaming or removing a returned key requires a matching
   model change; the contract tests catch drift, and until they are updated a new key is silently absent from
   `structuredContent` while the text block still carries it.
@@ -98,25 +101,49 @@ is a new response surface layered on top of that stable dict, so it needs its ow
 | Judge model | `deepseek-ai/DeepSeek-V4-Flash-0731` |
 | Runs | 2 |
 
-### Post-change measurement (to be filled by T15)
+### Post-change measurement (three runs)
 
-This ADR stays `Proposed` until T15 records three score runs against the same spec and judge. The table is
-intentionally empty; no post-change number is asserted here.
+Three independent `npx mcp-tdqs@0.2.0 score` runs against the same spec (1.3) and judge
+(`deepseek-ai/DeepSeek-V4-Flash-0731`) as the baseline. Each run scored all seven tools and the server
+coherence, and all three reported zero flags and zero smells with 7/7 tools at tier A.
 
 | Tool | Run 1 | Run 2 | Run 3 | Median |
 |---|---|---|---|---|
-| `deepseek_search` | | | | |
-| `deepseek_fetch` | | | | |
-| `deepseek_extract` | | | | |
-| `deepseek_quick_research` | | | | |
-| `deepseek_deep_agent_research` | | | | |
-| `deepseek_check_research` | | | | |
-| `deepseek_check_balance` | | | | |
-| Overall | | | | |
+| `deepseek_search` | 4.7 | 4.9 | 4.7 | 4.7 |
+| `deepseek_fetch` | 4.9 | 4.9 | 4.9 | 4.9 |
+| `deepseek_extract` | 4.9 | 4.9 | 4.9 | 4.9 |
+| `deepseek_quick_research` | 4.6 | 4.6 | 4.6 | 4.6 |
+| `deepseek_deep_agent_research` | 4.7 | 4.7 | 4.7 | 4.7 |
+| `deepseek_check_research` | 4.7 | 4.7 | 4.7 | 4.7 |
+| `deepseek_check_balance` | 4.7 | 4.7 | 4.7 | 4.7 |
+| Overall | 4.7 | 4.6 | 4.6 | 4.6 |
 
-Definition-byte delta versus the 14,302-byte baseline: to be filled by T15.
+Server rollup per run:
 
-T15 flips the status to `Accepted` only if the three-run median overall is at least 4.8, every tool is at least
-4.6, and there are zero smells and zero flags. One run is not evidence: `E07` measured a 7.2 pp average spread
-between two runs of the identical configuration, so the verdict rests on the three-run median and the per-tool
-floor.
+| Metric | Run 1 | Run 2 | Run 3 | Median |
+|---|---|---|---|---|
+| Overall | A 4.7 | A 4.6 | A 4.6 | 4.6 |
+| Tool definition quality | A 4.7 | A 4.7 | A 4.7 | 4.7 |
+| Coherence | A 4.8 | A 4.5 | A 4.5 | 4.5 |
+| Mean TDQS | 4.7 | 4.8 | 4.7 | 4.7 |
+| Min TDQS | 4.6 | 4.6 | 4.6 | 4.6 |
+| Tools at tier A | 7/7 | 7/7 | 7/7 | 7/7 |
+| Flags / smells | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+Definition-byte delta versus the 14,302-byte baseline: **60,435 bytes, +46,133 (+322.6%)**. The typed
+`outputSchema` on every tool multiplies the published definition payload roughly fourfold; this is the context
+cost the change pays for field-typed responses.
+
+**Measurement.** Three runs, median reported rather than the best run; overall spread 4.6–4.7 (range 0.1,
+population stdev 0.047) and every tool's own three runs were stable (no tool moved by more than 0.2). Definition
+bytes from `lint --format json`; payload duplication from a temporary in-process MCP test measuring one
+`deepseek_search(content="full")` and one `deepseek_fetch` on the same 1,352-character page (text block 1,911 /
+1,945 and 1,707 / 1,859 characters; ratios 1.02x and 1.09x). Judge `deepseek-ai/DeepSeek-V4-Flash-0731`, spec
+1.3.
+
+The median overall is **4.6, below the 4.8 threshold** (`Proposed` retained, shortfall: `median overall 4.6 < 4.8`).
+The tool floor (every tool median ≥ 4.6, lowest `deepseek_quick_research` at 4.6) and the zero-flag/zero-smell
+conditions do hold. Definition quality moved from the 4.6 baseline to a 4.7 median while coherence moved from
+4.8 to 4.5; both shifts are inside the measured noise floor (`E07`: 7.2 pp between identical runs), and the
+baseline is a two-run cross-session figure, so this measurement establishes neither a quality gain nor a
+regression. The decision is therefore recorded but not accepted on score.
