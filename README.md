@@ -26,10 +26,10 @@ You need one credential, a DeepSeek API key, and you pay DeepSeek directly per r
 ## Demo
 
 <p align="center">
-  <img src="assets/demo.gif" alt="OpenCode terminal session calling deepseek_search, deepseek_fetch, deepseek_extract and deepseek_quick_research" width="100%">
+  <img src="assets/demo-report.gif" alt="Visualisation of the internal pipeline of a deepseek_deep_agent_research run at depth max, animated with recorded per-stage timings" width="100%">
 </p>
 <p align="center">
-  <em>OpenCode calling <code>deepseek_search</code>, <code>deepseek_fetch</code>, <code>deepseek_extract</code> and <code>deepseek_quick_research</code>. The same tools work in every MCP client.</em>
+  <em>Visualisation of the internal pipeline of a <code>deepseek_deep_agent_research</code> run (depth <code>max</code>), rendered to illustrate the algorithms: aspect planning, concurrent subquery fan-out, gap-detection rounds to evidence saturation, parallel section synthesis.</em>
 </p>
 
 ## Key features
