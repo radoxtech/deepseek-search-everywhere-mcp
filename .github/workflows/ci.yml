@@ -115,6 +115,12 @@ jobs:
       - name: Check for API key
         id: key
         run: |
+          if [ -n "${DEEPSEEK_CHAT_BASE_URL:-}" ]; then
+            if [ -z "${DEEPSEEK_CHAT_API_KEY:-}" ] || [ -z "${DEEPSEEK_CHAT_MODEL:-}" ]; then
+              echo "::error::DEEPSEEK_CHAT_BASE_URL is set but DEEPSEEK_CHAT_API_KEY or DEEPSEEK_CHAT_MODEL is empty."
+              exit 1
+            fi
+          fi
           if [ -n "$DEEPSEEK_API_KEY" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
@@ -174,6 +180,12 @@ jobs:
       - name: Check for API key
         id: key
         run: |
+          if [ -n "${DEEPSEEK_CHAT_BASE_URL:-}" ]; then
+            if [ -z "${DEEPSEEK_CHAT_API_KEY:-}" ] || [ -z "${DEEPSEEK_CHAT_MODEL:-}" ]; then
+              echo "::error::DEEPSEEK_CHAT_BASE_URL is set but DEEPSEEK_CHAT_API_KEY or DEEPSEEK_CHAT_MODEL is empty."
+              exit 1
+            fi
+          fi
           if [ -n "$DEEPSEEK_API_KEY" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
