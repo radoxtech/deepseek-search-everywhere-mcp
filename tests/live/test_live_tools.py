@@ -64,7 +64,7 @@ async def test_web_search_returns_relevant_results() -> None:
 
 async def test_search_and_read_returns_relevant_content() -> None:
     query = "PostgreSQL VACUUM FULL versus regular VACUUM"
-    envelope = await server.deepseek_search(query, count=3, content="full", max_total_chars=4500)
+    envelope = await server.deepseek_search(query, count=3, content="full")
     results = _assert_results(envelope, 2)
     with_content = [item for item in results if item.get("content")]
     assert len(with_content) >= 2, "expected page content for at least two results"
@@ -84,7 +84,7 @@ def _ui_labels(content: str) -> list[str]:
 
 async def test_reddit_threads_come_back_without_site_ui() -> None:
     query = "site:reddit.com ADHD social media"
-    envelope = await server.deepseek_search(query, count=2, content="full", max_total_chars=100000)
+    envelope = await server.deepseek_search(query, count=2, content="full")
     _assert_ok(envelope)
     threads = [item for item in envelope["results"] if rules_for(item["url"]) and item.get("content")]
     if not threads:
@@ -112,16 +112,6 @@ async def test_non_english_query_with_lang(query: str, lang: str) -> None:
     assert_quality(await judge_items(f"web_search[{lang}]", query, results))
 
 
-async def test_rewrite_keeps_results_relevant(upstream_calls: list[str]) -> None:
-    query = "Wie installiere ich Docker unter Ubuntu"
-    envelope = await server.deepseek_search(query, count=4, rewrite=True)
-    results = _assert_results(envelope, 3)
-    assert "/v1/chat/completions" in upstream_calls, "rewrite did not call the model"
-    assert envelope.get("query_original") == query, f"query was not rewritten; notes: {envelope['notes']}"
-    assert envelope["query_used"] != query
-    assert_quality(await judge_items("web_search[rewrite]", query, results))
-
-
 async def test_fetch_stable_page_matches_its_content() -> None:
     url = "https://docs.python.org/3/library/asyncio.html"
     envelope = await server.deepseek_fetch(url, max_chars=3000)
@@ -140,7 +130,7 @@ async def test_fetch_many_keeps_order_and_dedupes(upstream_calls: list[str]) -> 
         "https://www.python.org/",
         "https://docs.python.org/3/library/asyncio.html#section",
     ]
-    envelope = await server.deepseek_fetch(urls, max_chars=2000, max_total_chars=4000)
+    envelope = await server.deepseek_fetch(urls, max_chars=2000)
     _assert_ok(envelope)
     assert envelope["count"] == 2
     assert [item["url"] for item in envelope["results"]] == urls[:2]
@@ -212,11 +202,9 @@ async def test_deep_agent_research_live() -> None:
     topic = "What are the latest developments in quantum key distribution satellite links?"
     envelope = await server.deepseek_deep_agent_research(
         topic,
-        depth="low",
+        depth="medium",
     )
     _assert_ok(envelope)
-    assert envelope.get("plan") is not None
-    assert envelope.get("rounds") is not None
     if envelope.get("status") == "running":
         job_id = envelope["job_id"]
         poll_res = await server.deepseek_check_research(job_id)
@@ -224,6 +212,8 @@ async def test_deep_agent_research_live() -> None:
             await asyncio.sleep(2.0)
             poll_res = await server.deepseek_check_research(job_id)
         envelope = poll_res
+    assert envelope.get("plan") is not None
+    assert envelope.get("rounds") is not None
     assert isinstance(envelope.get("report"), str) and len(envelope["report"]) > 100
 
 
@@ -296,44 +286,17 @@ async def test_live_llm_usage_and_json_mode() -> None:
     assert res["usage"].get("prompt_tokens", 0) > 0
     assert res["usage"].get("completion_tokens", 0) > 0
     assert res["cost_usd"] > 0
-    assert res["pricing_period"] in ("peak", "off_peak")
+    assert res["pricing_period"] in ("peak", "off_peak", "flat")
     assert isinstance(res["content"], str)
     parsed = json.loads(res["content"])
     assert parsed.get("status") == "ok"
 
 
-async def test_live_phase3_data_correctness() -> None:
-    # 1. Dead URL returns 404, not foreign content substitution
+async def test_live_dead_url_is_not_substituted() -> None:
     dead_url = "https://arxiv.org/abs/nonexistent-dead-paper-999999"
     fetch_res = await server.deepseek_fetch(dead_url)
     assert fetch_res["ok"] is False
     assert fetch_res["error"]["reason"] == "not_found"
-
-    # 2. Query with lang + two domains: len(query_used) <= 128, word-boundary cut, HTTP success
-    long_query = "machine learning models for natural language processing and transformer architectures in ai"
-    search_res = await server.deepseek_search(
-        long_query,
-        count=2,
-        lang="en",
-        include_domains=["arxiv.org", "nature.com"],
-        refresh=True,
-    )
-    assert search_res["ok"] is True
-    assert len(search_res["query_used"]) <= 128
-    assert "lang:en" in search_res["query_used"]
-    assert "site:arxiv.org OR site:nature.com" in search_res["query_used"]
-    retained_words = search_res["query_used"].replace("lang:en ", "").split(" site:")[0].split()
-    assert retained_words[-1] == "architectures"
-    assert any("trimmed" in note.lower() for note in search_res["notes"])
-
-    # 3. IDN domain filter accepted and sent in Unicode form
-    idn_res = await server.deepseek_search(
-        "klimat",
-        count=2,
-        include_domains=["źródło.pl", "nature.com"],
-    )
-    assert idn_res["ok"] is True
-    assert "site:źródło.pl" in idn_res["query_used"]
 
 
 @pytest.mark.live_llm

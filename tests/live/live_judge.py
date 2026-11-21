@@ -1,8 +1,10 @@
-"""LLM judge for the live suite: grades tool output with ``deepseek-flash`` against a rubric.
+"""LLM judge for the live suite: grades tool output with the configured chat model.
 
 The judge uses the same chat-completions endpoint and settings as the server's query rewrite
-(thinking disabled, temperature 0) and forces a JSON verdict. Any transport, format or schema
-problem fails the calling test with a readable message instead of an obscure exception.
+(thinking disabled, temperature 0) and forces a JSON verdict. The model is resolved at call time
+through ``transport._chat_model``, so it follows the configured chat host (``DEEPSEEK_CHAT_MODEL``)
+and defaults to ``deepseek-flash``. Any transport, format or schema problem fails the calling test
+with a readable message instead of an obscure exception.
 Every verdict is also recorded in ``RECORDS`` for the terminal summary and the JSON report.
 """
 
@@ -15,8 +17,9 @@ from typing import Any
 
 import pytest
 
-from deepseek_search_everywhere_mcp.transport import request
+from deepseek_search_everywhere_mcp.transport import _chat_model, request
 
+# Default judge model; ``_chat_model`` swaps it for the configured chat model under a host override.
 JUDGE_MODEL = "deepseek-flash"
 JUDGE_TIMEOUT = 60.0
 JUDGE_MAX_TOKENS = 800
@@ -151,7 +154,7 @@ def _verdict(raw: Any) -> Verdict:
 
 async def _ask(system: str, user: str) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "model": JUDGE_MODEL,
+        "model": _chat_model(JUDGE_MODEL),
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "temperature": 0,
         "max_tokens": JUDGE_MAX_TOKENS,
