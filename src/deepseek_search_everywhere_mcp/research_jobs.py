@@ -902,7 +902,7 @@ def _awaiting_report_envelope(job: ResearchJob, page: int, *, charge: bool = Fal
                 "llm": llm_cost,
             },
             "untrusted_content": True,
-            # Round-2 subqueries (depth max) were written by the model from untrusted search results.
+            # Subqueries were written by the model from user query and may touch untrusted content.
             "derived_from_untrusted": True,
             "notes": list(run.notes),
             "_meta": _envelope_meta(total_cost, untrusted_content=True),
