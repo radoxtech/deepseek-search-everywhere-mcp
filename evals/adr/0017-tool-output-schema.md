@@ -176,3 +176,46 @@ quality stayed at 4.7, coherence stayed at 4.5, and two tool medians moved by 0.
 (`deepseek_quick_research` 4.6→4.7, `deepseek_deep_agent_research` 4.7→4.6), all inside the measured noise floor
 (`E07`: 7.2 pp between identical runs). The baseline is a two-run cross-session figure, so this measurement
 establishes neither a quality gain nor a regression; the decision is recorded but not accepted on score.
+
+### Shipped configuration (post-revert)
+
+Measured at HEAD `8bf5870`, at which the typed-schema layer was reverted and only the cheap wins shipped:
+top-level tool titles, description error/limit facts, raised-but-bounded description caps and the pinned CI
+lint gate. `tools/list` is back to `{"type": "object", "additionalProperties": true}` for every tool. Three
+independent `npx mcp-tdqs@0.2.0 score` runs at the same spec (1.3) and judge
+(`deepseek-ai/DeepSeek-V4-Flash-0731`); all three reported zero flags and zero smells with 7/7 tools at tier A.
+
+| Tool | Run 1 | Run 2 | Run 3 | Median |
+|---|---|---|---|---|
+| `deepseek_search` | 4.9 | 4.9 | 4.9 | 4.9 |
+| `deepseek_fetch` | 4.9 | 4.9 | 4.9 | 4.9 |
+| `deepseek_extract` | 4.9 | 4.9 | 4.9 | 4.9 |
+| `deepseek_quick_research` | 4.9 | 4.9 | 4.6 | 4.9 |
+| `deepseek_deep_agent_research` | 4.5 | 4.5 | 4.5 | 4.5 |
+| `deepseek_check_research` | 4.9 | 4.7 | 4.7 | 4.7 |
+| `deepseek_check_balance` | 4.6 | 4.7 | 4.6 | 4.6 |
+| Overall | 4.6 | 4.6 | 4.7 | 4.6 |
+
+Server rollup per run:
+
+| Metric | Run 1 | Run 2 | Run 3 | Median |
+|---|---|---|---|---|
+| Overall | A 4.6 | A 4.6 | A 4.7 | 4.6 |
+| Tool definition quality | A 4.7 | A 4.7 | A 4.6 | 4.7 |
+| Coherence | A 4.5 | A 4.3 | A 4.8 | 4.5 |
+| Mean TDQS | 4.8 | 4.8 | 4.7 | 4.8 |
+| Min TDQS | 4.5 | 4.5 | 4.5 | 4.5 |
+| Tools at tier A | 7/7 | 7/7 | 7/7 | 7/7 |
+| Flags / smells | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+Overall spread across the three runs: 4.6–4.7 (range 0.1, population stdev 0.047). Total definition bytes from
+`lint --format json` are **15,675** against the 14,302-byte baseline: **+1,373 (+9.60%)**.
+
+Against the rejected schema configuration (median 4.6 at 57,612 definition bytes) the shipped configuration
+scores the same median while publishing 41,937 fewer definition bytes, and it sits 1,373 bytes above the
+14,302-byte baseline it started from.
+
+**Verdict.** The shipped configuration nominally trails the 4.7 baseline by 0.1 grade points (4.6 vs 4.7, about
+2 pp on the five-point scale), which is inside the `E07` noise floor of 7.2 pp between identical runs: it ties
+the baseline within measurement noise rather than losing to it, and it is not a demonstrated gain. One tool,
+`deepseek_deep_agent_research`, has a median of 4.5, below the 4.6 floor that the schema decision had to meet.
