@@ -370,19 +370,19 @@ Every response reports its own `cost_usd`, and tools that call an LLM add `cost_
 
 ## Comparison with Tavily & Firecrawl
 
-Figures as of November 2026. Tavily pay-as-you-go is $0.008 per credit (basic search: 1 credit, advanced search: 2 credits, extract: 1 credit per 5 URLs). Firecrawl pay-as-you-go is $0.005 per credit (scrape: 1 credit, search: 2 credits, structured extract: 5 to 10 credits).
+Figures as of November 2026. Tavily pay-as-you-go is $0.008 per credit (basic search: 1 credit, advanced search: 2 credits, extract: 1 credit per 5 URLs, research: 5–20 credits). Firecrawl pay-as-you-go is $0.005 per credit (scrape: 1 credit, search: 2 credits, structured extract: 5 to 10 credits, agent: 10–50+ credits).
 
 | Operation | Tavily (pay-as-you-go) | Firecrawl (pay-as-you-go) | This server (Search & Fetch API) | Savings vs Competitors |
 |---|---|---|---|---|
-| **Web search (basic)** | $0.0080 | $0.0100 (2 credits) | **$0.00075** | **10.7x cheaper** vs Tavily, **13.3x cheaper** vs Firecrawl |
-| **Advanced / deep search** | $0.0160 | $0.0100 (2 credits) | **$0.00075** | **21x cheaper** vs Tavily, **13.3x cheaper** vs Firecrawl |
-| **Page fetch to Markdown** | $0.0016 | $0.0050 (1 credit) | **$0.00075** | **2.1x cheaper** vs Tavily, **6.7x cheaper** vs Firecrawl |
-| **Structured data extraction** | N/A (prose only) | $0.0250 – $0.0500 | **~$0.0020** (fetch + tokens) | **12.5x to 25x cheaper** vs Firecrawl |
-| **Autonomous deep research** | Not offered | Not offered | **~$0.005** (quick) / **~$0.010** (agent) | **100% cited grounding**, 0 hallucinations |
+| **Web search (basic)** | $0.0080 (1 credit) | $0.0100 (2 credits) | **$0.00075** | **10.7x cheaper** vs Tavily, **13.3x cheaper** vs Firecrawl |
+| **Advanced / deep search** | $0.0160 (2 credits) | $0.0100 (2 credits) | **$0.00075** | **21x cheaper** vs Tavily, **13.3x cheaper** vs Firecrawl |
+| **Page fetch to Markdown** | $0.0016 (0.2 credits) | $0.0050 (1 credit) | **$0.00075** | **2.1x cheaper** vs Tavily, **6.7x cheaper** vs Firecrawl |
+| **Structured data extraction** | Raw text / markdown | $0.0250 – $0.0500 | **~$0.0020** (fetch + tokens) | **12.5x to 25x cheaper** vs Firecrawl |
+| **Autonomous deep research** | ~$0.040 – $0.160+ (5–20 cr) | ~$0.050 – $0.250+ (10–50 cr) | **~$0.005** (quick) / **~$0.010** (agent) | **4x to 15x cheaper** + deterministic number grounding |
 
 *Prices shown for this server are DeepSeek off-peak rates as of 2026-11-12; see https://api-docs.deepseek.com/quick_start/pricing.*
 
-The comparison covers raw retrieval and extraction pricing; deep research includes token costs for `deepseek-flash` ([Costs](#costs)). Tavily and Firecrawl offer whole-domain recursive crawling and managed browser rendering that this server deliberately omits to keep its footprint small (pure Python, zero local browser, instant startup).
+The comparison covers raw retrieval, extraction, and research pricing; deep research includes token costs for `deepseek-flash` ([Costs](#costs)). Tavily and Firecrawl offer managed browser rendering, cloud crawling, and full-site recursive scraping that this server deliberately omits to keep its footprint ultra-lightweight (pure Python, zero local browser, instant startup, direct wholesale DeepSeek API billing without platform markups).
 
 ## Security
 
